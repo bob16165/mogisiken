@@ -1206,7 +1206,9 @@
                 : allResults.find(r => r.studentId === user.studentId) || user;
             
             // 学生の場合のみ苦手領域を計算（全試験累積）
-            const weakAreas = !user.isTeacher && user.studentId ? calculateWeakAreas(allExams, user.studentId) : null;
+            const weakAreas = !user.isTeacher && user.studentId && allExams && allExams.length > 0 
+                ? calculateWeakAreas(allExams, user.studentId) 
+                : null;
 
             const handleSelectStudent = (studentId) => {
                 setSelectedStudentId(studentId);
@@ -1510,6 +1512,10 @@
             const [studentMaster, setStudentMaster] = useState(() => {
                 const saved = localStorage.getItem('studentMaster');
                 return saved ? JSON.parse(saved) : {};
+            });
+            const [sourceMapping, setSourceMapping] = useState(() => {
+                const saved = localStorage.getItem('sourceMapping');
+                return saved ? JSON.parse(saved) : null;
             });
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
