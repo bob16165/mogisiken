@@ -714,6 +714,12 @@
                     });
                     
                     onUpload({ examName: examName.trim(), students });
+                    setIsLoading(false);
+                    setExamName('');
+                    setFrontHalfFile(null);
+                    setBackHalfFile(null);
+                    setAnswersFile(null);
+                    setSourcesFile(null);
                 } catch (err) {
                     setError('CSVファイルの読み込みに失敗しました: ' + err.message);
                     setIsLoading(false);
