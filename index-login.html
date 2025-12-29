@@ -276,7 +276,58 @@
                 return answer;
             };
 
-            // 正誤判定（配列にも対応）
+        // 苦手領域を計算する関数（全試験の累積）
+        function calculateWeakAreas(allExams, studentId) {
+            const weakAreas = {};
+            
+            // 全試験から該当学生のデータを取得
+            allExams.forEach(exam => {
+                const student = exam.students.find(s => s.studentId === studentId);
+                if (!student || !student.questionDetails) return;
+                
+                // 各科目の問題詳細を確認
+                Object.keys(student.questionDetails).forEach(subjectName => {
+                    if (!weakAreas[subjectName]) {
+                        weakAreas[subjectName] = {};
+                    }
+                    
+                    const questions = student.questionDetails[subjectName];
+                    questions.forEach(q => {
+                        // 間違えた問題のみカウント
+                        const isCorrect = Array.isArray(q.userAnswer) && Array.isArray(q.correctAnswer)
+                            ? q.userAnswer.length === q.correctAnswer.length &&
+                              q.userAnswer.every((val, idx) => val === q.correctAnswer[idx])
+                            : q.userAnswer === q.correctAnswer;
+                        
+                        if (!isCorrect && q.source) {
+                            if (!weakAreas[subjectName][q.source]) {
+                                weakAreas[subjectName][q.source] = 0;
+                            }
+                            weakAreas[subjectName][q.source]++;
+                        }
+                    });
+                });
+            });
+            
+            return weakAreas;
+        }
+
+        // 出典番号を項目名に変換する関数
+        function convertSourceToName(source, subjectName, sourceMapping) {
+            if (!sourceMapping || !source) return source;
+            
+            // 科目別マッピングがある場合
+            if (sourceMapping[subjectName] && sourceMapping[subjectName][source]) {
+                return sourceMapping[subjectName][source];
+            }
+            
+            // 全体マッピングがある場合
+            if (sourceMapping['all'] && sourceMapping['all'][source]) {
+                return sourceMapping['all'][source];
+            }
+            
+            return source; // マッピングがなければそのまま返す
+        }
             const isAnswerCorrect = (userAnswer, correctAnswer) => {
                 if (Array.isArray(userAnswer) && Array.isArray(correctAnswer)) {
                     if (userAnswer.length !== correctAnswer.length) return false;
@@ -325,7 +376,9 @@
                                         <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
                                             {q.correctRate}%
                                         </td>
-                                        <td style={{ padding: '8px', fontSize: '12px' }}>{q.source}</td>
+                                        <td style={{ padding: '8px', fontSize: '12px' }}>
+                                            {convertSourceToName(q.source, subjectName, sourceMapping)}
+                                        </td>
                                     </tr>
                                 );
                             })}
@@ -390,12 +443,13 @@
         }
 
         // CSVアップロードコンポーネント
-        function CSVUpload({ onUpload, onLogout, existingExams, studentMaster, onStudentMasterUpload }) {
+        function CSVUpload({ onUpload, onLogout, existingExams, studentMaster, onStudentMasterUpload, onSourceMappingUpdate }) {
             const [examName, setExamName] = useState('');
             const [frontHalfFile, setFrontHalfFile] = useState(null);
             const [backHalfFile, setBackHalfFile] = useState(null);
             const [answersFile, setAnswersFile] = useState(null);
             const [sourcesFile, setSourcesFile] = useState(null);
+            const [sourceMappingFile, setSourceMappingFile] = useState(null);
             const [studentMasterFile, setStudentMasterFile] = useState(null);
             const [error, setError] = useState('');
             const [isLoading, setIsLoading] = useState(false);
@@ -592,6 +646,47 @@
                         }
                     }
                     
+                    // 出典マッピングデータの読み込み（科目名,番号,項目名 または 番号,項目名）
+                    if (sourceMappingFile) {
+                        const mappingText = await readFileAsText(sourceMappingFile);
+                        const mappingLines = mappingText.split('\n').filter(line => line.trim());
+                        const mappingHeaders = mappingLines[0].split(',').map(h => h.trim());
+                        
+                        const newMapping = {};
+                        
+                        // 3列形式（科目名,番号,項目名）の場合
+                        if (mappingHeaders.length >= 3) {
+                            for (let i = 1; i < mappingLines.length; i++) {
+                                const values = mappingLines[i].split(',').map(v => v.trim());
+                                if (values.length >= 3) {
+                                    const [subjectName, number, itemName] = values;
+                                    if (!newMapping[subjectName]) {
+                                        newMapping[subjectName] = {};
+                                    }
+                                    newMapping[subjectName][number] = itemName;
+                                }
+                            }
+                        } 
+                        // 2列形式（番号,項目名）の場合（全科目共通）
+                        else if (mappingHeaders.length >= 2) {
+                            newMapping['all'] = {};
+                            for (let i = 1; i < mappingLines.length; i++) {
+                                const values = mappingLines[i].split(',').map(v => v.trim());
+                                if (values.length >= 2) {
+                                    const [number, itemName] = values;
+                                    newMapping['all'][number] = itemName;
+                                }
+                            }
+                        }
+                        
+                        // localStorageに保存
+                        localStorage.setItem('sourceMapping', JSON.stringify(newMapping));
+                        // 状態を更新してリアルタイム反映
+                        if (onSourceMappingUpdate) {
+                            onSourceMappingUpdate(newMapping);
+                        }
+                    }
+                    
                     const frontLines = frontText.split('\n').filter(line => line.trim());
                     const backLines = backText.split('\n').filter(line => line.trim());
                     
@@ -720,6 +815,7 @@
                     setBackHalfFile(null);
                     setAnswersFile(null);
                     setSourcesFile(null);
+                    setSourceMappingFile(null);
                 } catch (err) {
                     setError('CSVファイルの読み込みに失敗しました: ' + err.message);
                     setIsLoading(false);
@@ -857,7 +953,7 @@
                                     </div>
                                 </div>
                                 
-                                <div style={{ marginBottom: '25px' }}>
+                                <div style={{ marginBottom: '20px' }}>
                                     <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>
                                         出題基準データ（任意）
                                     </label>
@@ -865,6 +961,18 @@
                                         style={{ width: '100%', padding: '12px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px' }} />
                                     <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
                                         形式: 1行目ヘッダー（出題基準前半,Q1,Q2,...,出題基準後半,Q1,Q2,...）、2行目データ
+                                    </div>
+                                </div>
+                                
+                                <div style={{ marginBottom: '25px' }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>
+                                        出典マッピングファイル（任意）
+                                    </label>
+                                    <input type="file" accept=".csv" onChange={(e) => setSourceMappingFile(e.target.files[0])}
+                                        style={{ width: '100%', padding: '12px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px' }} />
+                                    <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                                        形式1: 科目名,番号,項目名（例: 解剖学,1,骨格系）<br/>
+                                        形式2: 番号,項目名（全科目共通）
                                     </div>
                                 </div>
                             </div>
@@ -1003,8 +1111,88 @@
             );
         }
 
+        // 苦手領域コンポーネント
+        function WeakAreas({ weakAreas, sourceMapping }) {
+            const [isExpanded, setIsExpanded] = React.useState(true);
+            
+            // 科目ごとに出典を間違い回数でソート
+            const sortedWeakAreas = {};
+            Object.keys(weakAreas).forEach(subject => {
+                const sources = Object.entries(weakAreas[subject])
+                    .sort((a, b) => b[1] - a[1]); // 間違い回数の降順
+                if (sources.length > 0) {
+                    sortedWeakAreas[subject] = sources;
+                }
+            });
+            
+            const hasWeakAreas = Object.keys(sortedWeakAreas).length > 0;
+            
+            if (!hasWeakAreas) {
+                return (
+                    <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#e8f5e9', borderRadius: '4px' }}>
+                        <h3 style={{ margin: '0 0 10px 0', color: '#2e7d32' }}>🎉 苦手領域分析（全試験累積）</h3>
+                        <p style={{ margin: 0, color: '#555' }}>間違えた問題はありません！</p>
+                    </div>
+                );
+            }
+            
+            return (
+                <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#fff3e0', borderRadius: '4px', border: '1px solid #ffb74d' }}>
+                    <div 
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginBottom: isExpanded ? '15px' : '0' }}
+                    >
+                        <h3 style={{ margin: 0, color: '#e65100', flex: 1 }}>📚 苦手領域分析（全試験累積）</h3>
+                        <span style={{ fontSize: '20px', color: '#e65100' }}>{isExpanded ? '▼' : '▶'}</span>
+                    </div>
+                    
+                    {isExpanded && (
+                        <div>
+                            {Object.keys(sortedWeakAreas).map(subject => (
+                                <div key={subject} style={{ marginBottom: '15px' }}>
+                                    <h4 style={{ margin: '0 0 8px 0', color: '#f57c00', borderBottom: '2px solid #ffb74d', paddingBottom: '4px' }}>
+                                        {subject}
+                                    </h4>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                        <thead>
+                                            <tr style={{ backgroundColor: '#ffe0b2' }}>
+                                                <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ffb74d' }}>出典</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '100px' }}>間違い回数</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {sortedWeakAreas[subject].map(([source, count]) => {
+                                                const displaySource = convertSourceToName(source, subject, sourceMapping);
+                                                return (
+                                                    <tr key={source}>
+                                                        <td style={{ padding: '8px', border: '1px solid #ffb74d' }}>{displaySource}</td>
+                                                        <td style={{ 
+                                                            padding: '8px', 
+                                                            border: '1px solid #ffb74d', 
+                                                            textAlign: 'center',
+                                                            fontWeight: 'bold',
+                                                            color: count >= 3 ? '#c62828' : count >= 2 ? '#f57c00' : '#555'
+                                                        }}>
+                                                            {count}回
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ))}
+                            <p style={{ marginTop: '10px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
+                                ※ これまでにアップロードされた全試験の累積データです
+                            </p>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
         // 結果表示コンポーネント
-        function ExamResultView({ user, onLogout, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam }) {
+        function ExamResultView({ user, onLogout, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, sourceMapping }) {
             const dataSource = currentExam ? currentExam.students : rawStudentScores;
             const allResults = generateExamResults(dataSource);
             const [selectedStudentId, setSelectedStudentId] = useState(user.isTeacher ? allResults[0]?.studentId : user.studentId);
@@ -1016,6 +1204,9 @@
             const result = user.isTeacher 
                 ? allResults.find(r => r.studentId === selectedStudentId) 
                 : allResults.find(r => r.studentId === user.studentId) || user;
+            
+            // 学生の場合のみ苦手領域を計算（全試験累積）
+            const weakAreas = !user.isTeacher && user.studentId ? calculateWeakAreas(allExams, user.studentId) : null;
 
             const handleSelectStudent = (studentId) => {
                 setSelectedStudentId(studentId);
@@ -1180,7 +1371,13 @@
                                                         <h4 style={{ margin: '0 0 10px 0' }}>必修得点率</h4>
                                                         <BarChart scoreRate={result.required.scoreRate} averageRate={result.required.averageScoreRate} stdDeviation={result.required.scoreRateStdDev} label="" />
                                                     </div>
-                                                    {result.questionDetails?.['必修'] && <QuestionDetails questions={result.questionDetails['必修']} />}
+                                                    {result.questionDetails?.['必修'] && (
+                                                        <QuestionDetails 
+                                                            questions={result.questionDetails['必修']} 
+                                                            sourceMapping={sourceMapping}
+                                                            subjectName="必修"
+                                                        />
+                                                    )}
                                                 </td>
                                             </tr>
                                         )}
@@ -1209,7 +1406,13 @@
                                                                 <h4 style={{ margin: '0 0 10px 0' }}>{subjectName}得点率</h4>
                                                                 <BarChart scoreRate={subject.scoreRate} averageRate={subject.averageScoreRate} stdDeviation={subject.scoreRateStdDev} label="" />
                                                             </div>
-                                                            {result.questionDetails?.[subjectName] && <QuestionDetails questions={result.questionDetails[subjectName]} />}
+                                                            {result.questionDetails?.[subjectName] && (
+                                                                <QuestionDetails 
+                                                                    questions={result.questionDetails[subjectName]} 
+                                                                    sourceMapping={sourceMapping}
+                                                                    subjectName={subjectName}
+                                                                />
+                                                            )}
                                                         </td>
                                                     </tr>
                                                 );
@@ -1258,6 +1461,7 @@
                                                         <tbody>
                                                             {questions.map((q, index) => {
                                                                 const isCorrect = q.userAnswer === q.correctAnswer;
+                                                                const displaySource = convertSourceToName(q.source, subjectName, sourceMapping);
                                                                 return (
                                                                     <tr key={index} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
                                                                         <td style={{ padding: '8px', textAlign: 'center' }}>{q.questionNumber}</td>
@@ -1275,7 +1479,7 @@
                                                                         <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
                                                                             {q.correctRate}%
                                                                         </td>
-                                                                        <td style={{ padding: '8px', fontSize: '12px' }}>{q.source}</td>
+                                                                        <td style={{ padding: '8px', fontSize: '12px' }}>{displaySource}</td>
                                                                     </tr>
                                                                 );
                                                             })}
@@ -1286,6 +1490,9 @@
                                         })}
                                     </div>
                                 )}
+                                
+                                {/* 学生の場合は苦手領域を表示 */}
+                                {!user.isTeacher && weakAreas && <WeakAreas weakAreas={weakAreas} sourceMapping={sourceMapping} />}
                             </div>
                         </div>
                     )}
@@ -1340,7 +1547,7 @@
             const currentExam = allExams[selectedExamIndex] || null;
 
             if (showUpload) {
-                return <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} existingExams={allExams} studentMaster={studentMaster} onStudentMasterUpload={handleStudentMasterUpload} />;
+                return <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} existingExams={allExams} studentMaster={studentMaster} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={setSourceMapping} />;
             }
 
             if (!loggedInUser) {
@@ -1369,6 +1576,7 @@
                     selectedExamIndex={selectedExamIndex}
                     onExamChange={setSelectedExamIndex}
                     onDeleteExam={handleDeleteExam}
+                    sourceMapping={sourceMapping}
                 />
             );
         }
