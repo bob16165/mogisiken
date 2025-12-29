@@ -1005,7 +1005,11 @@
             const [viewMode, setViewMode] = useState('detail');
             const [expandedSubject, setExpandedSubject] = useState(null);
             const [showAllQuestions, setShowAllQuestions] = useState(false);
-            const result = user.isTeacher ? allResults.find(r => r.studentId === selectedStudentId) : user;
+            
+            // 学生用の場合も、試験が切り替わったらallResultsから最新データを取得
+            const result = user.isTeacher 
+                ? allResults.find(r => r.studentId === selectedStudentId) 
+                : allResults.find(r => r.studentId === user.studentId) || user;
 
             const handleSelectStudent = (studentId) => {
                 setSelectedStudentId(studentId);
