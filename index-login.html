@@ -1,0 +1,1370 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模擬試験結果閲覧</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            background: #fafafa;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        // 教員アカウント
+        const teachers = [
+            { id: 'teacher001', name: '田中先生', password: 'teacher123', role: 'teacher' },
+            { id: 'admin', name: '管理者', password: 'admin123', role: 'teacher' }
+        ];
+
+        // 学生データ
+        const rawStudentScores = [
+            {
+                studentId: 'S001', studentName: '山田太郎', password: 'pass001',
+                required: 45, 解剖学: 38, 生理学: 42, 運動学: 35, 病理学: 40,
+                衛生学: 36, リハビリ医学: 41, 一般臨床: 44, 外科学: 39, 整形外科: 43, 柔整理論: 40,
+                questionDetails: {
+                    必修: [
+                        { questionNumber: 1, userAnswer: 3, correctAnswer: 3, source: '第27回国試' },
+                        { questionNumber: 2, userAnswer: 2, correctAnswer: 2, source: '第26回国試' },
+                        { questionNumber: 3, userAnswer: 1, correctAnswer: 2, source: '第28回国試' },
+                        { questionNumber: 4, userAnswer: 4, correctAnswer: 4, source: '過去問題集p.15' },
+                        { questionNumber: 5, userAnswer: 2, correctAnswer: 2, source: '第25回国試' },
+                    ],
+                    解剖学: [
+                        { questionNumber: 1, userAnswer: 3, correctAnswer: 3, source: '第27回国試' },
+                        { questionNumber: 2, userAnswer: 2, correctAnswer: 1, source: '教科書p.203' },
+                        { questionNumber: 3, userAnswer: 4, correctAnswer: 4, source: '第26回国試' },
+                    ]
+                }
+            },
+            {
+                studentId: 'S002', studentName: '佐藤花子', password: 'pass002',
+                required: 42, 解剖学: 35, 生理学: 38, 運動学: 40, 病理学: 37,
+                衛生学: 39, リハビリ医学: 38, 一般臨床: 41, 外科学: 36, 整形外科: 40, 柔整理論: 38,
+                questionDetails: {}
+            },
+            {
+                studentId: 'S003', studentName: '鈴木一郎', password: 'pass003',
+                required: 48, 解剖学: 42, 生理学: 45, 運動学: 38, 病理学: 43,
+                衛生学: 40, リハビリ医学: 44, 一般臨床: 46, 外科学: 41, 整形外科: 45, 柔整理論: 43,
+                questionDetails: {}
+            },
+            {
+                studentId: 'S004', studentName: '田中美咲', password: 'pass004',
+                required: 40, 解剖学: 33, 生理学: 36, 運動学: 38, 病理学: 35,
+                衛生学: 37, リハビリ医学: 36, 一般臨床: 39, 外科学: 34, 整形外科: 38, 柔整理論: 36,
+                questionDetails: {}
+            },
+            {
+                studentId: 'S005', studentName: '高橋健', password: 'pass005',
+                required: 46, 解剖学: 40, 生理学: 43, 運動学: 36, 病理学: 41,
+                衛生学: 38, リハビリ医学: 42, 一般臨床: 44, 外科学: 39, 整形外科: 42, 柔整理論: 41,
+                questionDetails: {}
+            },
+        ];
+
+        const maxScores = {
+            required: 50, 解剖学: 30, 生理学: 25, 運動学: 10, 病理学: 13,
+            衛生学: 12, リハビリ医学: 11, 一般臨床: 22, 外科学: 11, 整形外科: 11, 柔整理論: 55,
+        };
+
+        const subjectNames = ['解剖学', '生理学', '運動学', '病理学', '衛生学', 'リハビリ医学', '一般臨床', '外科学', '整形外科', '柔整理論'];
+
+        // 計算関数
+        function calculateDeviation(score, scores) {
+            if (scores.length === 0) return 50;
+            const mean = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+            const variance = scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length;
+            const standardDeviation = Math.sqrt(variance);
+            if (standardDeviation === 0) return 50;
+            return Math.round((((score - mean) / standardDeviation) * 10 + 50) * 10) / 10;
+        }
+
+        function calculateRank(score, scores) {
+            const sortedScores = [...scores].sort((a, b) => b - a);
+            return sortedScores.findIndex(s => s === score) + 1;
+        }
+
+        function calculateScoreRate(score, maxScore) {
+            if (maxScore === 0) return 0;
+            return Math.round((score / maxScore) * 1000) / 10;
+        }
+
+        function calculateSubjectStats(score, maxScore, allScores) {
+            const scoreRate = calculateScoreRate(score, maxScore);
+            const scoreRates = allScores.map(s => calculateScoreRate(s, maxScore));
+            const avgScoreRate = scoreRates.reduce((sum, r) => sum + r, 0) / scoreRates.length;
+            const variance = scoreRates.reduce((sum, r) => sum + Math.pow(r - avgScoreRate, 2), 0) / scoreRates.length;
+            const stdDev = Math.sqrt(variance);
+
+            return {
+                score, maxScore, scoreRate,
+                rank: calculateRank(score, allScores),
+                deviation: calculateDeviation(score, allScores),
+                averageScoreRate: Math.round(avgScoreRate * 10) / 10,
+                scoreRateStdDev: Math.round(stdDev * 10) / 10
+            };
+        }
+
+        function generateExamResults(dataSource) {
+            const studentScores = dataSource || rawStudentScores;
+            const allRequiredScores = studentScores.map(s => s.required);
+            const allSubjectScores = {};
+            
+            subjectNames.forEach(subjectName => {
+                allSubjectScores[subjectName] = studentScores.map(s => s[subjectName]);
+            });
+            
+            // 各問題の正答率を計算
+            const calculateQuestionCorrectRate = (questionNumber, subjectName) => {
+                let correctCount = 0;
+                let totalCount = 0;
+                
+                studentScores.forEach(student => {
+                    const questions = student.questionDetails?.[subjectName];
+                    if (questions) {
+                        const question = questions.find(q => q.questionNumber === questionNumber);
+                        if (question) {
+                            totalCount++;
+                            const isCorrect = Array.isArray(question.userAnswer) && Array.isArray(question.correctAnswer)
+                                ? question.userAnswer.length === question.correctAnswer.length &&
+                                  question.userAnswer.every((val, idx) => val === question.correctAnswer[idx])
+                                : question.userAnswer === question.correctAnswer;
+                            if (isCorrect) correctCount++;
+                        }
+                    }
+                });
+                
+                return totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
+            };
+
+            return studentScores.map(student => {
+                const subjectScores = subjectNames.map(name => student[name]);
+                const totalScore = student.required + subjectScores.reduce((sum, s) => sum + s, 0);
+                const totalMaxScore = 250; // 必修50点 + 一般200点
+                const generalScore = subjectScores.reduce((sum, s) => sum + s, 0);
+                const generalMaxScore = 200; // 一般10科目合計
+                
+                // 4教科合計（解剖学、生理学、一般臨床、柔整理論）
+                const fourSubjectsScore = (student['解剖学'] || 0) + (student['生理学'] || 0) + 
+                                         (student['一般臨床'] || 0) + (student['柔整理論'] || 0);
+                const fourSubjectsMaxScore = 132; // 解剖学30 + 生理学25 + 一般臨床22 + 柔整理論55
+                
+                // 4教科合計の統計を計算
+                const allFourSubjectsScores = studentScores.map(s => 
+                    (s['解剖学'] || 0) + (s['生理学'] || 0) + (s['一般臨床'] || 0) + (s['柔整理論'] || 0)
+                );
+                const fourSubjectsStats = calculateSubjectStats(fourSubjectsScore, fourSubjectsMaxScore, allFourSubjectsScores);
+
+                const requiredStats = calculateSubjectStats(student.required, maxScores.required, allRequiredScores);
+                const subjects = {};
+                subjectNames.forEach(subjectName => {
+                    subjects[subjectName] = calculateSubjectStats(student[subjectName], maxScores[subjectName], allSubjectScores[subjectName] || []);
+                });
+                
+                // 総合点の統計を計算
+                const allTotalScores = studentScores.map(s => {
+                    const sSubjectScores = subjectNames.map(name => s[name]);
+                    return s.required + sSubjectScores.reduce((sum, sc) => sum + sc, 0);
+                });
+                const totalStats = calculateSubjectStats(totalScore, totalMaxScore, allTotalScores);
+                
+                // 問題詳細に正答率を追加
+                const questionDetailsWithRate = {};
+                if (student.questionDetails) {
+                    Object.keys(student.questionDetails).forEach(subjectName => {
+                        questionDetailsWithRate[subjectName] = student.questionDetails[subjectName].map(q => ({
+                            ...q,
+                            correctRate: calculateQuestionCorrectRate(q.questionNumber, subjectName)
+                        }));
+                    });
+                }
+
+                return {
+                    studentId: student.studentId,
+                    studentName: student.studentName,
+                    password: student.password,
+                    totalScore, totalMaxScore,
+                    requiredScore: student.required,
+                    requiredMaxScore: maxScores.required,
+                    generalScore, generalMaxScore,
+                    fourSubjectsScore, fourSubjectsMaxScore,
+                    fourSubjectsStats,
+                    required: requiredStats,
+                    subjects,
+                    totalStats,
+                    questionDetails: questionDetailsWithRate
+                };
+            });
+        }
+
+        // 棒グラフコンポーネント
+        function BarChart({ scoreRate, averageRate, stdDeviation, label }) {
+            const dRate = Math.max(0, averageRate - stdDeviation);
+            const aRate = Math.min(100, averageRate + stdDeviation);
+
+            return (
+                <div style={{ marginBottom: '15px' }}>
+                    {label && <div style={{ marginBottom: '5px', fontWeight: '500', fontSize: '13px' }}>{label}</div>}
+                    <div style={{ position: 'relative', height: '40px', background: '#e0e0e0', borderRadius: '4px' }}>
+                        <div style={{ position: 'absolute', left: `${dRate}%`, width: '2px', height: '100%', background: '#FF9800', zIndex: 1 }}>
+                            <div style={{ position: 'absolute', top: '-20px', left: '-10px', fontSize: '10px', color: '#FF9800', fontWeight: 'bold' }}>D</div>
+                        </div>
+                        <div style={{ position: 'absolute', left: `${averageRate}%`, width: '2px', height: '100%', background: '#4CAF50', zIndex: 2 }}>
+                            <div style={{ position: 'absolute', top: '-20px', left: '-12px', fontSize: '10px', color: '#4CAF50', fontWeight: 'bold' }}>Ave</div>
+                        </div>
+                        <div style={{ position: 'absolute', left: `${aRate}%`, width: '2px', height: '100%', background: '#F44336', zIndex: 1 }}>
+                            <div style={{ position: 'absolute', top: '-20px', left: '-10px', fontSize: '10px', color: '#F44336', fontWeight: 'bold' }}>A</div>
+                        </div>
+                        <div style={{
+                            position: 'absolute', left: 0, width: `${scoreRate}%`, height: '100%',
+                            background: 'linear-gradient(90deg, #2196F3 0%, #64B5F6 100%)',
+                            borderRadius: '4px', display: 'flex', alignItems: 'center',
+                            justifyContent: 'flex-end', paddingRight: '8px',
+                            color: 'white', fontWeight: 'bold', fontSize: '14px'
+                        }}>
+                            {scoreRate > 10 && `${scoreRate.toFixed(1)}%`}
+                        </div>
+                        {scoreRate <= 10 && (
+                            <div style={{ position: 'absolute', left: `${scoreRate + 2}%`, top: '50%', transform: 'translateY(-50%)', color: '#2196F3', fontWeight: 'bold', fontSize: '14px' }}>
+                                {scoreRate.toFixed(1)}%
+                            </div>
+                        )}
+                    </div>
+                    <div style={{ marginTop: '5px', fontSize: '11px', color: '#666', display: 'flex', justifyContent: 'space-between' }}>
+                        <span>0%</span>
+                        <span style={{ fontSize: '10px' }}>
+                            <span style={{ color: '#FF9800' }}>D: {dRate.toFixed(1)}%</span>
+                            {' | '}
+                            <span style={{ color: '#4CAF50' }}>Ave.: {averageRate.toFixed(1)}%</span>
+                            {' | '}
+                            <span style={{ color: '#F44336' }}>A: {aRate.toFixed(1)}%</span>
+                        </span>
+                        <span>100%</span>
+                    </div>
+                </div>
+            );
+        }
+
+        // 問題詳細コンポーネント
+        function QuestionDetails({ questions }) {
+            if (!questions || questions.length === 0) {
+                return (
+                    <div style={{ padding: '15px', background: '#f5f5f5', borderRadius: '6px', marginTop: '10px' }}>
+                        <p style={{ margin: 0, color: '#999' }}>問題詳細データがありません</p>
+                    </div>
+                );
+            }
+
+            // 解答を文字列に変換（配列の場合はカンマ区切り）
+            const formatAnswer = (answer) => {
+                if (Array.isArray(answer)) {
+                    return answer.join(', ');
+                }
+                return answer;
+            };
+
+            // 正誤判定（配列にも対応）
+            const isAnswerCorrect = (userAnswer, correctAnswer) => {
+                if (Array.isArray(userAnswer) && Array.isArray(correctAnswer)) {
+                    if (userAnswer.length !== correctAnswer.length) return false;
+                    const sortedUser = [...userAnswer].sort();
+                    const sortedCorrect = [...correctAnswer].sort();
+                    return sortedUser.every((val, idx) => val === sortedCorrect[idx]);
+                }
+                return userAnswer === correctAnswer;
+            };
+
+            return (
+                <div style={{ marginTop: '15px' }}>
+                    <h5 style={{ marginBottom: '10px' }}>問題別詳細</h5>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+                        <thead>
+                            <tr style={{ background: '#757575', color: 'white' }}>
+                                <th style={{ padding: '8px', textAlign: 'center' }}>問題番号</th>
+                                <th style={{ padding: '8px', textAlign: 'center' }}>自分の解答</th>
+                                <th style={{ padding: '8px', textAlign: 'center' }}>正答</th>
+                                <th style={{ padding: '8px', textAlign: 'center' }}>結果</th>
+                                <th style={{ padding: '8px', textAlign: 'center' }}>正答率</th>
+                                <th style={{ padding: '8px', textAlign: 'left' }}>出典</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {questions.map((q, index) => {
+                                const isCorrect = isAnswerCorrect(q.userAnswer, q.correctAnswer);
+                                return (
+                                    <tr key={index} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
+                                        <td style={{ padding: '8px', textAlign: 'center' }}>{q.questionNumber}</td>
+                                        <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: isCorrect ? '#4CAF50' : '#F44336' }}>
+                                            {formatAnswer(q.userAnswer)}
+                                        </td>
+                                        <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>
+                                            {formatAnswer(q.correctAnswer)}
+                                        </td>
+                                        <td style={{ padding: '8px', textAlign: 'center' }}>
+                                            <span style={{
+                                                padding: '3px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold',
+                                                background: isCorrect ? '#C8E6C9' : '#FFCDD2',
+                                                color: isCorrect ? '#2E7D32' : '#C62828'
+                                            }}>
+                                                {isCorrect ? '○' : '×'}
+                                            </span>
+                                        </td>
+                                        <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
+                                            {q.correctRate}%
+                                        </td>
+                                        <td style={{ padding: '8px', fontSize: '12px' }}>{q.source}</td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+            );
+        }
+
+        // 全学生一覧コンポーネント
+        function AllStudentsView({ allResults, onSelectStudent }) {
+            const sortedResults = [...allResults].sort((a, b) => b.totalScore - a.totalScore);
+
+            return (
+                <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
+                    <h2 style={{ marginBottom: '20px', color: '#333' }}>全学生成績一覧（総合点順）</h2>
+                    <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px' }}>
+                            <thead>
+                                <tr style={{ background: '#1976d2', color: 'white' }}>
+                                    <th style={{ padding: '12px', textAlign: 'center' }}>順位</th>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>学籍番号</th>
+                                    <th style={{ padding: '12px', textAlign: 'left' }}>氏名</th>
+                                    <th style={{ padding: '12px', textAlign: 'center' }}>総合点</th>
+                                    <th style={{ padding: '12px', textAlign: 'center' }}>4教科</th>
+                                    <th style={{ padding: '12px', textAlign: 'center' }}>必修</th>
+                                    {subjectNames.map(name => (
+                                        <th key={name} style={{ padding: '12px', textAlign: 'center' }}>{name}</th>
+                                    ))}
+                                    <th style={{ padding: '12px', textAlign: 'center' }}>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {sortedResults.map((result, index) => (
+                                    <tr key={result.studentId} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
+                                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold' }}>{index + 1}</td>
+                                        <td style={{ padding: '10px' }}>{result.studentId}</td>
+                                        <td style={{ padding: '10px' }}>{result.studentName}</td>
+                                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: '#1976d2' }}>{result.totalScore}</td>
+                                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: '#4CAF50' }}>{result.fourSubjectsScore}</td>
+                                        <td style={{ padding: '10px', textAlign: 'center' }}>{result.requiredScore}</td>
+                                        {subjectNames.map(subjectName => (
+                                            <td key={subjectName} style={{ padding: '10px', textAlign: 'center' }}>
+                                                {result.subjects[subjectName]?.score || 0}
+                                            </td>
+                                        ))}
+                                        <td style={{ padding: '10px', textAlign: 'center' }}>
+                                            <button onClick={() => onSelectStudent(result.studentId)} style={{
+                                                padding: '5px 12px', fontSize: '12px', background: '#1976d2',
+                                                color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer'
+                                            }}>
+                                                詳細
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            );
+        }
+
+        // CSVアップロードコンポーネント
+        function CSVUpload({ onUpload, onLogout, existingExams, studentMaster, onStudentMasterUpload }) {
+            const [examName, setExamName] = useState('');
+            const [frontHalfFile, setFrontHalfFile] = useState(null);
+            const [backHalfFile, setBackHalfFile] = useState(null);
+            const [answersFile, setAnswersFile] = useState(null);
+            const [sourcesFile, setSourcesFile] = useState(null);
+            const [studentMasterFile, setStudentMasterFile] = useState(null);
+            const [error, setError] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [showMasterUpload, setShowMasterUpload] = useState(false);
+            const [masterUpdateMode, setMasterUpdateMode] = useState('add'); // 'add' or 'replace'
+
+            const handleMasterUpload = async () => {
+                if (!studentMasterFile) {
+                    setError('学生マスターファイルを選択してください');
+                    return;
+                }
+                
+                setIsLoading(true);
+                setError('');
+                
+                try {
+                    const text = await studentMasterFile.text();
+                    const lines = text.split('\n').filter(line => line.trim());
+                    const master = {};
+                    
+                    lines.slice(1).forEach(line => {
+                        const cols = line.split(',').map(s => s.trim());
+                        const studentId = cols[0];
+                        const name = cols[1];
+                        const password = cols[2] || '1234'; // パスワード未設定時のデフォルト（4桁の数字）
+                        
+                        if (studentId && name) {
+                            master[studentId] = { name, password };
+                        }
+                    });
+                    
+                    onStudentMasterUpload(master, masterUpdateMode === 'replace');
+                    setStudentMasterFile(null);
+                    setShowMasterUpload(false);
+                    const message = masterUpdateMode === 'replace' 
+                        ? `${Object.keys(master).length}名の学生氏名・パスワードで上書きしました！`
+                        : `${Object.keys(master).length}名の学生氏名・パスワードを追加しました！`;
+                    alert(message);
+                } catch (err) {
+                    setError('学生マスターファイルの読み込みに失敗しました: ' + err.message);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!examName.trim()) {
+                    setError('試験名を入力してください');
+                    return;
+                }
+                if (!frontHalfFile || !backHalfFile) {
+                    setError('前半・後半両方のCSVファイルを選択してください');
+                    return;
+                }
+
+                setIsLoading(true);
+                setError('');
+
+                try {
+                    // Shift-JISエンコーディングに対応
+                    const readFileAsText = async (file) => {
+                        const arrayBuffer = await file.arrayBuffer();
+                        
+                        // UTF-8として試す（BOM付き含む）
+                        try {
+                            const decoder = new TextDecoder('utf-8');
+                            const text = decoder.decode(arrayBuffer);
+                            // BOM削除
+                            const cleaned = text.replace(/^\uFEFF/, '');
+                            // 文字化けチェック（日本語が正しく読めるか）
+                            if (!cleaned.includes('�')) {
+                                return cleaned;
+                            }
+                        } catch (e) {}
+                        
+                        // Shift-JISとして試す
+                        try {
+                            const decoder = new TextDecoder('shift-jis');
+                            const text = decoder.decode(arrayBuffer);
+                            return text.replace(/^\uFEFF/, '');
+                        } catch (e) {
+                            // 最終的にUTF-8で返す
+                            const decoder = new TextDecoder('utf-8');
+                            return decoder.decode(arrayBuffer).replace(/^\uFEFF/, '');
+                        }
+                    };
+                    
+                    const frontText = await readFileAsText(frontHalfFile);
+                    const backText = await readFileAsText(backHalfFile);
+                    
+                    // 模範解答データ読み込み（横形式）
+                    let correctAnswersMap = {};
+                    if (answersFile) {
+                        const answersText = await readFileAsText(answersFile);
+                        const answersLines = answersText.split('\n').filter(line => line.trim());
+                        if (answersLines.length >= 2) {
+                            const headers = answersLines[0].split(',');
+                            const values = answersLines[1].split(',');
+                            
+                            // 解答をパースする関数（複数選択対応：1:03形式、0.127777778形式、1,3形式）
+                            const parseAnswer = (answer) => {
+                                if (!answer || answer.trim() === '') return null;
+                                const trimmed = String(answer).trim();
+                                
+                                // 「1:03」のような時刻形式（Excelの自動変換）
+                                if (trimmed.includes(':')) {
+                                    const parts = trimmed.split(':').map(p => parseInt(p));
+                                    return parts.filter(p => !isNaN(p) && p > 0);
+                                }
+                                
+                                // 「0.127777778」のような小数形式（Excelで「1,3」を入力すると時刻1:03 = 0.04305...日になる）
+                                const floatVal = parseFloat(trimmed);
+                                if (!isNaN(floatVal) && floatVal > 0 && floatVal < 1) {
+                                    // 小数を時刻（日の分数）に戻す: 0.043055556 * 24 * 60 ≈ 62分 = 1:02
+                                    const totalMinutes = Math.round(floatVal * 24 * 60);
+                                    const hours = Math.floor(totalMinutes / 60);
+                                    const minutes = totalMinutes % 60;
+                                    // 選択肢は1-4なので、hours と minutes が1-4の範囲ならば複数選択
+                                    if (hours >= 1 && hours <= 4 && minutes >= 1 && minutes <= 59) {
+                                        return [hours, minutes];
+                                    }
+                                    // それ以外の小数は無視
+                                    return null;
+                                }
+                                
+                                // 「1,3」のようなカンマ区切り形式
+                                if (trimmed.includes(',')) {
+                                    return trimmed.split(',').map(a => parseInt(a.trim())).filter(a => !isNaN(a));
+                                }
+                                
+                                const num = parseInt(trimmed);
+                                return isNaN(num) ? null : num;
+                            };
+                            
+                            // 前半データ (Q1~Q128の位置を探す)
+                            const frontStartIdx = headers.findIndex(h => h.includes('模範解答前半'));
+                            if (frontStartIdx >= 0) {
+                                for (let i = frontStartIdx + 1; i < headers.length && headers[i].startsWith('Q'); i++) {
+                                    const qNum = headers[i].trim();
+                                    const answer = parseAnswer(values[i]);
+                                    if (answer !== null) {
+                                        correctAnswersMap[qNum] = answer;
+                                    }
+                                }
+                            }
+                            
+                            // 後半データ (Q1~Q122の位置を探す)
+                            const backStartIdx = headers.findIndex((h, idx) => idx > frontStartIdx && h.includes('後半'));
+                            if (backStartIdx >= 0) {
+                                for (let i = backStartIdx + 1; i < headers.length && headers[i].startsWith('Q'); i++) {
+                                    const qNum = 'B' + headers[i].trim().substring(1);
+                                    const answer = parseAnswer(values[i]);
+                                    if (answer !== null) {
+                                        correctAnswersMap[qNum] = answer;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // 出題基準データ読み込み（横形式）
+                    let sourcesMap = {};
+                    if (sourcesFile) {
+                        const sourcesText = await readFileAsText(sourcesFile);
+                        const sourcesLines = sourcesText.split('\n').filter(line => line.trim());
+                        if (sourcesLines.length >= 2) {
+                            const headers = sourcesLines[0].split(',');
+                            const values = sourcesLines[1].split(',');
+                            
+                            // 前半データ
+                            const frontStartIdx = headers.findIndex(h => h.includes('出題基準前半'));
+                            if (frontStartIdx >= 0) {
+                                for (let i = frontStartIdx + 1; i < headers.length && headers[i].startsWith('Q'); i++) {
+                                    const qNum = headers[i].trim();
+                                    const source = values[i]?.trim();
+                                    if (source) {
+                                        sourcesMap[qNum] = source;
+                                    }
+                                }
+                            }
+                            
+                            // 後半データ
+                            const backStartIdx = headers.findIndex((h, idx) => idx > frontStartIdx && h.includes('後半'));
+                            if (backStartIdx >= 0) {
+                                for (let i = backStartIdx + 1; i < headers.length && headers[i].startsWith('Q'); i++) {
+                                    const qNum = 'B' + headers[i].trim().substring(1);
+                                    const source = values[i]?.trim();
+                                    if (source) {
+                                        sourcesMap[qNum] = source;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    const frontLines = frontText.split('\n').filter(line => line.trim());
+                    const backLines = backText.split('\n').filter(line => line.trim());
+                    
+                    // ヘッダー除外
+                    const frontData = frontLines.slice(1);
+                    const backData = backLines.slice(1);
+                    
+                    const students = [];
+                    
+                    frontData.forEach((line, index) => {
+                        const frontCols = line.split(',');
+                        const studentId = frontCols[0]?.trim();
+                        if (!studentId) return;
+                        
+                        // 前半データ (Q1~Q128)
+                        const frontAnswers = frontCols.slice(1, 129);
+                        
+                        // 後半データ
+                        const backLine = backData[index];
+                        const backCols = backLine ? backLine.split(',') : [];
+                        const backAnswers = backCols.slice(1, 123);
+                        
+                        // 科目別に集計
+                        const answersBySubject = {
+                            '必修': { answers: frontAnswers.slice(0, 50), startQ: 1, prefix: 'Q' },
+                            '解剖学': { answers: frontAnswers.slice(50, 80), startQ: 51, prefix: 'Q' },
+                            '生理学': { answers: frontAnswers.slice(80, 105), startQ: 81, prefix: 'Q' },
+                            '運動学': { answers: frontAnswers.slice(105, 115), startQ: 106, prefix: 'Q' },
+                            '病理学': { answers: frontAnswers.slice(115, 128), startQ: 116, prefix: 'Q' },
+                            '衛生学': { answers: backAnswers.slice(0, 12), startQ: 1, prefix: 'B' },
+                            'リハビリ医学': { answers: backAnswers.slice(12, 23), startQ: 13, prefix: 'B' },
+                            '一般臨床': { answers: backAnswers.slice(23, 45), startQ: 24, prefix: 'B' },
+                            '外科学': { answers: backAnswers.slice(45, 56), startQ: 46, prefix: 'B' },
+                            '整形外科': { answers: backAnswers.slice(56, 67), startQ: 57, prefix: 'B' },
+                            '柔整理論': { answers: backAnswers.slice(67, 122), startQ: 68, prefix: 'B' }
+                        };
+                        
+                        // 問題詳細を生成
+                        const questionDetails = {};
+                        let scores = {};
+                        
+                        // 正誤判定関数（複数選択対応）
+                        const isAnswerCorrect = (userAnswer, correctAnswer) => {
+                            if (Array.isArray(userAnswer) && Array.isArray(correctAnswer)) {
+                                if (userAnswer.length !== correctAnswer.length) return false;
+                                const sortedUser = [...userAnswer].sort();
+                                const sortedCorrect = [...correctAnswer].sort();
+                                return sortedUser.every((val, idx) => val === sortedCorrect[idx]);
+                            }
+                            return userAnswer === correctAnswer;
+                        };
+                        
+                        // ユーザーの解答をパース（1:03形式対応）
+                        const parseUserAnswer = (answer) => {
+                            if (!answer || answer.trim() === '') return null;
+                            const trimmed = String(answer).trim();
+                            
+                            // 「1:03」のような時刻形式
+                            if (trimmed.includes(':')) {
+                                const parts = trimmed.split(':').map(p => parseInt(p));
+                                return parts.filter(p => !isNaN(p) && p > 0);
+                            }
+                            
+                            // カンマまたはスペース区切り
+                            if (trimmed.includes(',') || trimmed.includes(' ')) {
+                                const parts = trimmed.split(/[,\s]+/).map(a => parseInt(a.trim())).filter(a => !isNaN(a));
+                                return parts.length > 1 ? parts : (parts.length === 1 ? parts[0] : null);
+                            }
+                            
+                            const num = parseInt(trimmed);
+                            return isNaN(num) ? null : num;
+                        };
+                        
+                        Object.entries(answersBySubject).forEach(([subject, data]) => {
+                            const details = [];
+                            let correctCount = 0;
+                            
+                            data.answers.forEach((userAns, idx) => {
+                                if (!userAns || !userAns.trim()) return;
+                                
+                                const qNum = data.prefix + (data.startQ + idx);
+                                const userAnswer = parseUserAnswer(userAns);
+                                const correctAnswer = correctAnswersMap[qNum] || null;
+                                const source = sourcesMap[qNum] || '出典不明';
+                                
+                                if (correctAnswer !== null && userAnswer !== null) {
+                                    details.push({
+                                        questionNumber: qNum,
+                                        userAnswer: userAnswer,
+                                        correctAnswer: correctAnswer,
+                                        source: source
+                                    });
+                                    if (isAnswerCorrect(userAnswer, correctAnswer)) correctCount++;
+                                }
+                            });
+                            
+                            if (details.length > 0) {
+                                questionDetails[subject] = details;
+                            }
+                            scores[subject] = correctCount;
+                        });
+                        
+                        students.push({
+                            studentId: studentId,
+                            studentName: studentMaster?.[studentId]?.name || studentMaster?.[studentId] || `学生${studentId}`,
+                            password: studentMaster?.[studentId]?.password || '1234',
+                            required: scores['必修'] || 0,
+                            解剖学: scores['解剖学'] || 0,
+                            生理学: scores['生理学'] || 0,
+                            運動学: scores['運動学'] || 0,
+                            病理学: scores['病理学'] || 0,
+                            衛生学: scores['衛生学'] || 0,
+                            リハビリ医学: scores['リハビリ医学'] || 0,
+                            一般臨床: scores['一般臨床'] || 0,
+                            外科学: scores['外科学'] || 0,
+                            整形外科: scores['整形外科'] || 0,
+                            柔整理論: scores['柔整理論'] || 0,
+                            questionDetails: questionDetails
+                        });
+                    });
+                    
+                    onUpload({ examName: examName.trim(), students });
+                } catch (err) {
+                    setError('CSVファイルの読み込みに失敗しました: ' + err.message);
+                    setIsLoading(false);
+                }
+            };
+
+            return (
+                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                    <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)', width: '100%', maxWidth: '600px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+                            <h1 style={{ margin: 0, color: '#333', fontSize: '24px' }}>CSVデータアップロード</h1>
+                            <button onClick={onLogout} style={{
+                                padding: '8px 16px', background: '#f44336', color: 'white',
+                                border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '14px'
+                            }}>
+                                ログアウト
+                            </button>
+                        </div>
+                        
+                        {/* 学生マスター登録状況 */}
+                        <div style={{ marginBottom: '20px', padding: '15px', background: studentMaster && Object.keys(studentMaster).length > 0 ? '#e8f5e9' : '#fff3e0', borderRadius: '6px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <h3 style={{ margin: '0 0 5px 0', fontSize: '14px', color: '#333' }}>
+                                        {studentMaster && Object.keys(studentMaster).length > 0 ? '✓ 学生氏名マスター登録済み' : '学生氏名マスター未登録'}
+                                    </h3>
+                                    <div style={{ fontSize: '12px', color: '#666' }}>
+                                        {studentMaster && Object.keys(studentMaster).length > 0 
+                                            ? `${Object.keys(studentMaster).length}名の氏名が登録されています`
+                                            : '学籍番号と氏名の対応表を登録すると氏名が自動表示されます'}
+                                    </div>
+                                </div>
+                                <button type="button" onClick={() => setShowMasterUpload(!showMasterUpload)} style={{
+                                    padding: '6px 12px', fontSize: '12px', background: '#2196F3', color: 'white',
+                                    border: 'none', borderRadius: '4px', cursor: 'pointer'
+                                }}>
+                                    {showMasterUpload ? '閉じる' : '登録/更新'}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* 学生マスターアップロード */}
+                        {showMasterUpload && (
+                            <div style={{ marginBottom: '20px', padding: '15px', background: '#f5f5f5', borderRadius: '6px' }}>
+                                <h3 style={{ margin: '0 0 10px 0', fontSize: '14px' }}>学生氏名マスター登録</h3>
+                                
+                                <div style={{ marginBottom: '15px' }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', fontSize: '13px', fontWeight: '500' }}>登録方法を選択:</label>
+                                    <div style={{ display: 'flex', gap: '15px' }}>
+                                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '14px' }}>
+                                            <input type="radio" name="updateMode" value="add" checked={masterUpdateMode === 'add'} 
+                                                onChange={(e) => setMasterUpdateMode(e.target.value)} style={{ marginRight: '5px' }} />
+                                            追加登録（既存データに追加）
+                                        </label>
+                                        <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '14px' }}>
+                                            <input type="radio" name="updateMode" value="replace" checked={masterUpdateMode === 'replace'} 
+                                                onChange={(e) => setMasterUpdateMode(e.target.value)} style={{ marginRight: '5px' }} />
+                                            <span style={{ color: '#d32f2f' }}>上書き登録（年度更新時）</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <input type="file" accept=".csv" onChange={(e) => setStudentMasterFile(e.target.files[0])}
+                                    style={{ width: '100%', padding: '10px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px', marginBottom: '10px' }} />
+                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+                                    形式: 学籍番号,氏名,パスワード（例: 216030,山田太郎,1234）<br/>
+                                    ※ パスワードは4桁の数字を推奨。省略時は「1234」が設定されます
+                                </div>
+                                <button type="button" onClick={handleMasterUpload} disabled={isLoading || !studentMasterFile} style={{
+                                    width: '100%', padding: '10px', fontSize: '14px', fontWeight: '600',
+                                    background: isLoading || !studentMasterFile ? '#ccc' : '#2196F3',
+                                    color: 'white', border: 'none', borderRadius: '6px',
+                                    cursor: isLoading || !studentMasterFile ? 'not-allowed' : 'pointer'
+                                }}>
+                                    {isLoading ? '登録中...' : (masterUpdateMode === 'replace' ? '上書き登録' : '追加登録')}
+                                </button>
+                            </div>
+                        )}
+                        
+                        {existingExams && existingExams.length > 0 && (
+                            <div style={{ marginBottom: '20px', padding: '15px', background: '#e3f2fd', borderRadius: '6px' }}>
+                                <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#1976d2' }}>登録済み試験データ</h3>
+                                <div style={{ fontSize: '13px' }}>
+                                    {existingExams.map((exam, idx) => (
+                                        <div key={idx} style={{ padding: '5px 0' }}>
+                                            • {exam.examName} ({exam.students.length}名)
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        
+                        <form onSubmit={handleSubmit}>
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>
+                                    試験名 <span style={{ color: '#d32f2f' }}>*必須</span>
+                                </label>
+                                <input type="text" value={examName} onChange={(e) => setExamName(e.target.value)}
+                                    placeholder="例: 第5回模試、2024年12月模試"
+                                    style={{ width: '100%', padding: '12px', fontSize: '16px', border: '2px solid #e0e0e0', borderRadius: '6px', outline: 'none' }} required />
+                            </div>
+                            
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>
+                                    前半データ (Q1~Q128) <span style={{ color: '#d32f2f' }}>*必須</span>
+                                </label>
+                                <input type="file" accept=".csv" onChange={(e) => setFrontHalfFile(e.target.files[0])}
+                                    style={{ width: '100%', padding: '12px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px' }} required />
+                                <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                                    必修(Q1~Q50), 解剖学(Q51~Q80), 生理学(Q81~Q105), 運動学(Q106~Q115), 病理学(Q116~Q128)
+                                </div>
+                            </div>
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>
+                                    後半データ (Q1~Q122) <span style={{ color: '#d32f2f' }}>*必須</span>
+                                </label>
+                                <input type="file" accept=".csv" onChange={(e) => setBackHalfFile(e.target.files[0])}
+                                    style={{ width: '100%', padding: '12px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px' }} required />
+                                <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                                    衛生学(Q1~Q12), リハビリ医学(Q13~Q23), 一般臨床(Q24~Q45), 外科学(Q46~Q56), 整形外科(Q57~Q67), 柔整理論(Q68~Q122)
+                                </div>
+                            </div>
+                            
+                            <div style={{ borderTop: '2px solid #e0e0e0', paddingTop: '20px', marginTop: '20px' }}>
+                                <h3 style={{ margin: '0 0 15px 0', color: '#555', fontSize: '16px' }}>オプションデータ</h3>
+                                
+                                <div style={{ marginBottom: '20px' }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>
+                                        模範解答データ（任意）
+                                    </label>
+                                    <input type="file" accept=".csv" onChange={(e) => setAnswersFile(e.target.files[0])}
+                                        style={{ width: '100%', padding: '12px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px' }} />
+                                    <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                                        形式: 1行目ヘッダー（模範解答前半,Q1,Q2,...,模範解答後半,Q1,Q2,...）、2行目データ
+                                    </div>
+                                </div>
+                                
+                                <div style={{ marginBottom: '25px' }}>
+                                    <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>
+                                        出題基準データ（任意）
+                                    </label>
+                                    <input type="file" accept=".csv" onChange={(e) => setSourcesFile(e.target.files[0])}
+                                        style={{ width: '100%', padding: '12px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px' }} />
+                                    <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                                        形式: 1行目ヘッダー（出題基準前半,Q1,Q2,...,出題基準後半,Q1,Q2,...）、2行目データ
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {error && <div style={{ padding: '12px', marginBottom: '20px', background: '#ffebee', color: '#c62828', borderRadius: '6px', fontSize: '14px' }}>{error}</div>}
+                            <button type="submit" disabled={isLoading} style={{
+                                width: '100%', padding: '14px', fontSize: '16px', fontWeight: '600', color: 'white',
+                                background: isLoading ? '#ccc' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                border: 'none', borderRadius: '6px', cursor: isLoading ? 'not-allowed' : 'pointer'
+                            }}>
+                                {isLoading ? '読み込み中...' : 'データをアップロード'}
+                            </button>
+                        </form>
+                        
+                        <div style={{ marginTop: '25px', padding: '15px', background: '#f5f5f5', borderRadius: '6px', fontSize: '12px', color: '#666' }}>
+                            <strong>📝 CSVサンプルをダウンロード:</strong>
+                            <div style={{ marginTop: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                <a href="#" onClick={(e) => { e.preventDefault(); downloadSampleStudentMaster(); }} 
+                                   style={{ color: '#1976d2', textDecoration: 'underline', cursor: 'pointer' }}>学生氏名マスター</a>
+                                <a href="#" onClick={(e) => { e.preventDefault(); downloadSampleAnswers(); }} 
+                                   style={{ color: '#1976d2', textDecoration: 'underline', cursor: 'pointer' }}>模範解答サンプル</a>
+                                <a href="#" onClick={(e) => { e.preventDefault(); downloadSampleSources(); }} 
+                                   style={{ color: '#1976d2', textDecoration: 'underline', cursor: 'pointer' }}>出題基準サンプル</a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // サンプルCSVダウンロード関数
+        function downloadSampleAnswers() {
+            const content = `模範解答前半,Q1,Q2,Q3,Q4,Q5,Q51,Q52,Q81,Q82,,模範解答後半,Q1,Q2,Q3,Q4
+,3,1,3,4,4,4,3,1,4,,後半,2,3,1,2`;
+            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = '模範解答サンプル.csv';
+            link.click();
+        }
+
+        function downloadSampleSources() {
+            const content = `出題基準前半,Q1,Q2,Q3,Q4,Q5,Q51,Q52,Q81,Q82,,出題基準後半,Q1,Q2,Q3,Q4
+,1,1,3,3,6,2,2,1,3,,後半,1,2,2,2`;
+            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = '出題基準サンプル.csv';
+            link.click();
+        }
+
+        function downloadSampleStudentMaster() {
+            const content = `学籍番号,氏名,パスワード
+216030,山田太郎,2024
+216062,佐藤花子,2024
+226005,鈴木一郎,2024
+226055,田中美咲,2024
+227015,高橋健,2024`;
+            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = '学生氏名マスターサンプル.csv';
+            link.click();
+        }
+
+        // ログインコンポーネント
+        function LoginForm({ onLogin, currentExam }) {
+            const [studentId, setStudentId] = useState('');
+            const [password, setPassword] = useState('');
+            const [error, setError] = useState('');
+
+            const handleSubmit = (e) => {
+                e.preventDefault();
+                const teacher = teachers.find(t => t.id === studentId && t.password === password);
+                if (teacher) {
+                    onLogin({ ...teacher, isTeacher: true });
+                    setError('');
+                    return;
+                }
+                
+                // アップロードされたデータを優先使用
+                const dataSource = currentExam ? currentExam.students : rawStudentScores;
+                const allResults = generateExamResults(dataSource);
+                
+                const student = allResults.find(s => s.studentId === studentId && s.password === password);
+                if (student) {
+                    onLogin({ ...student, isTeacher: false });
+                    setError('');
+                } else {
+                    setError('IDまたはパスワードが間違っています');
+                }
+            };
+
+            return (
+                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                    <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)', width: '100%', maxWidth: '400px' }}>
+                        <h1 style={{ textAlign: 'center', marginBottom: '30px', color: '#333', fontSize: '24px' }}>模擬試験結果閲覧システム</h1>
+                        <form onSubmit={handleSubmit}>
+                            <div style={{ marginBottom: '20px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>ID（学籍番号 or 教員ID）</label>
+                                <input type="text" value={studentId} onChange={(e) => setStudentId(e.target.value)} placeholder="例: S001 または teacher001"
+                                    style={{ width: '100%', padding: '12px', fontSize: '16px', border: '2px solid #e0e0e0', borderRadius: '6px', outline: 'none' }} required />
+                            </div>
+                            <div style={{ marginBottom: '25px' }}>
+                                <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>パスワード</label>
+                                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="パスワードを入力"
+                                    style={{ width: '100%', padding: '12px', fontSize: '16px', border: '2px solid #e0e0e0', borderRadius: '6px', outline: 'none' }} required />
+                            </div>
+                            {error && <div style={{ padding: '12px', marginBottom: '20px', background: '#ffebee', color: '#c62828', borderRadius: '6px', fontSize: '14px' }}>{error}</div>}
+                            <button type="submit" style={{
+                                width: '100%', padding: '14px', fontSize: '16px', fontWeight: '600', color: 'white',
+                                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                border: 'none', borderRadius: '6px', cursor: 'pointer'
+                            }}>ログイン</button>
+                        </form>
+                        {currentExam && currentExam.students && currentExam.students.length > 0 ? (
+                            <div style={{ marginTop: '30px', padding: '15px', background: '#f5f5f5', borderRadius: '6px', fontSize: '12px', color: '#666' }}>
+                                <strong>ログイン情報:</strong><br/>
+                                <div style={{ marginTop: '8px' }}><strong>学生:</strong><br/>
+                                    ID: {currentExam.students.slice(0, 3).map(s => s.studentId).join(', ')} など / パスワード: 学生マスターで設定したパスワード
+                                </div>
+                                <div style={{ marginTop: '8px' }}><strong>教員（全員分閲覧可）:</strong><br/>
+                                    ID: teacher001 または admin / パスワード: teacher123 または admin123
+                                </div>
+                            </div>
+                        ) : (
+                            <div style={{ marginTop: '30px', padding: '15px', background: '#f5f5f5', borderRadius: '6px', fontSize: '12px', color: '#666' }}>
+                                <strong>デモ用アカウント:</strong><br/>
+                                <div style={{ marginTop: '8px' }}><strong>学生:</strong><br/>ID: S001〜S005 / パスワード: pass001〜pass005</div>
+                                <div style={{ marginTop: '8px' }}><strong>教員（全員分閲覧可）:</strong><br/>ID: teacher001 または admin / パスワード: teacher123 または admin123</div>
+                                <div style={{ marginTop: '8px', color: '#ff9800' }}>※ CSVアップロードで実際のデータを読み込んでください</div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            );
+        }
+
+        // 結果表示コンポーネント
+        function ExamResultView({ user, onLogout, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam }) {
+            const dataSource = currentExam ? currentExam.students : rawStudentScores;
+            const allResults = generateExamResults(dataSource);
+            const [selectedStudentId, setSelectedStudentId] = useState(user.isTeacher ? allResults[0]?.studentId : user.studentId);
+            const [viewMode, setViewMode] = useState('detail');
+            const [expandedSubject, setExpandedSubject] = useState(null);
+            const [showAllQuestions, setShowAllQuestions] = useState(false);
+            const result = user.isTeacher ? allResults.find(r => r.studentId === selectedStudentId) : user;
+
+            const handleSelectStudent = (studentId) => {
+                setSelectedStudentId(studentId);
+                setViewMode('detail');
+            };
+
+            return (
+                <div style={{ minHeight: '100vh', background: '#fafafa' }}>
+                    <div style={{ background: '#1976d2', color: 'white', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: user.isTeacher ? '15px' : '0' }}>
+                                <div>
+                                    <h1 style={{ margin: 0 }}>模擬試験結果閲覧システム</h1>
+                                    {user.isTeacher && <p style={{ margin: '5px 0 0 0', fontSize: '14px', opacity: 0.9 }}>教員モード: {user.name}</p>}
+                                    {currentExam && <p style={{ margin: '5px 0 0 0', fontSize: '14px', opacity: 0.9 }}>📋 {currentExam.examName}</p>}
+                                </div>
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    {allExams && allExams.length > 0 && (
+                                        <>
+                                            <select value={selectedExamIndex} onChange={(e) => onExamChange(parseInt(e.target.value))}
+                                                style={{ padding: '10px 15px', fontSize: '14px', borderRadius: '6px', border: 'none', fontWeight: '600' }}>
+                                                {allExams.map((exam, idx) => (
+                                                    <option key={idx} value={idx}>{exam.examName}</option>
+                                                ))}
+                                            </select>
+                                            {user.isTeacher && allExams.length > 0 && (
+                                                <button onClick={() => {
+                                                    if (window.confirm(`「${currentExam.examName}」を削除してもよろしいですか？\n\nこの操作は取り消せません。`)) {
+                                                        onDeleteExam(selectedExamIndex);
+                                                    }
+                                                }} style={{
+                                                    padding: '10px 15px', fontSize: '14px', background: '#f44336', color: 'white',
+                                                    border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
+                                                }}>
+                                                    🗑️ 削除
+                                                </button>
+                                            )}
+                                        </>
+                                    )}
+                                    <button onClick={onLogout} style={{
+                                        padding: '10px 20px', fontSize: '14px', color: '#1976d2', background: 'white',
+                                        border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
+                                    }}>ログアウト</button>
+                                </div>
+                            </div>
+                            {user.isTeacher && (
+                                <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginTop: '15px' }}>
+                                    <div style={{ display: 'flex', gap: '10px' }}>
+                                        <button onClick={() => setViewMode('list')} style={{
+                                            padding: '8px 16px', fontSize: '14px',
+                                            background: viewMode === 'list' ? 'white' : 'rgba(255,255,255,0.2)',
+                                            color: viewMode === 'list' ? '#1976d2' : 'white',
+                                            border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600'
+                                        }}>全学生一覧</button>
+                                        <button onClick={() => setViewMode('detail')} style={{
+                                            padding: '8px 16px', fontSize: '14px',
+                                            background: viewMode === 'detail' ? 'white' : 'rgba(255,255,255,0.2)',
+                                            color: viewMode === 'detail' ? '#1976d2' : 'white',
+                                            border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600'
+                                        }}>個別詳細</button>
+                                    </div>
+                                    {viewMode === 'detail' && (
+                                        <div>
+                                            <label htmlFor="student-select" style={{ marginRight: '10px' }}>学生選択:</label>
+                                            <select id="student-select" value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)}
+                                                style={{ padding: '8px 12px', fontSize: '16px', borderRadius: '4px', border: 'none', minWidth: '250px' }}>
+                                                {allResults.map(r => (
+                                                    <option key={r.studentId} value={r.studentId}>{r.studentId} - {r.studentName}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {user.isTeacher && viewMode === 'list' ? (
+                        <AllStudentsView allResults={allResults} onSelectStudent={handleSelectStudent} />
+                    ) : (
+                        <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+                            <h2 style={{ textAlign: 'center', color: '#333', marginBottom: '20px' }}>試験結果</h2>
+                            <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                                <h3 style={{ margin: '0 0 10px 0' }}>学生情報</h3>
+                                <p style={{ margin: '5px 0' }}><strong>受験番号:</strong> {result.studentId}</p>
+                                <p style={{ margin: '5px 0' }}><strong>氏名:</strong> {result.studentName}</p>
+                            </div>
+                            <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                                <h3 style={{ margin: '0 0 10px 0' }}>総合成績</h3>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' }}>
+                                    <div><strong>総合点:</strong> {result.totalScore}/{result.totalMaxScore}</div>
+                                    <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>
+                                    <div><strong>一般合計:</strong> {result.generalScore}/{result.generalMaxScore}</div>
+                                    <div><strong>4教科合計:</strong> {result.fourSubjectsScore}/{result.fourSubjectsMaxScore}</div>
+                                </div>
+                                <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+                                    ※ 4教科: 解剖学、生理学、一般臨床、柔整理論
+                                </div>
+                                
+                                {result.totalStats && (
+                                    <div style={{ marginTop: '20px' }}>
+                                        <h4 style={{ margin: '0 0 10px 0', fontSize: '14px' }}>総合点得点率</h4>
+                                        <BarChart 
+                                            scoreRate={result.totalStats.scoreRate} 
+                                            averageRate={result.totalStats.averageScoreRate} 
+                                            stdDeviation={result.totalStats.scoreRateStdDev} 
+                                            label="" 
+                                        />
+                                        <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', fontSize: '13px' }}>
+                                            <div><strong>得点率:</strong> {result.totalStats.scoreRate}%</div>
+                                            <div><strong>順位:</strong> {result.totalStats.rank}位</div>
+                                            <div><strong>偏差値:</strong> {result.totalStats.deviation}</div>
+                                            <div><strong>Ave.:</strong> {result.totalStats.averageScoreRate}%</div>
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {result.fourSubjectsStats && (
+                                    <div style={{ marginTop: '20px' }}>
+                                        <h4 style={{ margin: '0 0 10px 0', fontSize: '14px' }}>4教科合計得点率</h4>
+                                        <BarChart 
+                                            scoreRate={result.fourSubjectsStats.scoreRate} 
+                                            averageRate={result.fourSubjectsStats.averageScoreRate} 
+                                            stdDeviation={result.fourSubjectsStats.scoreRateStdDev} 
+                                            label="" 
+                                        />
+                                        <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', fontSize: '13px' }}>
+                                            <div><strong>得点率:</strong> {result.fourSubjectsStats.scoreRate}%</div>
+                                            <div><strong>順位:</strong> {result.fourSubjectsStats.rank}位</div>
+                                            <div><strong>偏差値:</strong> {result.fourSubjectsStats.deviation}</div>
+                                            <div><strong>Ave.:</strong> {result.fourSubjectsStats.averageScoreRate}%</div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div style={{ marginBottom: '20px' }}>
+                                <h3>科目別成績</h3>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px', background: 'white' }}>
+                                    <thead>
+                                        <tr style={{ background: '#1976d2', color: 'white' }}>
+                                            <th style={{ padding: '12px', textAlign: 'left' }}>科目</th>
+                                            <th style={{ padding: '12px', textAlign: 'left' }}>得点</th>
+                                            <th style={{ padding: '12px', textAlign: 'left' }}>得点率</th>
+                                            <th style={{ padding: '12px', textAlign: 'left' }}>順位</th>
+                                            <th style={{ padding: '12px', textAlign: 'left' }}>偏差値</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {/* 必修行 */}
+                                        <tr style={{ background: '#fff3e0', cursor: 'pointer' }} onClick={() => setExpandedSubject(expandedSubject === '必修' ? null : '必修')}>
+                                            <td style={{ padding: '12px', fontWeight: 'bold' }}>必修</td>
+                                            <td style={{ padding: '12px' }}>{result.required.score}/{result.required.maxScore}</td>
+                                            <td style={{ padding: '12px' }}>{result.required.scoreRate}%</td>
+                                            <td style={{ padding: '12px' }}>{result.required.rank}位</td>
+                                            <td style={{ padding: '12px' }}>{result.required.deviation}</td>
+                                        </tr>
+                                        {expandedSubject === '必修' && (
+                                            <tr>
+                                                <td colSpan="5" style={{ padding: '20px', background: '#fffaf0' }}>
+                                                    <div style={{ marginBottom: '15px' }}>
+                                                        <h4 style={{ margin: '0 0 10px 0' }}>必修得点率</h4>
+                                                        <BarChart scoreRate={result.required.scoreRate} averageRate={result.required.averageScoreRate} stdDeviation={result.required.scoreRateStdDev} label="" />
+                                                    </div>
+                                                    {result.questionDetails?.['必修'] && <QuestionDetails questions={result.questionDetails['必修']} />}
+                                                </td>
+                                            </tr>
+                                        )}
+                                        {/* 一般科目行 */}
+                                        {subjectNames.map((subjectName, index) => {
+                                            const subject = result.subjects[subjectName];
+                                            if (!subject) return null;
+                                            const isExpanded = expandedSubject === subjectName;
+                                            
+                                            const rows = [
+                                                <tr key={subjectName} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9', cursor: 'pointer' }} 
+                                                    onClick={() => setExpandedSubject(isExpanded ? null : subjectName)}>
+                                                    <td style={{ padding: '12px' }}><strong>{subjectName}</strong></td>
+                                                    <td style={{ padding: '12px' }}>{subject.score}/{subject.maxScore}</td>
+                                                    <td style={{ padding: '12px' }}>{subject.scoreRate}%</td>
+                                                    <td style={{ padding: '12px' }}>{subject.rank}位</td>
+                                                    <td style={{ padding: '12px' }}>{subject.deviation}</td>
+                                                </tr>
+                                            ];
+                                            
+                                            if (isExpanded) {
+                                                rows.push(
+                                                    <tr key={`${subjectName}-detail`}>
+                                                        <td colSpan="5" style={{ padding: '20px', background: '#f5f5f5' }}>
+                                                            <div style={{ marginBottom: '15px' }}>
+                                                                <h4 style={{ margin: '0 0 10px 0' }}>{subjectName}得点率</h4>
+                                                                <BarChart scoreRate={subject.scoreRate} averageRate={subject.averageScoreRate} stdDeviation={subject.scoreRateStdDev} label="" />
+                                                            </div>
+                                                            {result.questionDetails?.[subjectName] && <QuestionDetails questions={result.questionDetails[subjectName]} />}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            }
+                                            
+                                            return rows;
+                                        })}
+                                    </tbody>
+                                </table>
+
+                                <div style={{ marginBottom: '15px', display: 'flex', justifyContent: 'flex-end' }}>
+                                    <button onClick={() => setShowAllQuestions(!showAllQuestions)} style={{
+                                            padding: '8px 16px', fontSize: '14px', fontWeight: '600',
+                                            background: showAllQuestions ? '#f44336' : '#4CAF50',
+                                        color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer'
+                                    }}>
+                                        {showAllQuestions ? '全問題一覧を閉じる' : '全問題一覧を表示'}
+                                    </button>
+                                </div>
+
+                                {showAllQuestions && (
+                                    <div style={{ marginBottom: '30px', background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                                        <h4 style={{ marginBottom: '15px', color: '#333' }}>全問題一覧</h4>
+                                        {['必修', ...subjectNames].map(subjectName => {
+                                            const subjectData = subjectName === '必修' ? result.required : result.subjects[subjectName];
+                                            const questions = result.questionDetails?.[subjectName];
+                                            
+                                            if (!questions || questions.length === 0) return null;
+                                            
+                                            return (
+                                                <div key={subjectName} style={{ marginBottom: '25px' }}>
+                                                    <h5 style={{ marginBottom: '10px', padding: '8px 12px', background: '#1976d2', color: 'white', borderRadius: '4px' }}>
+                                                        {subjectName}（得点: {subjectData.score}/{subjectData.maxScore}）
+                                                    </h5>
+                                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', marginBottom: '15px' }}>
+                                                        <thead>
+                                                            <tr style={{ background: '#757575', color: 'white' }}>
+                                                                <th style={{ padding: '8px', textAlign: 'center', width: '100px' }}>問題番号</th>
+                                                                <th style={{ padding: '8px', textAlign: 'center', width: '80px' }}>自分の解答</th>
+                                                                <th style={{ padding: '8px', textAlign: 'center', width: '80px' }}>正答</th>
+                                                                <th style={{ padding: '8px', textAlign: 'center', width: '60px' }}>結果</th>
+                                                                <th style={{ padding: '8px', textAlign: 'center', width: '70px' }}>正答率</th>
+                                                                <th style={{ padding: '8px', textAlign: 'left' }}>出典</th>
+                                                            </tr>
+                                                        </thead>
+                                                        <tbody>
+                                                            {questions.map((q, index) => {
+                                                                const isCorrect = q.userAnswer === q.correctAnswer;
+                                                                return (
+                                                                    <tr key={index} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
+                                                                        <td style={{ padding: '8px', textAlign: 'center' }}>{q.questionNumber}</td>
+                                                                        <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: isCorrect ? '#4CAF50' : '#F44336' }}>{q.userAnswer}</td>
+                                                                        <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{q.correctAnswer}</td>
+                                                                        <td style={{ padding: '8px', textAlign: 'center' }}>
+                                                                            <span style={{
+                                                                                padding: '3px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold',
+                                                                                background: isCorrect ? '#C8E6C9' : '#FFCDD2',
+                                                                                color: isCorrect ? '#2E7D32' : '#C62828'
+                                                                            }}>
+                                                                                {isCorrect ? '○' : '×'}
+                                                                            </span>
+                                                                        </td>
+                                                                        <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
+                                                                            {q.correctRate}%
+                                                                        </td>
+                                                                        <td style={{ padding: '8px', fontSize: '12px' }}>{q.source}</td>
+                                                                    </tr>
+                                                                );
+                                                            })}
+                                                        </tbody>
+                                                    </table>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        // メインアプリ
+        function App() {
+            const [loggedInUser, setLoggedInUser] = useState(null);
+            const [allExams, setAllExams] = useState(() => {
+                const saved = localStorage.getItem('examData');
+                return saved ? JSON.parse(saved) : [];
+            });
+            const [studentMaster, setStudentMaster] = useState(() => {
+                const saved = localStorage.getItem('studentMaster');
+                return saved ? JSON.parse(saved) : {};
+            });
+            const [selectedExamIndex, setSelectedExamIndex] = useState(0);
+            const [showUpload, setShowUpload] = useState(false);
+
+            const handleCSVUpload = (examData) => {
+                const updatedExams = [...allExams, examData];
+                setAllExams(updatedExams);
+                localStorage.setItem('examData', JSON.stringify(updatedExams));
+                setSelectedExamIndex(updatedExams.length - 1);
+                setShowUpload(false);
+                alert(`「${examData.examName}」のデータを読み込みました！（${examData.students.length}名）`);
+            };
+
+            const handleStudentMasterUpload = (master, shouldReplace) => {
+                const updatedMaster = shouldReplace ? master : { ...studentMaster, ...master };
+                setStudentMaster(updatedMaster);
+                localStorage.setItem('studentMaster', JSON.stringify(updatedMaster));
+            };
+
+            const handleDeleteExam = (indexToDelete) => {
+                const updatedExams = allExams.filter((_, idx) => idx !== indexToDelete);
+                setAllExams(updatedExams);
+                localStorage.setItem('examData', JSON.stringify(updatedExams));
+                
+                // 削除後のインデックス調整
+                if (updatedExams.length === 0) {
+                    setSelectedExamIndex(0);
+                } else if (indexToDelete <= selectedExamIndex) {
+                    setSelectedExamIndex(Math.max(0, selectedExamIndex - 1));
+                }
+                
+                alert('試験データを削除しました');
+            };
+
+            const currentExam = allExams[selectedExamIndex] || null;
+
+            if (showUpload) {
+                return <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} existingExams={allExams} studentMaster={studentMaster} onStudentMasterUpload={handleStudentMasterUpload} />;
+            }
+
+            if (!loggedInUser) {
+                return (
+                    <div>
+                        <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000 }}>
+                            <button onClick={() => setShowUpload(true)} style={{
+                                padding: '10px 20px', fontSize: '14px', fontWeight: '600',
+                                background: '#4CAF50', color: 'white', border: 'none',
+                                borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                            }}>
+                                CSVアップロード
+                            </button>
+                        </div>
+                        <LoginForm onLogin={setLoggedInUser} currentExam={currentExam} />
+                    </div>
+                );
+            }
+
+            return (
+                <ExamResultView 
+                    user={loggedInUser} 
+                    onLogout={() => setLoggedInUser(null)} 
+                    currentExam={currentExam}
+                    allExams={allExams}
+                    selectedExamIndex={selectedExamIndex}
+                    onExamChange={setSelectedExamIndex}
+                    onDeleteExam={handleDeleteExam}
+                />
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
