@@ -348,9 +348,9 @@
                                 <th style={{ padding: '8px', textAlign: 'center' }}>問題番号</th>
                                 <th style={{ padding: '8px', textAlign: 'center' }}>自分の解答</th>
                                 {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center' }}>正答</th>}
-                                <th style={{ padding: '8px', textAlign: 'center' }}>結果</th>
-                                <th style={{ padding: '8px', textAlign: 'center' }}>正答率</th>
-                                <th style={{ padding: '8px', textAlign: 'left' }}>出典</th>
+                                {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center' }}>結果</th>}
+                                {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center' }}>正答率</th>}
+                                {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'left' }}>出典</th>}
                             </tr>
                         </thead>
                         <tbody>
@@ -367,21 +367,27 @@
                                                 {formatAnswer(q.correctAnswer)}
                                             </td>
                                         )}
-                                        <td style={{ padding: '8px', textAlign: 'center' }}>
-                                            <span style={{
-                                                padding: '3px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold',
-                                                background: isCorrect ? '#C8E6C9' : '#FFCDD2',
-                                                color: isCorrect ? '#2E7D32' : '#C62828'
-                                            }}>
-                                                {isCorrect ? '○' : '×'}
-                                            </span>
-                                        </td>
-                                        <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
-                                            {q.correctRate}%
-                                        </td>
-                                        <td style={{ padding: '8px', fontSize: '12px' }}>
-                                            {convertSourceToName(q.source, subjectName, sourceMapping)}
-                                        </td>
+                                        {!hideCorrectAnswer && (
+                                            <td style={{ padding: '8px', textAlign: 'center' }}>
+                                                <span style={{
+                                                    padding: '3px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold',
+                                                    background: isCorrect ? '#C8E6C9' : '#FFCDD2',
+                                                    color: isCorrect ? '#2E7D32' : '#C62828'
+                                                }}>
+                                                    {isCorrect ? '○' : '×'}
+                                                </span>
+                                            </td>
+                                        )}
+                                        {!hideCorrectAnswer && (
+                                            <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
+                                                {q.correctRate}%
+                                            </td>
+                                        )}
+                                        {!hideCorrectAnswer && (
+                                            <td style={{ padding: '8px', fontSize: '12px' }}>
+                                                {convertSourceToName(q.source, subjectName, sourceMapping)}
+                                            </td>
+                                        )}
                                     </tr>
                                 );
                             })}
@@ -1465,9 +1471,9 @@
                                                                 <th style={{ padding: '8px', textAlign: 'center', width: '100px' }}>問題番号</th>
                                                                 <th style={{ padding: '8px', textAlign: 'center', width: '80px' }}>自分の解答</th>
                                                                 {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center', width: '80px' }}>正答</th>}
-                                                                <th style={{ padding: '8px', textAlign: 'center', width: '60px' }}>結果</th>
-                                                                <th style={{ padding: '8px', textAlign: 'center', width: '70px' }}>正答率</th>
-                                                                <th style={{ padding: '8px', textAlign: 'left' }}>出典</th>
+                                                                {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center', width: '60px' }}>結果</th>}
+                                                                {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center', width: '70px' }}>正答率</th>}
+                                                                {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'left' }}>出典</th>}
                                                             </tr>
                                                         </thead>
                                                         <tbody>
@@ -1481,19 +1487,25 @@
                                                                         {!hideCorrectAnswer && (
                                                                             <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{q.correctAnswer}</td>
                                                                         )}
-                                                                        <td style={{ padding: '8px', textAlign: 'center' }}>
-                                                                            <span style={{
-                                                                                padding: '3px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold',
-                                                                                background: isCorrect ? '#C8E6C9' : '#FFCDD2',
-                                                                                color: isCorrect ? '#2E7D32' : '#C62828'
-                                                                            }}>
-                                                                                {isCorrect ? '○' : '×'}
-                                                                            </span>
-                                                                        </td>
-                                                                        <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
-                                                                            {q.correctRate}%
-                                                                        </td>
-                                                                        <td style={{ padding: '8px', fontSize: '12px' }}>{displaySource}</td>
+                                                                        {!hideCorrectAnswer && (
+                                                                            <td style={{ padding: '8px', textAlign: 'center' }}>
+                                                                                <span style={{
+                                                                                    padding: '3px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold',
+                                                                                    background: isCorrect ? '#C8E6C9' : '#FFCDD2',
+                                                                                    color: isCorrect ? '#2E7D32' : '#C62828'
+                                                                                }}>
+                                                                                    {isCorrect ? '○' : '×'}
+                                                                                </span>
+                                                                            </td>
+                                                                        )}
+                                                                        {!hideCorrectAnswer && (
+                                                                            <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
+                                                                                {q.correctRate}%
+                                                                            </td>
+                                                                        )}
+                                                                        {!hideCorrectAnswer && (
+                                                                            <td style={{ padding: '8px', fontSize: '12px' }}>{displaySource}</td>
+                                                                        )}
                                                                     </tr>
                                                                 );
                                                             })}
