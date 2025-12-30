@@ -312,7 +312,7 @@
         }
 
         // 問題詳細コンポーネント
-        function QuestionDetails({ questions, sourceMapping, subjectName }) {
+        function QuestionDetails({ questions, sourceMapping, subjectName, hideCorrectAnswer }) {
             if (!questions || questions.length === 0) {
                 return (
                     <div style={{ padding: '15px', background: '#f5f5f5', borderRadius: '6px', marginTop: '10px' }}>
@@ -347,7 +347,7 @@
                             <tr style={{ background: '#757575', color: 'white' }}>
                                 <th style={{ padding: '8px', textAlign: 'center' }}>問題番号</th>
                                 <th style={{ padding: '8px', textAlign: 'center' }}>自分の解答</th>
-                                <th style={{ padding: '8px', textAlign: 'center' }}>正答</th>
+                                {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center' }}>正答</th>}
                                 <th style={{ padding: '8px', textAlign: 'center' }}>結果</th>
                                 <th style={{ padding: '8px', textAlign: 'center' }}>正答率</th>
                                 <th style={{ padding: '8px', textAlign: 'left' }}>出典</th>
@@ -362,9 +362,11 @@
                                         <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: isCorrect ? '#4CAF50' : '#F44336' }}>
                                             {formatAnswer(q.userAnswer)}
                                         </td>
-                                        <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>
-                                            {formatAnswer(q.correctAnswer)}
-                                        </td>
+                                        {!hideCorrectAnswer && (
+                                            <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>
+                                                {formatAnswer(q.correctAnswer)}
+                                            </td>
+                                        )}
                                         <td style={{ padding: '8px', textAlign: 'center' }}>
                                             <span style={{
                                                 padding: '3px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold',
@@ -1201,6 +1203,11 @@
             const [expandedSubject, setExpandedSubject] = useState(null);
             const [showAllQuestions, setShowAllQuestions] = useState(false);
             
+            // 卒業判定試験かどうかを判定
+            const isGraduationExam = currentExam && currentExam.examName && currentExam.examName.includes('卒業判定');
+            // 学生は卒業判定試験では正答を見れない
+            const hideCorrectAnswer = !user.isTeacher && isGraduationExam;
+            
             // 学生用の場合も、試験が切り替わったらallResultsから最新データを取得
             const result = user.isTeacher 
                 ? allResults.find(r => r.studentId === selectedStudentId) 
@@ -1379,6 +1386,7 @@
                                                             questions={result.questionDetails['必修']} 
                                                             sourceMapping={sourceMapping}
                                                             subjectName="必修"
+                                                            hideCorrectAnswer={hideCorrectAnswer}
                                                         />
                                                     )}
                                                 </td>
@@ -1414,6 +1422,7 @@
                                                                     questions={result.questionDetails[subjectName]} 
                                                                     sourceMapping={sourceMapping}
                                                                     subjectName={subjectName}
+                                                                    hideCorrectAnswer={hideCorrectAnswer}
                                                                 />
                                                             )}
                                                         </td>
@@ -1455,7 +1464,7 @@
                                                             <tr style={{ background: '#757575', color: 'white' }}>
                                                                 <th style={{ padding: '8px', textAlign: 'center', width: '100px' }}>問題番号</th>
                                                                 <th style={{ padding: '8px', textAlign: 'center', width: '80px' }}>自分の解答</th>
-                                                                <th style={{ padding: '8px', textAlign: 'center', width: '80px' }}>正答</th>
+                                                                {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center', width: '80px' }}>正答</th>}
                                                                 <th style={{ padding: '8px', textAlign: 'center', width: '60px' }}>結果</th>
                                                                 <th style={{ padding: '8px', textAlign: 'center', width: '70px' }}>正答率</th>
                                                                 <th style={{ padding: '8px', textAlign: 'left' }}>出典</th>
@@ -1469,7 +1478,9 @@
                                                                     <tr key={index} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
                                                                         <td style={{ padding: '8px', textAlign: 'center' }}>{q.questionNumber}</td>
                                                                         <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: isCorrect ? '#4CAF50' : '#F44336' }}>{q.userAnswer}</td>
-                                                                        <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{q.correctAnswer}</td>
+                                                                        {!hideCorrectAnswer && (
+                                                                            <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{q.correctAnswer}</td>
+                                                                        )}
                                                                         <td style={{ padding: '8px', textAlign: 'center' }}>
                                                                             <span style={{
                                                                                 padding: '3px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold',
