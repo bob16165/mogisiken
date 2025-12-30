@@ -258,24 +258,6 @@
             );
         }
 
-        // 問題詳細コンポーネント
-        function QuestionDetails({ questions }) {
-            if (!questions || questions.length === 0) {
-                return (
-                    <div style={{ padding: '15px', background: '#f5f5f5', borderRadius: '6px', marginTop: '10px' }}>
-                        <p style={{ margin: 0, color: '#999' }}>問題詳細データがありません</p>
-                    </div>
-                );
-            }
-
-            // 解答を文字列に変換（配列の場合はカンマ区切り）
-            const formatAnswer = (answer) => {
-                if (Array.isArray(answer)) {
-                    return answer.join(', ');
-                }
-                return answer;
-            };
-
         // 苦手領域を計算する関数（全試験の累積）
         function calculateWeakAreas(allExams, studentId) {
             const weakAreas = {};
@@ -328,6 +310,25 @@
             
             return source; // マッピングがなければそのまま返す
         }
+
+        // 問題詳細コンポーネント
+        function QuestionDetails({ questions, sourceMapping, subjectName }) {
+            if (!questions || questions.length === 0) {
+                return (
+                    <div style={{ padding: '15px', background: '#f5f5f5', borderRadius: '6px', marginTop: '10px' }}>
+                        <p style={{ margin: 0, color: '#999' }}>問題詳細データがありません</p>
+                    </div>
+                );
+            }
+
+            // 解答を文字列に変換（配列の場合はカンマ区切り）
+            const formatAnswer = (answer) => {
+                if (Array.isArray(answer)) {
+                    return answer.join(', ');
+                }
+                return answer;
+            };
+
             const isAnswerCorrect = (userAnswer, correctAnswer) => {
                 if (Array.isArray(userAnswer) && Array.isArray(correctAnswer)) {
                     if (userAnswer.length !== correctAnswer.length) return false;
