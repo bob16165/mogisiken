@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模擬試験結果閲覧</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+                'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            background: #fafafa;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState } = React;
+
+        // サンプルデータ
+        const rawStudentScores = [
+            {
+                studentId: 'S001',
+                studentName: '山田太郎',
+                required: 45,
+                解剖学: 38,
+                生理学: 42,
+                運動学: 35,
+                病理学: 40,
+                衛生学: 36,
+                リハビリ医学: 41,
+                一般臨床: 44,
+                外科学: 39,
+                整形外科: 43,
+                柔整理論: 40,
+            },
+            {
+                studentId: 'S002',
+                studentName: '佐藤花子',
+                required: 42,
+                解剖学: 35,
+                生理学: 38,
+                運動学: 40,
+                病理学: 37,
+                衛生学: 39,
+                リハビリ医学: 38,
+                一般臨床: 41,
+                外科学: 36,
+                整形外科: 40,
+                柔整理論: 38,
+            },
+            {
+                studentId: 'S003',
+                studentName: '鈴木一郎',
+                required: 48,
+                解剖学: 42,
+                生理学: 45,
+                運動学: 38,
+                病理学: 43,
+                衛生学: 40,
+                リハビリ医学: 44,
+                一般臨床: 46,
+                外科学: 41,
+                整形外科: 45,
+                柔整理論: 43,
+            },
+            {
+                studentId: 'S004',
+                studentName: '田中美咲',
+                required: 40,
+                解剖学: 33,
+                生理学: 36,
+                運動学: 38,
+                病理学: 35,
+                衛生学: 37,
+                リハビリ医学: 36,
+                一般臨床: 39,
+                外科学: 34,
+                整形外科: 38,
+                柔整理論: 36,
+            },
+            {
+                studentId: 'S005',
+                studentName: '高橋健',
+                required: 46,
+                解剖学: 40,
+                生理学: 43,
+                運動学: 36,
+                病理学: 41,
+                衛生学: 38,
+                リハビリ医学: 42,
+                一般臨床: 44,
+                外科学: 39,
+                整形外科: 42,
+                柔整理論: 41,
+            },
+        ];
+
+        const maxScores = {
+            required: 50,
+            解剖学: 50,
+            生理学: 50,
+            運動学: 50,
+            病理学: 50,
+            衛生学: 50,
+            リハビリ医学: 50,
+            一般臨床: 50,
+            外科学: 50,
+            整形外科: 50,
+            柔整理論: 50,
+        };
+
+        const subjectNames = [
+            '解剖学', '生理学', '運動学', '病理学', '衛生学',
+            'リハビリ医学', '一般臨床', '外科学', '整形外科', '柔整理論'
+        ];
+
+        // ユーティリティ関数
+        function calculateDeviation(score, scores) {
+            if (scores.length === 0) return 50;
+            const mean = scores.reduce((sum, s) => sum + s, 0) / scores.length;
+            const variance = scores.reduce((sum, s) => sum + Math.pow(s - mean, 2), 0) / scores.length;
+            const standardDeviation = Math.sqrt(variance);
+            if (standardDeviation === 0) return 50;
+            const deviation = ((score - mean) / standardDeviation) * 10 + 50;
+            return Math.round(deviation * 10) / 10;
+        }
+
+        function calculateRank(score, scores) {
+            const sortedScores = [...scores].sort((a, b) => b - a);
+            return sortedScores.findIndex(s => s === score) + 1;
+        }
+
+        function calculateScoreRate(score, maxScore) {
+            if (maxScore === 0) return 0;
+            return Math.round((score / maxScore) * 1000) / 10;
+        }
+
+        function calculateSubjectStats(score, maxScore, allScores) {
+            const scoreRate = calculateScoreRate(score, maxScore);
+            const scoreRates = allScores.map(s => calculateScoreRate(s, maxScore));
+            const avgScoreRate = scoreRates.reduce((sum, r) => sum + r, 0) / scoreRates.length;
+            const variance = scoreRates.reduce((sum, r) => sum + Math.pow(r - avgScoreRate, 2), 0) / scoreRates.length;
+            const stdDev = Math.sqrt(variance);
+
+            return {
+                score,
+                maxScore,
+                scoreRate,
+                rank: calculateRank(score, allScores),
+                deviation: calculateDeviation(score, allScores),
+                averageScoreRate: Math.round(avgScoreRate * 10) / 10,
+                scoreRateStdDev: Math.round(stdDev * 10) / 10
+            };
+        }
+
+        function generateExamResults() {
+            const allRequiredScores = rawStudentScores.map(s => s.required);
+            const allSubjectScores = {};
+            
+            subjectNames.forEach(subjectName => {
+                allSubjectScores[subjectName] = rawStudentScores.map(s => s[subjectName]);
+            });
+
+            return rawStudentScores.map(student => {
+                const subjectScores = subjectNames.map(name => student[name]);
+                const totalScore = student.required + subjectScores.reduce((sum, s) => sum + s, 0);
+                const totalMaxScore = maxScores.required + subjectNames.length * 50;
+                const generalScore = subjectScores.reduce((sum, s) => sum + s, 0);
+                const generalMaxScore = subjectNames.length * 50;
+
+                const requiredStats = calculateSubjectStats(
+                    student.required,
+                    maxScores.required,
+                    allRequiredScores
+                );
+
+                const subjects = {};
+                subjectNames.forEach(subjectName => {
+                    subjects[subjectName] = calculateSubjectStats(
+                        student[subjectName],
+                        maxScores[subjectName],
+                        allSubjectScores[subjectName] || []
+                    );
+                });
+
+                return {
+                    studentId: student.studentId,
+                    studentName: student.studentName,
+                    totalScore,
+                    totalMaxScore,
+                    requiredScore: student.required,
+                    requiredMaxScore: maxScores.required,
+                    generalScore,
+                    generalMaxScore,
+                    required: requiredStats,
+                    subjects
+                };
+            });
+        }
+
+        // 円グラフコンポーネント
+        function ScoreCircleChart({ scoreRate, averageRate, stdDeviation, size = 120 }) {
+            const center = size / 2;
+            const radius = (size / 2) - 15;
+            const strokeWidth = 8;
+
+            const scoreAngle = (scoreRate / 100) * 360;
+            const avgAngle = (averageRate / 100) * 360;
+            const dRate = Math.max(0, averageRate - stdDeviation);
+            const aRate = Math.min(100, averageRate + stdDeviation);
+            const dAngle = (dRate / 100) * 360;
+            const aAngle = (aRate / 100) * 360;
+
+            const polarToCartesian = (angle, r) => {
+                const radian = ((angle - 90) * Math.PI) / 180;
+                return {
+                    x: center + r * Math.cos(radian),
+                    y: center + r * Math.sin(radian),
+                };
+            };
+
+            const scorePos = polarToCartesian(scoreAngle, radius);
+            const avgPos = polarToCartesian(avgAngle, radius + 10);
+            const dPos = polarToCartesian(dAngle, radius + 10);
+            const aPos = polarToCartesian(aAngle, radius + 10);
+
+            const describeArc = (startAngle, endAngle) => {
+                const start = polarToCartesian(startAngle, radius);
+                const end = polarToCartesian(endAngle, radius);
+                const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1';
+                return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 1 ${end.x} ${end.y}`;
+            };
+
+            return (
+                <svg width={size} height={size} style={{ display: 'block', margin: '0 auto' }}>
+                    <circle cx={center} cy={center} r={radius} fill="none" stroke="#e0e0e0" strokeWidth={strokeWidth} />
+                    {scoreRate > 0 && (
+                        <path d={describeArc(0, scoreAngle)} fill="none" stroke="#2196F3" strokeWidth={strokeWidth} strokeLinecap="round" />
+                    )}
+                    <circle cx={scorePos.x} cy={scorePos.y} r={6} fill="#2196F3" stroke="white" strokeWidth={2} />
+                    <line x1={avgPos.x} y1={avgPos.y} x2={center} y2={center} stroke="#4CAF50" strokeWidth={2} />
+                    <text x={avgPos.x} y={avgPos.y} textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight="bold" fill="#4CAF50">平均</text>
+                    <line x1={dPos.x} y1={dPos.y} x2={center} y2={center} stroke="#FF9800" strokeWidth={2} strokeDasharray="3,3" />
+                    <text x={dPos.x} y={dPos.y} textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight="bold" fill="#FF9800">D</text>
+                    <line x1={aPos.x} y1={aPos.y} x2={center} y2={center} stroke="#F44336" strokeWidth={2} strokeDasharray="3,3" />
+                    <text x={aPos.x} y={aPos.y} textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight="bold" fill="#F44336">A</text>
+                    <text x={center} y={center - 5} textAnchor="middle" dominantBaseline="middle" fontSize="20" fontWeight="bold" fill="#333">{scoreRate.toFixed(1)}%</text>
+                    <text x={center} y={10} textAnchor="middle" fontSize="10" fill="#999">0%/100%</text>
+                </svg>
+            );
+        }
+
+        // 結果表示コンポーネント
+        function ExamResultView({ result }) {
+            const tableHeaderStyle = {
+                padding: '12px',
+                textAlign: 'left',
+                borderBottom: '2px solid #ddd',
+            };
+
+            const tableCellStyle = {
+                padding: '12px',
+                borderBottom: '1px solid #ddd',
+            };
+
+            return (
+                <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+                    <h1 style={{ textAlign: 'center', color: '#333' }}>模擬試験結果</h1>
+                    
+                    <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                        <h2 style={{ margin: '0 0 10px 0' }}>学生情報</h2>
+                        <p style={{ margin: '5px 0' }}><strong>受験番号:</strong> {result.studentId}</p>
+                        <p style={{ margin: '5px 0' }}><strong>氏名:</strong> {result.studentName}</p>
+                    </div>
+
+                    <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                        <h2 style={{ margin: '0 0 10px 0' }}>総合成績</h2>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '15px' }}>
+                            <div><strong>総合点:</strong> {result.totalScore}/{result.totalMaxScore}</div>
+                            <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>
+                            <div><strong>一般合計:</strong> {result.generalScore}/{result.generalMaxScore}</div>
+                        </div>
+                    </div>
+
+                    <div style={{ marginBottom: '20px' }}>
+                        <h2>必修</h2>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '20px', marginBottom: '20px' }}>
+                            <div>
+                                <ScoreCircleChart
+                                    scoreRate={result.required.scoreRate}
+                                    averageRate={result.required.averageScoreRate}
+                                    stdDeviation={result.required.scoreRateStdDev}
+                                    size={150}
+                                />
+                                <div style={{ textAlign: 'center', marginTop: '10px', fontSize: '12px', color: '#666' }}>
+                                    <div><span style={{ color: '#4CAF50' }}>●</span> 平均: {result.required.averageScoreRate.toFixed(1)}%</div>
+                                    <div><span style={{ color: '#FF9800' }}>●</span> D (-1σ): {Math.max(0, result.required.averageScoreRate - result.required.scoreRateStdDev).toFixed(1)}%</div>
+                                    <div><span style={{ color: '#F44336' }}>●</span> A (+1σ): {Math.min(100, result.required.averageScoreRate + result.required.scoreRateStdDev).toFixed(1)}%</div>
+                                </div>
+                            </div>
+                            
+                            <table style={{ width: '100%', borderCollapse: 'collapse', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', alignSelf: 'start' }}>
+                                <thead>
+                                    <tr style={{ background: '#1976d2', color: 'white' }}>
+                                        <th style={tableHeaderStyle}>得点</th>
+                                        <th style={tableHeaderStyle}>得点率</th>
+                                        <th style={tableHeaderStyle}>順位</th>
+                                        <th style={tableHeaderStyle}>偏差値</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr style={{ background: 'white' }}>
+                                        <td style={tableCellStyle}>{result.required.score}/{result.required.maxScore}</td>
+                                        <td style={tableCellStyle}>{result.required.scoreRate}%</td>
+                                        <td style={tableCellStyle}>{result.required.rank}位</td>
+                                        <td style={tableCellStyle}>{result.required.deviation}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h2>科目別成績</h2>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px' }}>
+                            <thead>
+                                <tr style={{ background: '#1976d2', color: 'white' }}>
+                                    <th style={tableHeaderStyle}>科目</th>
+                                    <th style={tableHeaderStyle}>得点</th>
+                                    <th style={tableHeaderStyle}>得点率</th>
+                                    <th style={tableHeaderStyle}>順位</th>
+                                    <th style={tableHeaderStyle}>偏差値</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {subjectNames.map((subjectName, index) => {
+                                    const subject = result.subjects[subjectName];
+                                    if (!subject) return null;
+                                    
+                                    return (
+                                        <tr key={subjectName} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
+                                            <td style={tableCellStyle}><strong>{subjectName}</strong></td>
+                                            <td style={tableCellStyle}>{subject.score}/{subject.maxScore}</td>
+                                            <td style={tableCellStyle}>{subject.scoreRate}%</td>
+                                            <td style={tableCellStyle}>{subject.rank}位</td>
+                                            <td style={tableCellStyle}>{subject.deviation}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+
+                        <h3 style={{ marginBottom: '20px' }}>科目別得点率（円グラフ）</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '30px', marginBottom: '20px' }}>
+                            {subjectNames.map((subjectName) => {
+                                const subject = result.subjects[subjectName];
+                                if (!subject) return null;
+                                
+                                return (
+                                    <div key={subjectName} style={{ background: 'white', padding: '15px', borderRadius: '8px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                                        <h4 style={{ textAlign: 'center', margin: '0 0 10px 0', color: '#333' }}>{subjectName}</h4>
+                                        <ScoreCircleChart
+                                            scoreRate={subject.scoreRate}
+                                            averageRate={subject.averageScoreRate}
+                                            stdDeviation={subject.scoreRateStdDev}
+                                            size={180}
+                                        />
+                                        <div style={{ marginTop: '10px', fontSize: '11px', color: '#666' }}>
+                                            <div style={{ marginBottom: '3px' }}>
+                                                <span style={{ color: '#2196F3', fontWeight: 'bold' }}>●</span> あなた: {subject.scoreRate}%
+                                            </div>
+                                            <div style={{ marginBottom: '3px' }}>
+                                                <span style={{ color: '#4CAF50' }}>●</span> 平均: {subject.averageScoreRate.toFixed(1)}%
+                                            </div>
+                                            <div style={{ marginBottom: '3px' }}>
+                                                <span style={{ color: '#FF9800' }}>●</span> D (-1σ): {Math.max(0, subject.averageScoreRate - subject.scoreRateStdDev).toFixed(1)}%
+                                            </div>
+                                            <div>
+                                                <span style={{ color: '#F44336' }}>●</span> A (+1σ): {Math.min(100, subject.averageScoreRate + subject.scoreRateStdDev).toFixed(1)}%
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        // メインアプリ
+        function App() {
+            const allResults = generateExamResults();
+            const [selectedStudentId, setSelectedStudentId] = useState(allResults[0]?.studentId || '');
+            const selectedResult = allResults.find(r => r.studentId === selectedStudentId);
+
+            return (
+                <div style={{ minHeight: '100vh', background: '#fafafa' }}>
+                    <div style={{ background: '#1976d2', color: 'white', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                        <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+                            <h1 style={{ margin: '0 0 15px 0' }}>模擬試験結果閲覧システム</h1>
+                            <div>
+                                <label htmlFor="student-select" style={{ marginRight: '10px' }}>学生選択:</label>
+                                <select
+                                    id="student-select"
+                                    value={selectedStudentId}
+                                    onChange={(e) => setSelectedStudentId(e.target.value)}
+                                    style={{ padding: '8px 12px', fontSize: '16px', borderRadius: '4px', border: 'none', minWidth: '200px' }}
+                                >
+                                    {allResults.map(result => (
+                                        <option key={result.studentId} value={result.studentId}>
+                                            {result.studentId} - {result.studentName}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    {selectedResult && <ExamResultView result={selectedResult} />}
+                </div>
+            );
+        }
+
+        // レンダリング
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
