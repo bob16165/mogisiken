@@ -1548,32 +1548,55 @@
 
             const handleCSVUpload = (examData) => {
                 const updatedExams = [...allExams, examData];
-                setAllExams(updatedExams);
-                localStorage.setItem('examData', JSON.stringify(updatedExams));
-                setSelectedExamIndex(updatedExams.length - 1);
-                setShowUpload(false);
-                alert(`「${examData.examName}」のデータを読み込みました！（${examData.students.length}名）`);
+                try {
+                    localStorage.setItem('examData', JSON.stringify(updatedExams));
+                    setAllExams(updatedExams);
+                    setSelectedExamIndex(updatedExams.length - 1);
+                    setShowUpload(false);
+                    alert(`「${examData.examName}」のデータを読み込みました！（${examData.students.length}名）`);
+                } catch (err) {
+                    if (err.name === 'QuotaExceededError') {
+                        alert('データの保存容量が上限を超えました。\n\n古い試験データを削除するか、ブラウザのデータをクリアしてください。\n\n現在の登録試験数: ' + allExams.length + '回');
+                    } else {
+                        alert('データの保存に失敗しました: ' + err.message);
+                    }
+                    setShowUpload(false);
+                }
             };
 
             const handleStudentMasterUpload = (master, shouldReplace) => {
                 const updatedMaster = shouldReplace ? master : { ...studentMaster, ...master };
-                setStudentMaster(updatedMaster);
-                localStorage.setItem('studentMaster', JSON.stringify(updatedMaster));
+                try {
+                    localStorage.setItem('studentMaster', JSON.stringify(updatedMaster));
+                    setStudentMaster(updatedMaster);
+                    const count = Object.keys(master).length;
+                    alert(`学籍マスタを${shouldReplace ? '上書き' : '追加'}登録しました（${count}件）`);
+                } catch (err) {
+                    if (err.name === 'QuotaExceededError') {
+                        alert('学籍マスタの保存容量が上限を超えました。');
+                    } else {
+                        alert('学籍マスタの保存に失敗しました: ' + err.message);
+                    }
+                }
             };
 
             const handleDeleteExam = (indexToDelete) => {
                 const updatedExams = allExams.filter((_, idx) => idx !== indexToDelete);
-                setAllExams(updatedExams);
-                localStorage.setItem('examData', JSON.stringify(updatedExams));
-                
-                // 削除後のインデックス調整
-                if (updatedExams.length === 0) {
-                    setSelectedExamIndex(0);
-                } else if (indexToDelete <= selectedExamIndex) {
-                    setSelectedExamIndex(Math.max(0, selectedExamIndex - 1));
+                try {
+                    localStorage.setItem('examData', JSON.stringify(updatedExams));
+                    setAllExams(updatedExams);
+                    
+                    // 削除後のインデックス調整
+                    if (updatedExams.length === 0) {
+                        setSelectedExamIndex(0);
+                    } else if (indexToDelete <= selectedExamIndex) {
+                        setSelectedExamIndex(Math.max(0, selectedExamIndex - 1));
+                    }
+                    
+                    alert('試験データを削除しました');
+                } catch (err) {
+                    alert('削除に失敗しました: ' + err.message);
                 }
-                
-                alert('試験データを削除しました');
             };
 
             const currentExam = allExams[selectedExamIndex] || null;
