@@ -635,7 +635,8 @@
                                 for (let i = frontStartIdx + 1; i < headers.length && headers[i].startsWith('Q'); i++) {
                                     const qNum = headers[i].trim();
                                     const source = values[i]?.trim();
-                                    if (source) {
+                                    // N/A、空文字、-を無視
+                                    if (source && source !== 'N/A' && source !== '-' && source !== '#N/A') {
                                         sourcesMap[qNum] = source;
                                     }
                                 }
@@ -647,7 +648,8 @@
                                 for (let i = backStartIdx + 1; i < headers.length && headers[i].startsWith('Q'); i++) {
                                     const qNum = 'B' + headers[i].trim().substring(1);
                                     const source = values[i]?.trim();
-                                    if (source) {
+                                    // N/A、空文字、-を無視
+                                    if (source && source !== 'N/A' && source !== '-' && source !== '#N/A') {
                                         sourcesMap[qNum] = source;
                                     }
                                 }
