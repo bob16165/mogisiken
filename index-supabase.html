@@ -2058,11 +2058,27 @@
                 return <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} existingExams={allExams} studentMaster={studentMaster} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={handleSourceMappingUpdate} onDeleteExam={handleDeleteExam} />;
             }
 
+            // CSVアップロードボタンの認証処理
+            const handleCSVUploadClick = () => {
+                const adminId = prompt('管理者IDを入力してください:');
+                if (!adminId) return;
+                
+                const adminPassword = prompt('管理者パスワードを入力してください:');
+                if (!adminPassword) return;
+                
+                // 管理者認証チェック
+                if (adminId === 'admin' && adminPassword === 'admin123') {
+                    setShowUpload(true);
+                } else {
+                    alert('IDまたはパスワードが間違っています');
+                }
+            };
+
             if (!loggedInUser) {
                 return (
                     <div>
                         <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000 }}>
-                            <button onClick={() => setShowUpload(true)} style={{
+                            <button onClick={handleCSVUploadClick} style={{
                                 padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                 background: '#4CAF50', color: 'white', border: 'none',
                                 borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
