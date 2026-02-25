@@ -8,6 +8,8 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -338,6 +340,26 @@
             return source; // マッピングがなければそのまま返す
         }
 
+        // 解答を文字列に変換（配列の場合はカンマ区切り）
+        function formatAnswer(answer) {
+            if (Array.isArray(answer)) {
+                return answer.join(', ');
+            }
+            if (answer === null || answer === undefined) return '';
+            return answer;
+        }
+
+        // 正誤判定（配列対応）
+        function isAnswerCorrect(userAnswer, correctAnswer) {
+            if (Array.isArray(userAnswer) && Array.isArray(correctAnswer)) {
+                if (userAnswer.length !== correctAnswer.length) return false;
+                const sortedUser = [...userAnswer].sort();
+                const sortedCorrect = [...correctAnswer].sort();
+                return sortedUser.every((val, idx) => val === sortedCorrect[idx]);
+            }
+            return userAnswer === correctAnswer;
+        }
+
         // 問題詳細コンポーネント
         function QuestionDetails({ questions, sourceMapping, subjectName, hideCorrectAnswer }) {
             if (!questions || questions.length === 0) {
@@ -347,24 +369,6 @@
                     </div>
                 );
             }
-
-            // 解答を文字列に変換（配列の場合はカンマ区切り）
-            const formatAnswer = (answer) => {
-                if (Array.isArray(answer)) {
-                    return answer.join(', ');
-                }
-                return answer;
-            };
-
-            const isAnswerCorrect = (userAnswer, correctAnswer) => {
-                if (Array.isArray(userAnswer) && Array.isArray(correctAnswer)) {
-                    if (userAnswer.length !== correctAnswer.length) return false;
-                    const sortedUser = [...userAnswer].sort();
-                    const sortedCorrect = [...correctAnswer].sort();
-                    return sortedUser.every((val, idx) => val === sortedCorrect[idx]);
-                }
-                return userAnswer === correctAnswer;
-            };
 
             return (
                 <div style={{ marginTop: '15px' }}>
@@ -1205,6 +1209,224 @@
             link.click();
         }
 
+        // 管理者用ダウンロード関数
+        function escapeCsvValue(value) {
+            if (value === null || value === undefined) return '';
+            const str = String(value);
+            if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+                return `"${str.replace(/"/g, '""')}"`;
+            }
+            return str;
+        }
+
+        function buildCsv(rows) {
+            return rows.map(row => row.map(escapeCsvValue).join(',')).join('\n');
+        }
+
+        function sanitizeFilename(name) {
+            if (!name) return '未選択試験';
+            return String(name).replace(/[\\/:*?"<>|]/g, '_');
+        }
+
+        function downloadCsv(content, filename) {
+            const bom = '\ufeff';
+            const blob = new Blob([bom + content], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = filename;
+            link.click();
+        }
+
+        function buildListCsv(allResults) {
+            const sortedResults = [...allResults].sort((a, b) => b.totalScore - a.totalScore);
+            const header = ['順位', '学籍番号', '氏名', '総合点', '4教科', '必修', ...subjectNames];
+            const rows = sortedResults.map((result, index) => [
+                index + 1,
+                result.studentId,
+                result.studentName,
+                result.totalScore,
+                result.fourSubjectsScore,
+                result.requiredScore,
+                ...subjectNames.map(subjectName => result.subjects[subjectName]?.score || 0)
+            ]);
+            return buildCsv([header, ...rows]);
+        }
+
+        async function downloadPdfWithCoverAndSections(coverElement, sections, filename) {
+            if (!coverElement) {
+                alert('PDF化する表示領域が見つかりませんでした');
+                return;
+            }
+            if (!window.html2canvas || !window.jspdf) {
+                alert('PDF生成ライブラリの読み込みに失敗しました');
+                return;
+            }
+
+            const { jsPDF } = window.jspdf;
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const pageWidth = pdf.internal.pageSize.getWidth();
+            const pageHeight = pdf.internal.pageSize.getHeight();
+            const margin = 8;
+
+            const coverCanvas = await window.html2canvas(coverElement, {
+                scale: 2,
+                useCORS: true,
+                backgroundColor: '#ffffff'
+            });
+            let coverWidth = pageWidth - margin * 2;
+            let coverHeight = (coverCanvas.height * coverWidth) / coverCanvas.width;
+            if (coverHeight > pageHeight - margin * 2) {
+                coverHeight = pageHeight - margin * 2;
+                coverWidth = (coverCanvas.width * coverHeight) / coverCanvas.height;
+            }
+            pdf.addImage(coverCanvas.toDataURL('image/png'), 'PNG', (pageWidth - coverWidth) / 2, margin, coverWidth, coverHeight);
+
+            if (sections && sections.length > 0) {
+                for (let i = 0; i < sections.length; i++) {
+                    const section = sections[i];
+                    const canvas = await window.html2canvas(section, {
+                        scale: 2,
+                        useCORS: true,
+                        backgroundColor: '#ffffff'
+                    });
+                    let imgWidth = pageWidth - margin * 2;
+                    let imgHeight = (canvas.height * imgWidth) / canvas.width;
+                    if (imgHeight > pageHeight - margin * 2) {
+                        imgHeight = pageHeight - margin * 2;
+                        imgWidth = (canvas.width * imgHeight) / canvas.height;
+                    }
+                    pdf.addPage();
+                    pdf.addImage(canvas.toDataURL('image/png'), 'PNG', (pageWidth - imgWidth) / 2, margin, imgWidth, imgHeight);
+                }
+            }
+
+            pdf.save(filename);
+        }
+
+        function createPdfSectionBase() {
+            const section = document.createElement('div');
+            section.style.width = '794px';
+            section.style.padding = '20px 24px';
+            section.style.background = '#ffffff';
+            section.style.color = '#222';
+            section.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif";
+            section.style.boxSizing = 'border-box';
+            return section;
+        }
+
+        function createTitle(text) {
+            const title = document.createElement('h2');
+            title.textContent = text;
+            title.style.margin = '0 0 12px 0';
+            title.style.fontSize = '20px';
+            title.style.color = '#1976d2';
+            return title;
+        }
+
+        function createQuestionsTable(questions, subjectName, sourceMapping, hideCorrectAnswer) {
+            const table = document.createElement('table');
+            table.style.width = '100%';
+            table.style.borderCollapse = 'collapse';
+            table.style.fontSize = '12px';
+
+            const thead = document.createElement('thead');
+            const headerRow = document.createElement('tr');
+            headerRow.style.background = '#757575';
+            headerRow.style.color = '#fff';
+
+            const headers = ['問題番号', '自分の解答'];
+            if (!hideCorrectAnswer) {
+                headers.push('正答', '結果', '正答率', '出典');
+            }
+            headers.forEach(text => {
+                const th = document.createElement('th');
+                th.textContent = text;
+                th.style.padding = '6px';
+                th.style.border = '1px solid #999';
+                th.style.textAlign = text === '出典' ? 'left' : 'center';
+                headerRow.appendChild(th);
+            });
+            thead.appendChild(headerRow);
+            table.appendChild(thead);
+
+            const tbody = document.createElement('tbody');
+            questions.forEach((q, idx) => {
+                const tr = document.createElement('tr');
+                tr.style.background = idx % 2 === 0 ? '#fff' : '#f9f9f9';
+                const correct = isAnswerCorrect(q.userAnswer, q.correctAnswer);
+
+                const cells = [
+                    q.questionNumber,
+                    formatAnswer(q.userAnswer)
+                ];
+                if (!hideCorrectAnswer) {
+                    cells.push(
+                        formatAnswer(q.correctAnswer),
+                        correct ? '○' : '×',
+                        q.correctRate ? `${q.correctRate}%` : '',
+                        convertSourceToName(q.source, subjectName, sourceMapping)
+                    );
+                }
+
+                cells.forEach((text, cellIdx) => {
+                    const td = document.createElement('td');
+                    td.textContent = text;
+                    td.style.padding = '6px';
+                    td.style.border = '1px solid #ddd';
+                    td.style.textAlign = cellIdx === cells.length - 1 && !hideCorrectAnswer ? 'left' : 'center';
+
+                    if (!hideCorrectAnswer) {
+                        if (cellIdx === 1) {
+                            td.style.fontWeight = '700';
+                            td.style.color = correct ? '#4CAF50' : '#F44336';
+                        }
+                        if (cellIdx === 3) {
+                            td.style.fontWeight = '700';
+                            td.style.color = correct ? '#2E7D32' : '#C62828';
+                            td.style.background = correct ? '#C8E6C9' : '#FFCDD2';
+                            td.style.borderRadius = '4px';
+                        }
+                        if (cellIdx === 4) {
+                            const rate = typeof q.correctRate === 'number' ? q.correctRate : null;
+                            td.style.fontWeight = '700';
+                            td.style.color = rate >= 80 ? '#4CAF50' : rate >= 50 ? '#FF9800' : '#F44336';
+                        }
+                    }
+
+                    tr.appendChild(td);
+                });
+                tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            return table;
+        }
+
+        function buildSubjectQuestionSections(result, sourceMapping, hideCorrectAnswer) {
+            const sections = [];
+            const allSubjects = ['必修', ...subjectNames];
+            allSubjects.forEach(subjectName => {
+                const subjectSection = createPdfSectionBase();
+                subjectSection.appendChild(createTitle(`${subjectName} 問題別詳細`));
+
+                const questions = result.questionDetails?.[subjectName] || [];
+                if (questions.length > 0) {
+                    const table = createQuestionsTable(questions, subjectName, sourceMapping, hideCorrectAnswer);
+                    subjectSection.appendChild(table);
+                } else {
+                    const empty = document.createElement('div');
+                    empty.textContent = '問題詳細データがありません';
+                    empty.style.padding = '10px';
+                    empty.style.background = '#f5f5f5';
+                    empty.style.borderRadius = '6px';
+                    subjectSection.appendChild(empty);
+                }
+
+                sections.push(subjectSection);
+            });
+
+            return sections;
+        }
+
         // ログインコンポーネント
         function LoginForm({ onLogin, currentExam, studentMaster }) {
             const [studentId, setStudentId] = useState('');
@@ -1415,6 +1637,7 @@
             const [viewMode, setViewMode] = useState('detail');
             const [expandedSubject, setExpandedSubject] = useState(null);
             const [showAllQuestions, setShowAllQuestions] = useState(false);
+            const [downloadMode, setDownloadMode] = useState('list');
             
             // 卒業判定試験の場合、学生には正答を非表示
             const hideCorrectAnswer = !user.isTeacher && currentExam?.hideCorrectAnswer;
@@ -1432,6 +1655,49 @@
             const handleSelectStudent = (studentId) => {
                 setSelectedStudentId(studentId);
                 setViewMode('detail');
+            };
+
+            const handleAdminDownload = () => {
+                const safeExamName = sanitizeFilename(currentExam?.examName || '未選択試験');
+                if (downloadMode === 'list') {
+                    const csv = buildListCsv(allResults);
+                    downloadCsv(csv, `一覧結果_${safeExamName}.csv`);
+                    return;
+                }
+
+                const target = allResults.find(r => r.studentId === selectedStudentId);
+                if (!target) {
+                    alert('対象の学生が見つかりませんでした');
+                    return;
+                }
+
+                const studentSafeId = sanitizeFilename(target.studentId || 'student');
+                const printRoot = document.createElement('div');
+                printRoot.style.position = 'fixed';
+                printRoot.style.left = '-10000px';
+                printRoot.style.top = '0';
+                printRoot.style.width = '794px';
+                printRoot.style.background = '#fff';
+
+                const sections = buildSubjectQuestionSections(target, sourceMapping, hideCorrectAnswer);
+                sections.forEach(section => printRoot.appendChild(section));
+                document.body.appendChild(printRoot);
+
+                const coverEl = document.getElementById('detail-print-area');
+                const runExport = () => {
+                    downloadPdfWithCoverAndSections(coverEl, sections, `個別結果_${studentSafeId}_${safeExamName}.pdf`)
+                        .finally(() => {
+                            document.body.removeChild(printRoot);
+                        });
+                };
+
+                if (viewMode !== 'detail') {
+                    setViewMode('detail');
+                    setTimeout(runExport, 400);
+                    return;
+                }
+
+                runExport();
             };
 
             return (
@@ -1474,7 +1740,7 @@
                                 </div>
                             </div>
                             {user.isTeacher && (
-                                <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginTop: '15px' }}>
+                                <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginTop: '15px', flexWrap: 'wrap' }}>
                                     <div style={{ display: 'flex', gap: '10px' }}>
                                         <button onClick={() => setViewMode('list')} style={{
                                             padding: '8px 16px', fontSize: '14px',
@@ -1500,15 +1766,39 @@
                                             </select>
                                         </div>
                                     )}
+                                    {user.isTeacher && (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(255,255,255,0.15)', padding: '6px 10px', borderRadius: '6px' }}>
+                                            <span style={{ fontSize: '12px', opacity: 0.9 }}>ダウンロード</span>
+                                            <select value={downloadMode} onChange={(e) => setDownloadMode(e.target.value)}
+                                                style={{ padding: '6px 10px', fontSize: '12px', borderRadius: '4px', border: 'none' }}>
+                                                <option value="list">一覧結果CSV</option>
+                                                <option value="detail">個別結果PDF</option>
+                                            </select>
+                                            {downloadMode === 'detail' && (
+                                                <select value={selectedStudentId} onChange={(e) => setSelectedStudentId(e.target.value)}
+                                                    style={{ padding: '6px 10px', fontSize: '12px', borderRadius: '4px', border: 'none', minWidth: '180px' }}>
+                                                    {allResults.map(r => (
+                                                        <option key={r.studentId} value={r.studentId}>{r.studentId} - {r.studentName}</option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                            <button onClick={handleAdminDownload} style={{
+                                                padding: '6px 12px', fontSize: '12px', background: 'white', color: '#1976d2',
+                                                border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600'
+                                            }}>ダウンロード</button>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
                     </div>
 
                     {user.isTeacher && viewMode === 'list' ? (
-                        <AllStudentsView allResults={allResults} onSelectStudent={handleSelectStudent} />
+                        <div id="list-print-area">
+                            <AllStudentsView allResults={allResults} onSelectStudent={handleSelectStudent} />
+                        </div>
                     ) : (
-                        <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+                        <div id="detail-print-area" style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
                             <h2 style={{ textAlign: 'center', color: '#333', marginBottom: '20px' }}>試験結果</h2>
                             <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
                                 <h3 style={{ margin: '0 0 10px 0' }}>学生情報</h3>
