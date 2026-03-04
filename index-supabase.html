@@ -939,7 +939,7 @@
                         });
                     });
                     
-                    onUpload({ examName: examName.trim(), students, hideCorrectAnswer });
+                    onUpload({ examName: examName.trim(), students, hideCorrectAnswer, isPublished: false });
                     setIsLoading(false);
                     setExamName('');
                     setHideCorrectAnswer(false);
@@ -1044,6 +1044,9 @@
                                             <span>
                                                 {idx + 1}. {exam.examName} ({exam.students.length}名)
                                                 {exam.hideCorrectAnswer && <span style={{ marginLeft: '8px', padding: '2px 6px', background: '#ff9800', color: 'white', fontSize: '11px', borderRadius: '3px' }}>卒判</span>}
+                                                <span style={{ marginLeft: '8px', padding: '2px 6px', background: exam.isPublished ? '#4CAF50' : '#9E9E9E', color: 'white', fontSize: '11px', borderRadius: '3px' }}>
+                                                    {exam.isPublished ? '公開' : '非公開'}
+                                                </span>
                                             </span>
                                             <button 
                                                 type="button"
@@ -1462,13 +1465,18 @@
                     }
 
                     // 学生認証
+                    if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
+                        setError('公開中の試験がありません');
+                        return;
+                    }
+
                     if (studentMaster[studentId]) {
                         const masterInfo = studentMaster[studentId];
                         // パスワード検証（ハッシュ化対応）
                         const isValid = await verifyPassword(password, masterInfo.password);
                         if (isValid) {
                             // 現在の試験データから結果を取得
-                            const dataSource = currentExam ? currentExam.students : rawStudentScores;
+                            const dataSource = currentExam.students;
                             const allResults = generateExamResults(dataSource);
                             const student = allResults.find(s => s.studentId === studentId);
                             
@@ -1606,7 +1614,7 @@
         }
 
         // 結果表示コンポーネント
-        function ExamResultView({ user, onLogout, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, sourceMapping }) {
+        function ExamResultView({ user, onLogout, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
                 return (
@@ -1623,8 +1631,12 @@
                                 }}>ログアウト</button>
                             </div>
                             <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-                                <p style={{ fontSize: '18px', marginBottom: '20px' }}>試験データがまだアップロードされていません。</p>
-                                <p style={{ fontSize: '14px' }}>CSVアップロードボタンから試験データを登録してください。</p>
+                                <p style={{ fontSize: '18px', marginBottom: '20px' }}>
+                                    {user.isTeacher ? '試験データがまだアップロードされていません。' : '公開中の試験がありません。'}
+                                </p>
+                                <p style={{ fontSize: '14px' }}>
+                                    {user.isTeacher ? 'CSVアップロードボタンから試験データを登録してください。' : '管理者が試験を公開すると閲覧できるようになります。'}
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -1791,8 +1803,44 @@
                                 </div>
                             )}
                         </div>
-                    </div>
-
+                                </div>
+                            )}
+                            {user.isTeacher && allExams && allExams.length > 0 && (
+                                <div style={{ marginTop: '12px', background: 'rgba(255,255,255,0.15)', padding: '10px', borderRadius: '6px' }}>
+                                    <div style={{ fontSize: '12px', marginBottom: '8px', opacity: 0.9 }}>公開設定</div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                        {allExams.map((exam, idx) => (
+                                            <div key={exam.id || idx} style={{
+                                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                                background: 'rgba(255,255,255,0.2)', padding: '6px 10px', borderRadius: '6px'
+                                            }}>
+                                                <span style={{ fontSize: '13px' }}>{exam.examName}</span>
+                                                <label style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={!!exam.isPublished}
+                                                        onChange={(e) => onPublishToggle(idx, e.target.checked)}
+                                                        style={{ display: 'none' }}
+                                                    />
+                                                    <span style={{
+                                                        position: 'relative', width: '42px', height: '22px', borderRadius: '999px',
+                                                        background: exam.isPublished ? '#4CAF50' : '#9E9E9E', transition: 'background 0.2s'
+                                                    }}>
+                                                        <span style={{
+                                                            position: 'absolute', top: '3px', left: exam.isPublished ? '21px' : '3px',
+                                                            width: '16px', height: '16px', borderRadius: '50%', background: 'white',
+                                                            transition: 'left 0.2s'
+                                                        }} />
+                                                    </span>
+                                                    <span style={{ fontSize: '12px', color: exam.isPublished ? '#e8f5e9' : '#ffebee', fontWeight: '600' }}>
+                                                        {exam.isPublished ? '公開' : '非公開'}
+                                                    </span>
+                                                </label>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                     {user.isTeacher && viewMode === 'list' ? (
                         <div id="list-print-area">
                             <AllStudentsView allResults={allResults} onSelectStudent={handleSelectStudent} />
@@ -2049,6 +2097,7 @@
                                 id,
                                 exam_name,
                                 hide_correct_answer,
+                                is_published,
                                 created_at,
                                 student_exam_results (
                                     student_id,
@@ -2076,6 +2125,7 @@
                             id: exam.id, // 試験IDを保持
                             examName: exam.exam_name,
                             hideCorrectAnswer: exam.hide_correct_answer || false,
+                            isPublished: exam.is_published ?? false,
                             students: exam.student_exam_results.map(result => ({
                                 studentId: result.student_id,
                                 studentName: result.student_name,
@@ -2174,7 +2224,8 @@
                         .from('exams')
                         .insert([{
                             exam_name: examData.examName,
-                            hide_correct_answer: examData.hideCorrectAnswer || false
+                            hide_correct_answer: examData.hideCorrectAnswer || false,
+                            is_published: examData.isPublished ?? false
                         }])
                         .select()
                         .single();
@@ -2298,6 +2349,28 @@
                 }
             };
 
+            const handlePublishToggle = async (indexToUpdate, nextValue) => {
+                const targetExam = allExams[indexToUpdate];
+                if (!targetExam) return;
+
+                try {
+                    const { error: updateError } = await supabase
+                        .from('exams')
+                        .update({ is_published: nextValue })
+                        .eq('id', targetExam.id);
+
+                    if (updateError) throw updateError;
+
+                    const updatedExams = allExams.map((exam, idx) =>
+                        idx === indexToUpdate ? { ...exam, isPublished: nextValue } : exam
+                    );
+                    setAllExams(updatedExams);
+                } catch (err) {
+                    alert('公開設定の更新に失敗しました: ' + err.message);
+                    console.error('Publish update error:', err);
+                }
+            };
+
             // ソースマッピング更新
             const handleSourceMappingUpdate = async (mapping) => {
                 try {
@@ -2334,6 +2407,24 @@
                 }
             };
 
+            const publishedExams = allExams.filter(exam => exam.isPublished);
+
+            useEffect(() => {
+                if (!loggedInUser) {
+                    if (selectedExamIndex !== 0) setSelectedExamIndex(0);
+                    return;
+                }
+
+                const visibleExams = loggedInUser.isTeacher ? allExams : publishedExams;
+                if (visibleExams.length === 0) {
+                    if (selectedExamIndex !== 0) setSelectedExamIndex(0);
+                    return;
+                }
+                if (selectedExamIndex >= visibleExams.length) {
+                    setSelectedExamIndex(0);
+                }
+            }, [loggedInUser, allExams, publishedExams, selectedExamIndex]);
+
             if (isLoading) {
                 return (
                     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', fontSize: '18px', color: '#666' }}>
@@ -2341,8 +2432,6 @@
                     </div>
                 );
             }
-
-            const currentExam = allExams[selectedExamIndex] || null;
 
             if (showUpload) {
                 return <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} existingExams={allExams} studentMaster={studentMaster} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={handleSourceMappingUpdate} onDeleteExam={handleDeleteExam} />;
@@ -2376,20 +2465,24 @@
                                 CSVアップロード
                             </button>
                         </div>
-                        <LoginForm onLogin={setLoggedInUser} currentExam={currentExam} studentMaster={studentMaster} />
+                        <LoginForm onLogin={setLoggedInUser} currentExam={publishedExams[0] || null} studentMaster={studentMaster} />
                     </div>
                 );
             }
+
+            const visibleExams = loggedInUser.isTeacher ? allExams : publishedExams;
+            const currentExam = visibleExams[selectedExamIndex] || null;
 
             return (
                 <ExamResultView 
                     user={loggedInUser} 
                     onLogout={() => setLoggedInUser(null)} 
                     currentExam={currentExam}
-                    allExams={allExams}
+                    allExams={visibleExams}
                     selectedExamIndex={selectedExamIndex}
                     onExamChange={setSelectedExamIndex}
                     onDeleteExam={handleDeleteExam}
+                    onPublishToggle={handlePublishToggle}
                     sourceMapping={sourceMapping}
                 />
             );

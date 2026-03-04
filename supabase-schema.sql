@@ -13,6 +13,7 @@ CREATE TABLE exams (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   exam_name TEXT NOT NULL,
   hide_correct_answer BOOLEAN DEFAULT false, -- 卒業判定試験フラグ
+  is_published BOOLEAN DEFAULT false, -- 公開フラグ（学生側に表示するか）
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
