@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import ExamResultView from './ExamResultView';
 import { generateExamResults } from './sampleData';
 import { ExamResult } from './types';

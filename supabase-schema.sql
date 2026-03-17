@@ -61,6 +61,32 @@ CREATE TABLE teachers (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
+-- 学生チャット履歴テーブル
+CREATE TABLE student_chat_messages (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  exam_id UUID REFERENCES exams(id) ON DELETE SET NULL,
+  student_id TEXT NOT NULL,
+  role TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  provider TEXT DEFAULT 'local',
+  content TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
+);
+
+-- 学習課題進捗テーブル
+CREATE TABLE student_study_tasks (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  exam_id UUID REFERENCES exams(id) ON DELETE CASCADE NOT NULL,
+  student_id TEXT NOT NULL,
+  task_key TEXT NOT NULL,
+  day_label TEXT NOT NULL,
+  subject_name TEXT,
+  task_text TEXT NOT NULL,
+  is_done BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
+  UNIQUE(student_id, exam_id, task_key)
+);
+
 -- デフォルト教員アカウント追加
 INSERT INTO teachers (username, password, name) VALUES
   ('teacher001', 'teacher123', '教員'),
@@ -70,6 +96,8 @@ INSERT INTO teachers (username, password, name) VALUES
 CREATE INDEX idx_student_exam_results_exam_id ON student_exam_results(exam_id);
 CREATE INDEX idx_student_exam_results_student_id ON student_exam_results(student_id);
 CREATE INDEX idx_source_mapping_subject ON source_mapping(subject_name);
+CREATE INDEX idx_student_chat_messages_student ON student_chat_messages(student_id);
+CREATE INDEX idx_student_study_tasks_student ON student_study_tasks(student_id);
 
 -- Row Level Security (RLS) を有効化
 ALTER TABLE student_master ENABLE ROW LEVEL SECURITY;
@@ -77,6 +105,8 @@ ALTER TABLE exams ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_exam_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE source_mapping ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teachers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_chat_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE student_study_tasks ENABLE ROW LEVEL SECURITY;
 
 -- 全員が読み取り可能なポリシー（認証不要版）
 CREATE POLICY "Enable read access for all users" ON student_master FOR SELECT USING (true);
@@ -84,19 +114,27 @@ CREATE POLICY "Enable read access for all users" ON exams FOR SELECT USING (true
 CREATE POLICY "Enable read access for all users" ON student_exam_results FOR SELECT USING (true);
 CREATE POLICY "Enable read access for all users" ON source_mapping FOR SELECT USING (true);
 CREATE POLICY "Enable read access for all users" ON teachers FOR SELECT USING (true);
+CREATE POLICY "Enable read access for all users" ON student_chat_messages FOR SELECT USING (true);
+CREATE POLICY "Enable read access for all users" ON student_study_tasks FOR SELECT USING (true);
 
 -- 全員が書き込み可能なポリシー（認証不要版 - 本番では変更推奨）
 CREATE POLICY "Enable insert for all users" ON student_master FOR INSERT WITH CHECK (true);
 CREATE POLICY "Enable insert for all users" ON exams FOR INSERT WITH CHECK (true);
 CREATE POLICY "Enable insert for all users" ON student_exam_results FOR INSERT WITH CHECK (true);
 CREATE POLICY "Enable insert for all users" ON source_mapping FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable insert for all users" ON student_chat_messages FOR INSERT WITH CHECK (true);
+CREATE POLICY "Enable insert for all users" ON student_study_tasks FOR INSERT WITH CHECK (true);
 
 -- 更新・削除も許可
 CREATE POLICY "Enable update for all users" ON student_master FOR UPDATE USING (true);
 CREATE POLICY "Enable update for all users" ON exams FOR UPDATE USING (true);
 CREATE POLICY "Enable update for all users" ON student_exam_results FOR UPDATE USING (true);
 CREATE POLICY "Enable update for all users" ON source_mapping FOR UPDATE USING (true);
+CREATE POLICY "Enable update for all users" ON student_chat_messages FOR UPDATE USING (true);
+CREATE POLICY "Enable update for all users" ON student_study_tasks FOR UPDATE USING (true);
 
 CREATE POLICY "Enable delete for all users" ON exams FOR DELETE USING (true);
 CREATE POLICY "Enable delete for all users" ON student_exam_results FOR DELETE USING (true);
 CREATE POLICY "Enable delete for all users" ON source_mapping FOR DELETE USING (true);
+CREATE POLICY "Enable delete for all users" ON student_chat_messages FOR DELETE USING (true);
+CREATE POLICY "Enable delete for all users" ON student_study_tasks FOR DELETE USING (true);

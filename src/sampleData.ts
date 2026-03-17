@@ -1,8 +1,16 @@
-import { ExamResult, SubjectName } from './types';
+import { ExamResult, SubjectName, SubjectResult } from './types';
 import { calculateSubjectStats } from './utils';
 
+type GeneralSubjectName = Exclude<SubjectName, '必修'>;
+
+type RawStudentScore = {
+  studentId: string;
+  studentName: string;
+  required: number;
+} & Record<GeneralSubjectName, number>;
+
 // サンプルデータ（複数の学生の結果）
-const rawStudentScores = [
+const rawStudentScores: RawStudentScore[] = [
   {
     studentId: 'S001',
     studentName: '山田太郎',
@@ -81,7 +89,7 @@ const rawStudentScores = [
 ];
 
 // 満点設定
-const maxScores = {
+const maxScores: { required: number } & Record<GeneralSubjectName, number> = {
   required: 50,
   解剖学: 50,
   生理学: 50,
@@ -95,7 +103,7 @@ const maxScores = {
   柔整理論: 50,
 };
 
-const subjectNames: SubjectName[] = [
+const subjectNames: GeneralSubjectName[] = [
   '解剖学',
   '生理学',
   '運動学',
@@ -114,7 +122,7 @@ const subjectNames: SubjectName[] = [
 export function generateExamResults(): ExamResult[] {
   // 各科目の全学生の点数を収集
   const allRequiredScores = rawStudentScores.map(s => s.required);
-  const allSubjectScores: { [key in SubjectName]?: number[] } = {};
+  const allSubjectScores: Partial<Record<GeneralSubjectName, number[]>> = {};
   
   subjectNames.forEach(subjectName => {
     allSubjectScores[subjectName] = rawStudentScores.map(
@@ -142,7 +150,7 @@ export function generateExamResults(): ExamResult[] {
     );
 
     // 各科目の統計（円グラフ用の統計情報を含める）
-    const subjects: { [key in SubjectName]?: any } = {};
+    const subjects: Partial<Record<GeneralSubjectName, SubjectResult>> = {};
     subjectNames.forEach(subjectName => {
       subjects[subjectName] = calculateSubjectStats(
         student[subjectName] as number,

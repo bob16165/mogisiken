@@ -26,8 +26,10 @@
         const { useState, useEffect } = React;
         
         // Supabaseクライアント初期化
-        const SUPABASE_URL = 'https://ftyujxyzsxmferladhyr.supabase.co';
-        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0eXVqeHl6c3htZmVybGFkaHlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxNTU1MTYsImV4cCI6MjA4MjczMTUxNn0.Hb6UGg0IEC1BzPaA6YYPra31QCcKN9L0ER-T2roVEc8';
+        const DEFAULT_SUPABASE_URL = 'https://ftyujxyzsxmferladhyr.supabase.co';
+        const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0eXVqeHl6c3htZmVybGFkaHlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxNTU1MTYsImV4cCI6MjA4MjczMTUxNn0.Hb6UGg0IEC1BzPaA6YYPra31QCcKN9L0ER-T2roVEc8';
+        const SUPABASE_URL = localStorage.getItem('mogisiken_supabase_url') || DEFAULT_SUPABASE_URL;
+        const SUPABASE_ANON_KEY = localStorage.getItem('mogisiken_supabase_anon_key') || DEFAULT_SUPABASE_ANON_KEY;
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         // パスワードハッシュ化関数（SHA-256）
@@ -49,6 +51,21 @@
             }
             // 平文パスワード（移行期間用）
             return inputPassword === storedPassword;
+        }
+
+        function isSupabaseTableMissingError(error) {
+            if (!error) return false;
+            const code = String(error.code || '');
+            const status = Number(error.status || 0);
+            const message = String(error.message || '').toLowerCase();
+            const details = String(error.details || '').toLowerCase();
+            return (
+                status === 404 ||
+                code === 'PGRST205' ||
+                message.includes('does not exist') ||
+                message.includes('could not find the table') ||
+                details.includes('does not exist')
+            );
         }
 
         // 教員アカウント
@@ -1533,6 +1550,966 @@
             );
         }
 
+        function buildStudentAiGuidance(allExams, currentExam, studentId, sourceMapping) {
+            const trackedSubjects = ['必修', ...subjectNames];
+            const subjectAnalytics = {};
+            const examHistory = [];
+
+            trackedSubjects.forEach(subjectName => {
+                subjectAnalytics[subjectName] = {
+                    subjectName,
+                    latestScoreRate: null,
+                    avgScoreRateSum: 0,
+                    examsTaken: 0,
+                    belowAverageGap: 0,
+                    wrongCount: 0,
+                    recentWrongCount: 0,
+                    lowCorrectRateMisses: 0,
+                    sourceCounts: {},
+                    relatedQuestions: []
+                };
+            });
+
+            (allExams || []).forEach(exam => {
+                if (!exam || !exam.students || exam.students.length === 0) return;
+
+                const examResults = generateExamResults(exam.students);
+                const studentResult = examResults.find(item => item.studentId === studentId);
+                if (!studentResult) return;
+
+                const isCurrentExam = !!currentExam && (
+                    (currentExam.id && exam.id && currentExam.id === exam.id) ||
+                    currentExam.examName === exam.examName
+                );
+
+                examHistory.push({
+                    examName: exam.examName,
+                    totalScore: studentResult.totalScore,
+                    totalMaxScore: studentResult.totalMaxScore,
+                    scoreRate: studentResult.totalStats?.scoreRate || 0,
+                    isCurrentExam
+                });
+
+                trackedSubjects.forEach(subjectName => {
+                    const analytics = subjectAnalytics[subjectName];
+                    const subjectStats = subjectName === '必修'
+                        ? studentResult.required
+                        : studentResult.subjects[subjectName];
+
+                    if (!subjectStats) return;
+
+                    analytics.latestScoreRate = isCurrentExam || analytics.latestScoreRate === null
+                        ? subjectStats.scoreRate
+                        : analytics.latestScoreRate;
+                    analytics.avgScoreRateSum += subjectStats.scoreRate;
+                    analytics.examsTaken += 1;
+
+                    const averageGap = (subjectStats.averageScoreRate || 0) - subjectStats.scoreRate;
+                    if (averageGap > 0) {
+                        analytics.belowAverageGap += averageGap;
+                    }
+
+                    const questions = studentResult.questionDetails?.[subjectName] || [];
+                    questions.forEach(question => {
+                        const correct = isAnswerCorrect(question.userAnswer, question.correctAnswer);
+                        if (correct) return;
+
+                        const source = question.source || '出典未設定';
+                        analytics.wrongCount += 1;
+                        if (isCurrentExam) {
+                            analytics.recentWrongCount += 1;
+                        }
+                        if ((question.correctRate || 0) < 60) {
+                            analytics.lowCorrectRateMisses += 1;
+                        }
+                        analytics.sourceCounts[source] = (analytics.sourceCounts[source] || 0) + 1;
+                        analytics.relatedQuestions.push({
+                            examName: exam.examName,
+                            subjectName,
+                            questionNumber: question.questionNumber,
+                            correctRate: question.correctRate ?? null,
+                            source,
+                            displaySource: convertSourceToName(source, subjectName, sourceMapping),
+                            userAnswer: formatAnswer(question.userAnswer),
+                            correctAnswer: formatAnswer(question.correctAnswer),
+                            isCurrentExam
+                        });
+                    });
+                });
+            });
+
+            const examHistorySorted = examHistory.sort((a, b) => {
+                if (a.isCurrentExam && !b.isCurrentExam) return 1;
+                if (!a.isCurrentExam && b.isCurrentExam) return -1;
+                return 0;
+            });
+
+            const totalTrend = examHistorySorted.length >= 2
+                ? Math.round((examHistorySorted[examHistorySorted.length - 1].scoreRate - examHistorySorted[0].scoreRate) * 10) / 10
+                : 0;
+
+            const priorities = Object.values(subjectAnalytics)
+                .filter(item => item.examsTaken > 0)
+                .map(item => {
+                    const avgScoreRate = Math.round((item.avgScoreRateSum / item.examsTaken) * 10) / 10;
+                    const latestScoreRate = item.latestScoreRate ?? avgScoreRate;
+                    const dominantSources = Object.entries(item.sourceCounts)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 3)
+                        .map(([source, count]) => ({
+                            source,
+                            count,
+                            displaySource: convertSourceToName(source, item.subjectName, sourceMapping)
+                        }));
+                    const priorityScore =
+                        Math.max(0, 65 - latestScoreRate) * 1.4 +
+                        item.belowAverageGap * 1.1 +
+                        item.wrongCount * 7 +
+                        item.recentWrongCount * 10 +
+                        item.lowCorrectRateMisses * 6;
+
+                    return {
+                        ...item,
+                        avgScoreRate,
+                        latestScoreRate,
+                        dominantSources,
+                        priorityScore: Math.round(priorityScore * 10) / 10
+                    };
+                })
+                .sort((a, b) => b.priorityScore - a.priorityScore);
+
+            const topPriorities = priorities.slice(0, 3);
+            const recommendedQuestionMap = new Map();
+
+            topPriorities.forEach(priority => {
+                priority.relatedQuestions
+                    .sort((a, b) => {
+                        if (a.isCurrentExam !== b.isCurrentExam) return a.isCurrentExam ? -1 : 1;
+                        return (a.correctRate ?? 100) - (b.correctRate ?? 100);
+                    })
+                    .forEach(question => {
+                        const key = `${question.examName}-${question.subjectName}-${question.questionNumber}`;
+                        if (!recommendedQuestionMap.has(key)) {
+                            recommendedQuestionMap.set(key, question);
+                        }
+                    });
+            });
+
+            const recommendedQuestions = Array.from(recommendedQuestionMap.values()).slice(0, 8);
+            const subjectLine = topPriorities.map(item => item.subjectName).join(' → ');
+
+            let summary = '問題別データが不足しているため、科目別の得点率から優先順位を出しています。';
+            if (topPriorities.length > 0) {
+                summary = `優先順位は ${subjectLine} です。`;
+                if (totalTrend > 0) {
+                    summary += ` 総合得点率は初回より ${totalTrend}ポイント上がっていますが、上位3科目の取りこぼしで伸びが止まっています。`;
+                } else if (totalTrend < 0) {
+                    summary += ` 総合得点率は初回より ${Math.abs(totalTrend)}ポイント下がっており、直近試験の誤答復習を先に固める必要があります。`;
+                } else {
+                    summary += ' 現状は横ばいなので、誤答の多い出典をまとめて復習するのが最短です。';
+                }
+            }
+
+            const actionPlan = topPriorities.map(priority => {
+                const sourcesText = priority.dominantSources.length > 0
+                    ? priority.dominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
+                    : '関連出典データなし';
+                const latestGap = Math.max(0, Math.round((priority.avgScoreRate - priority.latestScoreRate) * 10) / 10);
+
+                return {
+                    subjectName: priority.subjectName,
+                    latestScoreRate: priority.latestScoreRate,
+                    avgScoreRate: priority.avgScoreRate,
+                    wrongCount: priority.wrongCount,
+                    recentWrongCount: priority.recentWrongCount,
+                    lowCorrectRateMisses: priority.lowCorrectRateMisses,
+                    focusText: latestGap > 0
+                        ? `平均より ${latestGap}ポイント低く、取りこぼしの回収効果が大きい科目です。`
+                        : '平均帯にはいますが、誤答の再発が多く優先的な復習対象です。',
+                    sourceText: sourcesText
+                };
+            });
+
+            return {
+                summary,
+                actionPlan,
+                recommendedQuestions,
+                totalTrend,
+                analyzedExamCount: examHistory.length
+            };
+        }
+
+        function StudyGuidanceAI({ guidance, hideCorrectAnswer }) {
+            const [isExpanded, setIsExpanded] = React.useState(true);
+
+            if (!guidance) return null;
+
+            return (
+                <div style={{
+                    marginBottom: '20px',
+                    padding: '18px',
+                    borderRadius: '12px',
+                    background: 'linear-gradient(135deg, #102542 0%, #1f4e5f 100%)',
+                    color: 'white',
+                    boxShadow: '0 8px 24px rgba(16,37,66,0.18)'
+                }}>
+                    <div
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', gap: '12px' }}
+                    >
+                        <div style={{
+                            width: '42px',
+                            height: '42px',
+                            borderRadius: '12px',
+                            background: 'rgba(255,255,255,0.14)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '20px'
+                        }}>
+                            AI
+                        </div>
+                        <div style={{ flex: 1 }}>
+                            <h3 style={{ margin: 0, fontSize: '20px' }}>AI学習ナビ（ローカル試作）</h3>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '13px', opacity: 0.85 }}>
+                                サーバーデータ内の累積成績と誤答履歴から、勉強方針と関連過去問を抽出しています
+                            </p>
+                        </div>
+                        <span style={{ fontSize: '20px' }}>{isExpanded ? '▼' : '▶'}</span>
+                    </div>
+
+                    {isExpanded && (
+                        <div style={{ marginTop: '16px' }}>
+                            <div style={{
+                                background: 'rgba(255,255,255,0.08)',
+                                border: '1px solid rgba(255,255,255,0.14)',
+                                borderRadius: '10px',
+                                padding: '14px',
+                                marginBottom: '16px'
+                            }}>
+                                <div style={{ fontSize: '12px', letterSpacing: '0.08em', opacity: 0.75, marginBottom: '8px' }}>AI要約</div>
+                                <div style={{ fontSize: '15px', lineHeight: 1.7 }}>{guidance.summary}</div>
+                                <div style={{ marginTop: '8px', fontSize: '12px', opacity: 0.8 }}>
+                                    解析対象試験数: {guidance.analyzedExamCount}件
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px', marginBottom: '18px' }}>
+                                {guidance.actionPlan.map((plan, index) => (
+                                    <div key={plan.subjectName} style={{
+                                        background: index === 0 ? 'rgba(255,214,102,0.16)' : 'rgba(255,255,255,0.08)',
+                                        border: index === 0 ? '1px solid rgba(255,214,102,0.45)' : '1px solid rgba(255,255,255,0.12)',
+                                        borderRadius: '10px',
+                                        padding: '14px'
+                                    }}>
+                                        <div style={{ fontSize: '12px', opacity: 0.8, marginBottom: '6px' }}>優先 {index + 1}</div>
+                                        <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>{plan.subjectName}</div>
+                                        <div style={{ fontSize: '13px', lineHeight: 1.6, marginBottom: '10px', opacity: 0.92 }}>{plan.focusText}</div>
+                                        <div style={{ fontSize: '12px', lineHeight: 1.7 }}>
+                                            <div>最新得点率: {plan.latestScoreRate}%</div>
+                                            <div>累積誤答: {plan.wrongCount}問</div>
+                                            <div>直近誤答: {plan.recentWrongCount}問</div>
+                                            <div>低正答率誤答: {plan.lowCorrectRateMisses}問</div>
+                                        </div>
+                                        <div style={{ marginTop: '10px', fontSize: '12px', lineHeight: 1.6, opacity: 0.88 }}>
+                                            集中テーマ: {plan.sourceText}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div style={{
+                                background: 'rgba(255,255,255,0.08)',
+                                border: '1px solid rgba(255,255,255,0.14)',
+                                borderRadius: '10px',
+                                padding: '14px'
+                            }}>
+                                <h4 style={{ margin: '0 0 12px 0', fontSize: '16px' }}>関連過去問・復習候補</h4>
+                                {guidance.recommendedQuestions.length === 0 ? (
+                                    <p style={{ margin: 0, fontSize: '13px', opacity: 0.85 }}>抽出できる問題詳細データがありません。</p>
+                                ) : (
+                                    <div style={{ overflowX: 'auto' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                                            <thead>
+                                                <tr style={{ background: 'rgba(255,255,255,0.08)' }}>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>試験</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>科目</th>
+                                                    <th style={{ padding: '10px', textAlign: 'center' }}>問題</th>
+                                                    <th style={{ padding: '10px', textAlign: 'left' }}>出典</th>
+                                                    <th style={{ padding: '10px', textAlign: 'center' }}>正答率</th>
+                                                    <th style={{ padding: '10px', textAlign: 'center' }}>自分の解答</th>
+                                                    {!hideCorrectAnswer && <th style={{ padding: '10px', textAlign: 'center' }}>正答</th>}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {guidance.recommendedQuestions.map((question, index) => (
+                                                    <tr key={`${question.examName}-${question.subjectName}-${question.questionNumber}-${index}`} style={{
+                                                        borderTop: '1px solid rgba(255,255,255,0.12)',
+                                                        background: question.isCurrentExam ? 'rgba(255,255,255,0.05)' : 'transparent'
+                                                    }}>
+                                                        <td style={{ padding: '10px' }}>{question.examName}</td>
+                                                        <td style={{ padding: '10px' }}>{question.subjectName}</td>
+                                                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: '700' }}>{question.questionNumber}</td>
+                                                        <td style={{ padding: '10px' }}>{question.displaySource}</td>
+                                                        <td style={{ padding: '10px', textAlign: 'center', color: (question.correctRate ?? 100) < 60 ? '#ffd166' : '#d0f4de' }}>
+                                                            {question.correctRate ?? '-'}{question.correctRate !== null ? '%' : ''}
+                                                        </td>
+                                                        <td style={{ padding: '10px', textAlign: 'center' }}>{question.userAnswer || '-'}</td>
+                                                        {!hideCorrectAnswer && <td style={{ padding: '10px', textAlign: 'center' }}>{question.correctAnswer || '-'}</td>}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                                <p style={{ margin: '12px 0 0 0', fontSize: '12px', opacity: 0.8 }}>
+                                    このAIはローカルで動くルールベース試作です。後でOpenAIやAzure OpenAIをつなげれば、自然文の相談にも発展できます。
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        function normalizeText(text) {
+            return (text || '').toLowerCase().replace(/\s+/g, '');
+        }
+
+        function findSubjectInQuestion(text) {
+            const normalized = normalizeText(text);
+            const allSubjects = ['必修', ...subjectNames];
+            return allSubjects.find(subject => normalized.includes(normalizeText(subject))) || null;
+        }
+
+        function buildLocalChatReply(question, guidance, result, hideCorrectAnswer) {
+            const normalized = normalizeText(question);
+            const selectedSubject = findSubjectInQuestion(question);
+            const plans = guidance?.actionPlan || [];
+            const topPlan = plans[0];
+            const relatedQuestions = guidance?.recommendedQuestions || [];
+
+            if (plans.length === 0) {
+                return 'まだ分析対象データが少ないため、対話分析ができませんでした。まずは試験結果を1件以上取り込んでください。';
+            }
+
+            if (normalized.includes('何') && normalized.includes('勉強')) {
+                return `最優先は「${topPlan.subjectName}」です。理由は ${topPlan.focusText} です。次に ${plans.slice(1).map(p => p.subjectName).join('、')} を進めると効率が高いです。`;
+            }
+
+            if (normalized.includes('計画') || normalized.includes('スケジュール') || normalized.includes('何日')) {
+                const second = plans[1]?.subjectName || topPlan.subjectName;
+                const third = plans[2]?.subjectName || second;
+                return `7日プランの例です。\n1-3日目: ${topPlan.subjectName}（出典: ${topPlan.sourceText}）\n4-5日目: ${second}（誤答の復習中心）\n6日目: ${third}（苦手問題の再演習）\n7日目: 全科目のミニテストと解き直し。`;
+            }
+
+            if (normalized.includes('過去問') || normalized.includes('問題') || normalized.includes('出典')) {
+                const bySubject = selectedSubject
+                    ? relatedQuestions.filter(q => q.subjectName === selectedSubject)
+                    : relatedQuestions;
+                const picks = bySubject.slice(0, 5);
+                if (picks.length === 0) {
+                    return '関連過去問を抽出できませんでした。問題詳細付きのCSVを取り込んだあとに再度質問してください。';
+                }
+                const lines = picks.map((q, idx) => {
+                    const answerPart = hideCorrectAnswer ? '' : ` / 正答: ${q.correctAnswer || '-'}`;
+                    return `${idx + 1}. ${q.subjectName} ${q.questionNumber}（${q.displaySource}） 正答率:${q.correctRate ?? '-'}% / 自分:${q.userAnswer || '-'}${answerPart}`;
+                });
+                return `復習優先の問題です。\n${lines.join('\n')}`;
+            }
+
+            if (selectedSubject) {
+                const subjectPlan = plans.find(p => p.subjectName === selectedSubject);
+                const subjectResult = selectedSubject === '必修' ? result.required : result.subjects?.[selectedSubject];
+                if (!subjectPlan || !subjectResult) {
+                    return `${selectedSubject}の十分な分析データがまだありません。全問題一覧で誤答を確認してから再度相談してください。`;
+                }
+                return `${selectedSubject}は現在 ${subjectResult.scoreRate}% です。${subjectPlan.focusText} 集中テーマは ${subjectPlan.sourceText}。まず誤答問題を3周して、翌日に同テーマの過去問を解く流れがおすすめです。`;
+            }
+
+            if (normalized.includes('モチベ') || normalized.includes('不安') || normalized.includes('しんど')) {
+                return `不安がある時は「最優先1科目だけ」に絞ると進みます。今日は ${topPlan.subjectName} の誤答を5問だけ解き直して、終わったらチェックを付けましょう。小さい完了を積むと一気に安定します。`;
+            }
+
+            return `質問ありがとうございます。いまの成績だと優先は「${plans.map(p => p.subjectName).join(' → ')}」です。気になる科目名（例: 柔整理論）か「過去問を出して」と送ると、さらに具体化できます。`;
+        }
+
+        function shouldRegisterTaskFromQuestion(question) {
+            const normalized = normalizeText(question);
+            const hasTrackerWord = normalized.includes('課題') || normalized.includes('トラッカー') || normalized.includes('todo');
+            const hasActionWord = normalized.includes('追加') || normalized.includes('反映') || normalized.includes('登録') || normalized.includes('入れて');
+            const hasIntentWord = normalized.includes('したい') || normalized.includes('やりたい') || normalized.includes('勉強したい');
+            return (hasTrackerWord && (hasActionWord || hasIntentWord)) || (hasActionWord && hasIntentWord);
+        }
+
+        function buildTaskFromQuestion(question, guidance) {
+            const subject = findSubjectInQuestion(question) || guidance?.actionPlan?.[0]?.subjectName || '必修';
+            const plan = (guidance?.actionPlan || []).find(item => item.subjectName === subject) || guidance?.actionPlan?.[0];
+            const trimmed = (question || '').trim();
+            const cleaned = trimmed
+                .replace(/課題トラッカー|課題|トラッカー/g, '')
+                .replace(/追加|反映|登録|入れて/g, '')
+                .trim();
+            const taskText = cleaned.length > 0 ? cleaned : `${subject}の弱点分野を重点復習`; 
+
+            return {
+                key: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                day: 'User',
+                subject,
+                task: `自主課題: ${taskText}${plan?.sourceText ? `（推奨テーマ: ${plan.sourceText}）` : ''}`,
+                done: false
+            };
+        }
+
+        function getAiProviderConfig() {
+            return {
+                provider: localStorage.getItem('mogisiken_ai_provider') || 'local',
+                openaiApiKey: localStorage.getItem('mogisiken_openai_api_key') || '',
+                openaiModel: localStorage.getItem('mogisiken_openai_model') || 'gpt-4o-mini',
+                azureApiKey: localStorage.getItem('mogisiken_azure_api_key') || '',
+                azureEndpoint: localStorage.getItem('mogisiken_azure_endpoint') || '',
+                azureDeployment: localStorage.getItem('mogisiken_azure_deployment') || '',
+                azureApiVersion: localStorage.getItem('mogisiken_azure_api_version') || '2024-10-21'
+            };
+        }
+
+        function saveAiProviderConfig(config) {
+            localStorage.setItem('mogisiken_ai_provider', config.provider || 'local');
+            localStorage.setItem('mogisiken_openai_api_key', config.openaiApiKey || '');
+            localStorage.setItem('mogisiken_openai_model', config.openaiModel || 'gpt-4o-mini');
+            localStorage.setItem('mogisiken_azure_api_key', config.azureApiKey || '');
+            localStorage.setItem('mogisiken_azure_endpoint', config.azureEndpoint || '');
+            localStorage.setItem('mogisiken_azure_deployment', config.azureDeployment || '');
+            localStorage.setItem('mogisiken_azure_api_version', config.azureApiVersion || '2024-10-21');
+        }
+
+        function buildLlmSystemPrompt(guidance, hideCorrectAnswer) {
+            const priorities = (guidance?.actionPlan || []).map((item, idx) =>
+                `${idx + 1}. ${item.subjectName} / 最新得点率:${item.latestScoreRate}% / 誤答:${item.wrongCount} / テーマ:${item.sourceText}`
+            ).join('\n');
+            const recQuestions = (guidance?.recommendedQuestions || []).slice(0, 8).map((q, idx) => {
+                const answerPart = hideCorrectAnswer ? '' : ` 正答:${q.correctAnswer || '-'}`;
+                return `${idx + 1}. ${q.subjectName} ${q.questionNumber} 出典:${q.displaySource} 正答率:${q.correctRate ?? '-'}% 自分:${q.userAnswer || '-'}${answerPart}`;
+            }).join('\n');
+
+            return [
+                'あなたは柔道整復師国家試験対策の学習コーチです。',
+                '学生に寄り添って短く具体的に提案してください。',
+                '与えられた成績データに基づかない断定はしないでください。',
+                hideCorrectAnswer ? '正答は開示禁止です。' : '必要なら正答も提示できます。',
+                '優先科目:',
+                priorities || 'データなし',
+                '関連問題:',
+                recQuestions || 'データなし'
+            ].join('\n');
+        }
+
+        async function askExternalLlm(question, history, guidance, hideCorrectAnswer, config) {
+            const systemPrompt = buildLlmSystemPrompt(guidance, hideCorrectAnswer);
+            const historyMessages = (history || []).slice(-6).map(m => ({ role: m.role, content: m.text }));
+
+            if (config.provider === 'openai') {
+                if (!config.openaiApiKey) throw new Error('OpenAI APIキーが未設定です');
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${config.openaiApiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: config.openaiModel || 'gpt-4o-mini',
+                        temperature: 0.4,
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            ...historyMessages,
+                            { role: 'user', content: question }
+                        ]
+                    })
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(`OpenAI APIエラー: ${response.status} ${errText}`);
+                }
+                const data = await response.json();
+                return data?.choices?.[0]?.message?.content?.trim() || 'OpenAIから応答がありませんでした。';
+            }
+
+            if (config.provider === 'azure') {
+                if (!config.azureApiKey || !config.azureEndpoint || !config.azureDeployment) {
+                    throw new Error('Azure OpenAI の設定（endpoint/deployment/key）が不足しています');
+                }
+                const endpoint = config.azureEndpoint.replace(/\/$/, '');
+                const apiVersion = config.azureApiVersion || '2024-10-21';
+                const url = `${endpoint}/openai/deployments/${config.azureDeployment}/chat/completions?api-version=${apiVersion}`;
+
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'api-key': config.azureApiKey
+                    },
+                    body: JSON.stringify({
+                        temperature: 0.4,
+                        messages: [
+                            { role: 'system', content: systemPrompt },
+                            ...historyMessages,
+                            { role: 'user', content: question }
+                        ]
+                    })
+                });
+
+                if (!response.ok) {
+                    const errText = await response.text();
+                    throw new Error(`Azure OpenAIエラー: ${response.status} ${errText}`);
+                }
+                const data = await response.json();
+                return data?.choices?.[0]?.message?.content?.trim() || 'Azure OpenAIから応答がありませんでした。';
+            }
+
+            return null;
+        }
+
+        function buildWeeklyStudyTasks(guidance) {
+            const top = guidance?.actionPlan?.[0]?.subjectName || '必修';
+            const second = guidance?.actionPlan?.[1]?.subjectName || top;
+            const third = guidance?.actionPlan?.[2]?.subjectName || second;
+            const theme1 = guidance?.actionPlan?.[0]?.sourceText || '誤答テーマ';
+            const theme2 = guidance?.actionPlan?.[1]?.sourceText || '苦手テーマ';
+
+            return [
+                { key: 'd1', day: 'Day1', subject: top, task: `${top}の誤答5問を解き直し（${theme1}）` },
+                { key: 'd2', day: 'Day2', subject: top, task: `${top}の類題演習5問 + 解説要約` },
+                { key: 'd3', day: 'Day3', subject: top, task: `${top}のミニテスト10問` },
+                { key: 'd4', day: 'Day4', subject: second, task: `${second}の誤答復習（${theme2}）` },
+                { key: 'd5', day: 'Day5', subject: second, task: `${second}の出典別まとめノート作成` },
+                { key: 'd6', day: 'Day6', subject: third, task: `${third}の弱点問題5問 + 振り返り` },
+                { key: 'd7', day: 'Day7', subject: '総合', task: '優先3科目の混合テストと再復習' }
+            ];
+        }
+
+        function WeeklyPlanTracker({ guidance, studentId, examId, syncToken }) {
+            const storageKey = `mogisiken_weekly_tasks_${studentId}_${examId || 'no_exam'}`;
+            const generatedTasks = React.useMemo(() => buildWeeklyStudyTasks(guidance), [guidance]);
+            const [remoteTasksEnabled, setRemoteTasksEnabled] = React.useState(true);
+            const [remoteNotice, setRemoteNotice] = React.useState('');
+            const [tasks, setTasks] = React.useState(() => {
+                try {
+                    const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+                    if (saved && Array.isArray(saved)) {
+                        return saved;
+                    }
+                } catch (e) {}
+                return generatedTasks.map(t => ({ ...t, done: false }));
+            });
+
+            const mergeRemoteRows = (baseTasks, rows) => {
+                const map = {};
+                (baseTasks || []).forEach(task => {
+                    map[task.key] = { ...task };
+                });
+
+                (rows || []).forEach(row => {
+                    const key = row.task_key;
+                    if (!map[key]) {
+                        map[key] = {
+                            key,
+                            day: row.day_label || 'User',
+                            subject: row.subject_name || '総合',
+                            task: row.task_text || '',
+                            done: !!row.is_done
+                        };
+                    } else {
+                        map[key] = {
+                            ...map[key],
+                            day: row.day_label || map[key].day,
+                            subject: row.subject_name || map[key].subject,
+                            task: row.task_text || map[key].task,
+                            done: !!row.is_done
+                        };
+                    }
+                });
+
+                return Object.values(map);
+            };
+
+            React.useEffect(() => {
+                localStorage.setItem(storageKey, JSON.stringify(tasks));
+            }, [storageKey, tasks]);
+
+            React.useEffect(() => {
+                const loadRemoteProgress = async () => {
+                    if (!studentId || !examId || !remoteTasksEnabled) return;
+                    const { data, error } = await supabase
+                        .from('student_study_tasks')
+                        .select('task_key, day_label, subject_name, task_text, is_done')
+                        .eq('student_id', studentId)
+                        .eq('exam_id', examId);
+                    if (error) {
+                        if (isSupabaseTableMissingError(error)) {
+                            setRemoteTasksEnabled(false);
+                            setRemoteNotice('サーバーに課題テーブルが未作成のため、端末内保存モードで動作しています。');
+                        }
+                        return;
+                    }
+                    if (!data || data.length === 0) return;
+
+                    setTasks(prev => mergeRemoteRows(prev.length > 0 ? prev : generatedTasks.map(t => ({ ...t, done: false })), data));
+                };
+
+                loadRemoteProgress();
+            }, [studentId, examId, syncToken, remoteTasksEnabled]);
+
+            const completedCount = tasks.filter(t => t.done).length;
+            const progressRate = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
+
+            const updateRemoteTask = async (task, done) => {
+                if (!studentId || !examId || !remoteTasksEnabled) return;
+                const { error } = await supabase
+                    .from('student_study_tasks')
+                    .upsert({
+                        student_id: studentId,
+                        exam_id: examId,
+                        task_key: task.key,
+                        day_label: task.day,
+                        subject_name: task.subject,
+                        task_text: task.task,
+                        is_done: done
+                    }, { onConflict: 'student_id,exam_id,task_key' });
+
+                if (error && isSupabaseTableMissingError(error)) {
+                    setRemoteTasksEnabled(false);
+                    setRemoteNotice('サーバー保存に失敗したため、端末内保存モードへ切り替えました。');
+                }
+            };
+
+            return (
+                <div style={{
+                    marginBottom: '20px',
+                    borderRadius: '12px',
+                    background: '#fff',
+                    border: '1px solid #dbeafe',
+                    boxShadow: '0 4px 14px rgba(2,132,199,0.12)',
+                    padding: '14px'
+                }}>
+                    <h3 style={{ margin: '0 0 8px 0', fontSize: '17px', color: '#0f172a' }}>週間課題トラッカー</h3>
+                    {remoteNotice && (
+                        <div style={{ marginBottom: '10px', fontSize: '12px', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '8px' }}>
+                            {remoteNotice}
+                        </div>
+                    )}
+                    <div style={{ marginBottom: '10px', fontSize: '13px', color: '#334155' }}>
+                        進捗: {completedCount}/{tasks.length} ({progressRate}%)
+                    </div>
+                    <div style={{ height: '10px', borderRadius: '999px', background: '#e2e8f0', overflow: 'hidden', marginBottom: '12px' }}>
+                        <div style={{ width: `${progressRate}%`, height: '100%', background: 'linear-gradient(90deg, #0284c7, #0ea5e9)' }} />
+                    </div>
+                    <div style={{ display: 'grid', gap: '8px' }}>
+                        {tasks.map(task => (
+                            <label key={task.key} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '8px', borderRadius: '8px', background: task.done ? '#ecfeff' : '#f8fafc' }}>
+                                <input
+                                    type="checkbox"
+                                    checked={task.done}
+                                    onChange={async (e) => {
+                                        const done = e.target.checked;
+                                        setTasks(prev => prev.map(item => item.key === task.key ? { ...item, done } : item));
+                                        await updateRemoteTask(task, done);
+                                    }}
+                                    style={{ marginTop: '2px' }}
+                                />
+                                <div style={{ fontSize: '13px', lineHeight: 1.6 }}>
+                                    <div style={{ fontWeight: '700', color: '#1e3a8a' }}>{task.day} / {task.subject}</div>
+                                    <div style={{ color: '#1f2937', textDecoration: task.done ? 'line-through' : 'none' }}>{task.task}</div>
+                                </div>
+                            </label>
+                        ))}
+                    </div>
+                </div>
+            );
+        }
+
+        function StudyChatAssistant({ guidance, result, hideCorrectAnswer, studentId, examId, onTaskAdded }) {
+            const initialText = guidance?.actionPlan?.[0]
+                ? `対話学習モードです。まずは ${guidance.actionPlan[0].subjectName} から着手するのが効果的です。`
+                : '対話学習モードです。質問を入力してください。';
+            const [messages, setMessages] = React.useState([{ role: 'assistant', text: initialText }]);
+            const [input, setInput] = React.useState('');
+            const [isResponding, setIsResponding] = React.useState(false);
+            const [providerConfig, setProviderConfig] = React.useState(getAiProviderConfig());
+            const [statusText, setStatusText] = React.useState('ローカル推論で応答中');
+            const [chatStorageEnabled, setChatStorageEnabled] = React.useState(true);
+            const loadedRef = React.useRef(false);
+
+            const quickPrompts = [
+                '今週の学習計画を作って',
+                '優先して解く過去問を出して',
+                '柔整理論の対策を教えて',
+                '今の弱点を一言で教えて'
+            ];
+
+            React.useEffect(() => {
+                const loadHistory = async () => {
+                    if (loadedRef.current || !studentId) return;
+                    loadedRef.current = true;
+
+                    if (!chatStorageEnabled) return;
+
+                    const { data, error } = await supabase
+                        .from('student_chat_messages')
+                        .select('role, content, created_at')
+                        .eq('student_id', studentId)
+                        .order('created_at', { ascending: true })
+                        .limit(40);
+
+                    if (error) {
+                        if (isSupabaseTableMissingError(error)) {
+                            setChatStorageEnabled(false);
+                            setStatusText(prev => `${prev} / 履歴は端末内のみ`);
+                        }
+                        return;
+                    }
+
+                    if (!error && data && data.length > 0) {
+                        setMessages(data.map(item => ({ role: item.role, text: item.content })));
+                    }
+                };
+                loadHistory();
+            }, [studentId, chatStorageEnabled]);
+
+            const persistMessage = async (role, text, provider) => {
+                if (!studentId || !text || !chatStorageEnabled) return;
+                const { error } = await supabase.from('student_chat_messages').insert({
+                    student_id: studentId,
+                    exam_id: examId || null,
+                    role,
+                    content: text,
+                    provider: provider || 'local'
+                });
+
+                if (error && isSupabaseTableMissingError(error)) {
+                    setChatStorageEnabled(false);
+                    setStatusText(prev => `${prev} / 履歴は端末内のみ`);
+                }
+            };
+
+            const persistTask = async (task) => {
+                if (!studentId || !examId || !task) return false;
+                const { error } = await supabase
+                    .from('student_study_tasks')
+                    .upsert({
+                        student_id: studentId,
+                        exam_id: examId,
+                        task_key: task.key,
+                        day_label: task.day,
+                        subject_name: task.subject,
+                        task_text: task.task,
+                        is_done: !!task.done
+                    }, { onConflict: 'student_id,exam_id,task_key' });
+
+                return !error;
+            };
+
+            const openAiSettingPrompt = () => {
+                const provider = prompt('AIプロバイダーを選択してください: local / openai / azure', providerConfig.provider || 'local');
+                if (!provider) return;
+
+                const normalizedProvider = provider.trim().toLowerCase();
+                const next = { ...providerConfig, provider: normalizedProvider };
+
+                if (normalizedProvider === 'openai') {
+                    const apiKey = prompt('OpenAI API Key を入力してください', providerConfig.openaiApiKey);
+                    if (!apiKey) return;
+                    const model = prompt('OpenAI model を入力してください', providerConfig.openaiModel || 'gpt-4o-mini') || 'gpt-4o-mini';
+                    next.openaiApiKey = apiKey.trim();
+                    next.openaiModel = model.trim();
+                } else if (normalizedProvider === 'azure') {
+                    const endpoint = prompt('Azure OpenAI endpoint を入力してください (https://xxxx.openai.azure.com)', providerConfig.azureEndpoint);
+                    if (!endpoint) return;
+                    const deployment = prompt('Azure deployment名を入力してください', providerConfig.azureDeployment);
+                    if (!deployment) return;
+                    const apiKey = prompt('Azure API Key を入力してください', providerConfig.azureApiKey);
+                    if (!apiKey) return;
+                    const version = prompt('api-version を入力してください', providerConfig.azureApiVersion || '2024-10-21') || '2024-10-21';
+                    next.azureEndpoint = endpoint.trim();
+                    next.azureDeployment = deployment.trim();
+                    next.azureApiKey = apiKey.trim();
+                    next.azureApiVersion = version.trim();
+                } else {
+                    next.provider = 'local';
+                }
+
+                saveAiProviderConfig(next);
+                setProviderConfig(next);
+                setStatusText(next.provider === 'local' ? 'ローカル推論で応答中' : `${next.provider.toUpperCase()}連携で応答中`);
+                alert('AI接続設定を保存しました。');
+            };
+
+            const sendMessage = async (rawText) => {
+                const text = (rawText || '').trim();
+                if (!text || isResponding) return;
+
+                const userMessage = { role: 'user', text };
+                setMessages(prev => [...prev, userMessage]);
+                setInput('');
+                setIsResponding(true);
+                await persistMessage('user', text, providerConfig.provider);
+
+                try {
+                    let reply = null;
+                    let providerUsed = 'local';
+
+                    if (providerConfig.provider !== 'local') {
+                        reply = await askExternalLlm(text, messages, guidance, hideCorrectAnswer, providerConfig);
+                        providerUsed = providerConfig.provider;
+                    }
+
+                    if (!reply) {
+                        reply = buildLocalChatReply(text, guidance, result, hideCorrectAnswer);
+                        providerUsed = 'local';
+                    }
+
+                    if (shouldRegisterTaskFromQuestion(text)) {
+                        const task = buildTaskFromQuestion(text, guidance);
+                        const stored = await persistTask(task);
+                        if (stored) {
+                            reply += `\n\n✅ 分析結果を反映して、課題トラッカーに追加しました。\n- ${task.subject} / ${task.task}`;
+                            if (onTaskAdded) onTaskAdded(task);
+                        } else {
+                            reply += `\n\n⚠️ サーバー保存はできませんでしたが、課題トラッカーに端末内追加します。\n- ${task.subject} / ${task.task}`;
+                            if (onTaskAdded) onTaskAdded(task);
+                        }
+                    }
+
+                    setMessages(prev => [...prev, { role: 'assistant', text: reply }]);
+                    await persistMessage('assistant', reply, providerUsed);
+                } catch (e) {
+                    const fallback = buildLocalChatReply(text, guidance, result, hideCorrectAnswer);
+                    const errorNotice = `外部AI連携でエラーが発生したため、ローカル推論で回答しました。\n理由: ${e?.message || e}`;
+                    setMessages(prev => [...prev, { role: 'assistant', text: `${errorNotice}\n\n${fallback}` }]);
+                    await persistMessage('assistant', `${errorNotice}\n\n${fallback}`, 'local-fallback');
+                } finally {
+                    setIsResponding(false);
+                }
+            };
+
+            return (
+                <div style={{
+                    marginBottom: '20px',
+                    borderRadius: '12px',
+                    background: '#ffffff',
+                    border: '1px solid #d8dee9',
+                    boxShadow: '0 6px 16px rgba(15,23,42,0.08)',
+                    overflow: 'hidden'
+                }}>
+                    <div style={{ padding: '14px 16px', background: '#0f766e', color: 'white' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                            <h3 style={{ margin: 0, fontSize: '18px' }}>対話型AI 学習コーチ</h3>
+                            <button onClick={openAiSettingPrompt} style={{
+                                padding: '6px 10px',
+                                fontSize: '12px',
+                                border: '1px solid rgba(255,255,255,0.5)',
+                                borderRadius: '8px',
+                                background: 'rgba(255,255,255,0.15)',
+                                color: 'white',
+                                cursor: 'pointer'
+                            }}>
+                                AI接続設定
+                            </button>
+                        </div>
+                        <p style={{ margin: '4px 0 0 0', fontSize: '12px', opacity: 0.9 }}>
+                            {statusText} / 会話履歴はサーバーに保存されます
+                        </p>
+                    </div>
+
+                    <div style={{ padding: '12px 14px', borderBottom: '1px solid #edf2f7', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                        {quickPrompts.map(prompt => (
+                            <button
+                                key={prompt}
+                                onClick={() => sendMessage(prompt)}
+                                disabled={isResponding}
+                                style={{
+                                    padding: '6px 10px',
+                                    fontSize: '12px',
+                                    border: '1px solid #cbd5e1',
+                                    borderRadius: '999px',
+                                    background: '#f8fafc',
+                                    cursor: isResponding ? 'not-allowed' : 'pointer',
+                                    opacity: isResponding ? 0.6 : 1
+                                }}
+                            >
+                                {prompt}
+                            </button>
+                        ))}
+                    </div>
+
+                    <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '12px 14px', background: '#f8fafc' }}>
+                        {messages.map((msg, idx) => (
+                            <div key={idx} style={{
+                                marginBottom: '10px',
+                                display: 'flex',
+                                justifyContent: msg.role === 'user' ? 'flex-end' : 'flex-start'
+                            }}>
+                                <div style={{
+                                    maxWidth: '85%',
+                                    whiteSpace: 'pre-wrap',
+                                    lineHeight: 1.6,
+                                    fontSize: '13px',
+                                    padding: '10px 12px',
+                                    borderRadius: '10px',
+                                    background: msg.role === 'user' ? '#1d4ed8' : 'white',
+                                    color: msg.role === 'user' ? 'white' : '#1e293b',
+                                    border: msg.role === 'user' ? 'none' : '1px solid #e2e8f0'
+                                }}>
+                                    {msg.text}
+                                </div>
+                            </div>
+                        ))}
+                        {isResponding && (
+                            <div style={{ fontSize: '12px', color: '#64748b' }}>AIが回答を生成中...</div>
+                        )}
+                    </div>
+
+                    <div style={{ padding: '12px 14px', borderTop: '1px solid #edf2f7', display: 'flex', gap: '8px' }}>
+                        <input
+                            type="text"
+                            value={input}
+                            onChange={(e) => setInput(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    sendMessage(input);
+                                }
+                            }}
+                            placeholder="例: 今週の学習計画を作って"
+                            style={{
+                                flex: 1,
+                                padding: '10px 12px',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '8px',
+                                fontSize: '14px'
+                            }}
+                        />
+                        <button
+                            onClick={() => sendMessage(input)}
+                            disabled={isResponding}
+                            style={{
+                                padding: '10px 14px',
+                                border: 'none',
+                                borderRadius: '8px',
+                                background: '#0f766e',
+                                color: 'white',
+                                fontWeight: '600',
+                                cursor: isResponding ? 'not-allowed' : 'pointer',
+                                opacity: isResponding ? 0.6 : 1
+                            }}
+                        >
+                            送信
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
         // 苦手領域コンポーネント
         function WeakAreas({ weakAreas, sourceMapping }) {
             const [isExpanded, setIsExpanded] = React.useState(true);
@@ -1650,6 +2627,7 @@
             const [expandedSubject, setExpandedSubject] = useState(null);
             const [showAllQuestions, setShowAllQuestions] = useState(false);
             const [downloadMode, setDownloadMode] = useState('list');
+            const [taskSyncToken, setTaskSyncToken] = useState(0);
             
             // 卒業判定試験の場合、学生には正答を非表示
             const hideCorrectAnswer = !user.isTeacher && currentExam?.hideCorrectAnswer;
@@ -1662,6 +2640,9 @@
             // 学生の場合のみ苦手領域を計算（全試験累積）
             const weakAreas = !user.isTeacher && user.studentId && allExams && allExams.length > 0 
                 ? calculateWeakAreas(allExams, user.studentId) 
+                : null;
+            const aiGuidance = !user.isTeacher && user.studentId && allExams && allExams.length > 0
+                ? buildStudentAiGuidance(allExams, currentExam, user.studentId, sourceMapping)
                 : null;
 
             const handleSelectStudent = (studentId) => {
@@ -1802,9 +2783,6 @@
                                     )}
                                 </div>
                             )}
-                        </div>
-                                </div>
-                            )}
                             {user.isTeacher && allExams && allExams.length > 0 && (
                                 <div style={{ marginTop: '12px', background: 'rgba(255,255,255,0.15)', padding: '10px', borderRadius: '6px' }}>
                                     <div style={{ fontSize: '12px', marginBottom: '8px', opacity: 0.9 }}>公開設定</div>
@@ -1841,6 +2819,8 @@
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    </div>
                     {user.isTeacher && viewMode === 'list' ? (
                         <div id="list-print-area">
                             <AllStudentsView allResults={allResults} onSelectStudent={handleSelectStudent} />
@@ -1901,6 +2881,30 @@
                                     </div>
                                 )}
                             </div>
+
+                            {!user.isTeacher && aiGuidance && (
+                                <StudyGuidanceAI guidance={aiGuidance} hideCorrectAnswer={hideCorrectAnswer} />
+                            )}
+
+                            {!user.isTeacher && aiGuidance && result && (
+                                <StudyChatAssistant
+                                    guidance={aiGuidance}
+                                    result={result}
+                                    hideCorrectAnswer={hideCorrectAnswer}
+                                    studentId={user.studentId}
+                                    examId={currentExam?.id || null}
+                                    onTaskAdded={() => setTaskSyncToken(prev => prev + 1)}
+                                />
+                            )}
+
+                            {!user.isTeacher && aiGuidance && result && (
+                                <WeeklyPlanTracker
+                                    guidance={aiGuidance}
+                                    studentId={user.studentId}
+                                    examId={currentExam?.id || null}
+                                    syncToken={taskSyncToken}
+                                />
+                            )}
 
                             <div style={{ marginBottom: '20px' }}>
                                 <h3>科目別成績</h3>
@@ -2086,6 +3090,16 @@
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
 
+            const formatSupabaseError = (error) => {
+                if (!error) return '不明なエラーです';
+                const parts = [];
+                if (error.message) parts.push(error.message);
+                if (error.code) parts.push(`code: ${error.code}`);
+                if (error.details) parts.push(`details: ${error.details}`);
+                if (error.hint) parts.push(`hint: ${error.hint}`);
+                return parts.join(' | ');
+            };
+
             // Supabaseからデータを読み込む
             useEffect(() => {
                 async function loadData() {
@@ -2183,7 +3197,11 @@
 
                     } catch (error) {
                         console.error('データ読み込みエラー:', error);
-                        alert('データの読み込みに失敗しました: ' + error.message);
+                        const errorText = error?.message || '不明なエラー';
+                        const dnsHint = (errorText.includes('Failed to fetch') || errorText.includes('ERR_NAME_NOT_RESOLVED'))
+                            ? `\n\nSupabase接続先に到達できません。\n現在のURL: ${SUPABASE_URL}\n\n右上の「Supabase接続設定」から、Project URL と anon key を再設定してください。`
+                            : '';
+                        alert('データの読み込みに失敗しました: ' + errorText + dnsHint);
                     } finally {
                         setIsLoading(false);
                     }
@@ -2193,6 +3211,7 @@
             }, []);
 
             const handleCSVUpload = async (examData) => {
+                let createdExamId = null;
                 try {
                     // 同名の試験が既に存在するかチェック
                     const existingExamIndex = allExams.findIndex(exam => exam.examName === examData.examName);
@@ -2231,6 +3250,7 @@
                         .single();
 
                     if (examError) throw examError;
+                    createdExamId = examRecord.id;
 
                     // 学生の結果を保存
                     const resultRecords = examData.students.map(student => ({
@@ -2251,11 +3271,15 @@
                         judo_therapy_score: student.柔整理論 || 0
                     }));
 
-                    const { error: resultsError } = await supabase
-                        .from('student_exam_results')
-                        .insert(resultRecords);
+                    const chunkSize = 100;
+                    for (let i = 0; i < resultRecords.length; i += chunkSize) {
+                        const chunk = resultRecords.slice(i, i + chunkSize);
+                        const { error: resultsError } = await supabase
+                            .from('student_exam_results')
+                            .insert(chunk);
 
-                    if (resultsError) throw resultsError;
+                        if (resultsError) throw resultsError;
+                    }
 
                     // ローカルステートを更新
                     let updatedExams;
@@ -2274,7 +3298,16 @@
                     setShowUpload(false);
                     alert(`「${examData.examName}」のデータを${existingExamIndex !== -1 ? '上書き' : '読み込み'}ました！（${examData.students.length}名）`);
                 } catch (err) {
-                    alert('データの保存に失敗しました: ' + err.message);
+                    if (createdExamId) {
+                        await supabase.from('exams').delete().eq('id', createdExamId);
+                    }
+
+                    const errorText = formatSupabaseError(err);
+                    const rlsHint = (errorText.includes('row-level security') || errorText.includes('permission denied'))
+                        ? '\n\nRLS設定が原因の可能性があります。supabase-schema.sql のポリシーを適用してください。'
+                        : '';
+
+                    alert('データの保存に失敗しました: ' + errorText + rlsHint);
                     console.error('Upload error:', err);
                     setShowUpload(false);
                 }
@@ -2453,10 +3486,40 @@
                 }
             };
 
+            const handleSupabaseConfigClick = () => {
+                const nextUrl = prompt('Supabase Project URL を入力してください', SUPABASE_URL);
+                if (!nextUrl) return;
+
+                const nextKey = prompt('Supabase anon key を入力してください', SUPABASE_ANON_KEY);
+                if (!nextKey) return;
+
+                try {
+                    const normalizedUrl = nextUrl.trim().replace(/\/$/, '');
+                    if (!/^https:\/\/.+\.supabase\.co$/.test(normalizedUrl)) {
+                        alert('URL形式が不正です。例: https://xxxx.supabase.co');
+                        return;
+                    }
+
+                    localStorage.setItem('mogisiken_supabase_url', normalizedUrl);
+                    localStorage.setItem('mogisiken_supabase_anon_key', nextKey.trim());
+                    alert('Supabase接続設定を保存しました。再読み込みします。');
+                    window.location.reload();
+                } catch (e) {
+                    alert('接続設定の保存に失敗しました: ' + (e?.message || e));
+                }
+            };
+
             if (!loggedInUser) {
                 return (
                     <div>
-                        <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000 }}>
+                        <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000, display: 'flex', gap: '10px' }}>
+                            <button onClick={handleSupabaseConfigClick} style={{
+                                padding: '10px 20px', fontSize: '14px', fontWeight: '600',
+                                background: '#1565c0', color: 'white', border: 'none',
+                                borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                            }}>
+                                Supabase接続設定
+                            </button>
                             <button onClick={handleCSVUploadClick} style={{
                                 padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                 background: '#4CAF50', color: 'white', border: 'none',
