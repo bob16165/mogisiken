@@ -1730,9 +1730,27 @@
                 };
             });
 
+            const subjectProfiles = {};
+            priorities.forEach(priority => {
+                const sourcesText = priority.dominantSources.length > 0
+                    ? priority.dominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
+                    : '関連出典データなし';
+
+                subjectProfiles[priority.subjectName] = {
+                    subjectName: priority.subjectName,
+                    latestScoreRate: priority.latestScoreRate,
+                    avgScoreRate: priority.avgScoreRate,
+                    wrongCount: priority.wrongCount,
+                    recentWrongCount: priority.recentWrongCount,
+                    lowCorrectRateMisses: priority.lowCorrectRateMisses,
+                    sourceText: sourcesText
+                };
+            });
+
             return {
                 summary,
                 actionPlan,
+                subjectProfiles,
                 recommendedQuestions,
                 totalTrend,
                 analyzedExamCount: examHistory.length
@@ -1882,6 +1900,12 @@
             return allSubjects.find(subject => normalized.includes(normalizeText(subject))) || null;
         }
 
+        function findSubjectsInQuestion(text) {
+            const normalized = normalizeText(text);
+            const allSubjects = ['必修', ...subjectNames];
+            return allSubjects.filter(subject => normalized.includes(normalizeText(subject)));
+        }
+
         function buildLocalChatReply(question, guidance, result, hideCorrectAnswer) {
             const normalized = normalizeText(question);
             const selectedSubject = findSubjectInQuestion(question);
@@ -1955,20 +1979,24 @@
         }
 
         function buildTaskFromQuestion(question, guidance) {
-            const subject = findSubjectInQuestion(question) || guidance?.actionPlan?.[0]?.subjectName || '必修';
-            const plan = (guidance?.actionPlan || []).find(item => item.subjectName === subject) || guidance?.actionPlan?.[0];
+            const subjects = findSubjectsInQuestion(question);
+            const subject = subjects[0] || guidance?.actionPlan?.[0]?.subjectName || '必修';
+            const subjectLabel = subjects.length > 1 ? subjects.join('・') : subject;
+            const subjectProfile = guidance?.subjectProfiles?.[subject];
+            const actionPlanFallback = (guidance?.actionPlan || []).find(item => item.subjectName === subject) || guidance?.actionPlan?.[0];
             const trimmed = (question || '').trim();
             const cleaned = trimmed
                 .replace(/課題トラッカー|課題|トラッカー/g, '')
                 .replace(/追加|反映|登録|入れて/g, '')
                 .trim();
             const taskText = cleaned.length > 0 ? cleaned : `${subject}の弱点分野を重点復習`; 
+            const sourceText = subjectProfile?.sourceText || actionPlanFallback?.sourceText || '';
 
             return {
                 key: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
                 day: 'User',
-                subject,
-                task: `自主課題: ${taskText}${plan?.sourceText ? `（推奨テーマ: ${plan.sourceText}）` : ''}`,
+                subject: subjectLabel,
+                task: `自主課題: ${taskText}${sourceText ? `（推奨テーマ: ${sourceText}）` : ''}`,
                 done: false
             };
         }
