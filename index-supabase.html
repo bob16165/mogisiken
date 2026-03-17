@@ -1921,9 +1921,21 @@
             if (selectedSubject) {
                 const subjectPlan = plans.find(p => p.subjectName === selectedSubject);
                 const subjectResult = selectedSubject === '必修' ? result.required : result.subjects?.[selectedSubject];
-                if (!subjectPlan || !subjectResult) {
+                if (!subjectResult) {
                     return `${selectedSubject}の十分な分析データがまだありません。全問題一覧で誤答を確認してから再度相談してください。`;
                 }
+
+                const subjectQuestions = result.questionDetails?.[selectedSubject] || [];
+                const wrongQuestions = subjectQuestions.filter(q => !isAnswerCorrect(q.userAnswer, q.correctAnswer));
+                const lowRateWrongCount = wrongQuestions.filter(q => (q.correctRate || 0) < 60).length;
+
+                if (!subjectPlan) {
+                    return `${selectedSubject}は現在 ${subjectResult.scoreRate}% です。優先上位には入っていませんが、誤答は ${wrongQuestions.length} 問あります。` +
+                        (lowRateWrongCount > 0
+                            ? ` 特に低正答率の誤答が ${lowRateWrongCount} 問あるので、まずそこを重点復習しましょう。`
+                            : ' まずは誤答問題の解き直しを2周して、理解不足の単元を整理するのがおすすめです。');
+                }
+
                 return `${selectedSubject}は現在 ${subjectResult.scoreRate}% です。${subjectPlan.focusText} 集中テーマは ${subjectPlan.sourceText}。まず誤答問題を3周して、翌日に同テーマの過去問を解く流れがおすすめです。`;
             }
 
