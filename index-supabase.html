@@ -1978,27 +1978,38 @@
             return (hasTrackerWord && (hasActionWord || hasIntentWord)) || (hasActionWord && hasIntentWord);
         }
 
-        function buildTaskFromQuestion(question, guidance) {
+        function buildTasksFromQuestion(question, guidance) {
             const subjects = findSubjectsInQuestion(question);
-            const subject = subjects[0] || guidance?.actionPlan?.[0]?.subjectName || '必修';
-            const subjectLabel = subjects.length > 1 ? subjects.join('・') : subject;
-            const subjectProfile = guidance?.subjectProfiles?.[subject];
-            const actionPlanFallback = (guidance?.actionPlan || []).find(item => item.subjectName === subject) || guidance?.actionPlan?.[0];
+            const targetSubjects = subjects.length > 0
+                ? subjects
+                : [guidance?.actionPlan?.[0]?.subjectName || '必修'];
+
+            const subjectPattern = targetSubjects.join('|');
             const trimmed = (question || '').trim();
-            const cleaned = trimmed
+            const cleanedBase = trimmed
+                .replace(new RegExp(subjectPattern, 'g'), '')
                 .replace(/課題トラッカー|課題|トラッカー/g, '')
                 .replace(/追加|反映|登録|入れて/g, '')
+                .replace(/も|と|を|に/g, ' ')
+                .replace(/\s+/g, ' ')
                 .trim();
-            const taskText = cleaned.length > 0 ? cleaned : `${subject}の弱点分野を重点復習`; 
-            const sourceText = subjectProfile?.sourceText || actionPlanFallback?.sourceText || '';
 
-            return {
-                key: `user-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                day: 'User',
-                subject: subjectLabel,
-                task: `自主課題: ${taskText}${sourceText ? `（推奨テーマ: ${sourceText}）` : ''}`,
-                done: false
-            };
+            const normalizedBase = cleanedBase.replace(/(して){2,}/g, 'して');
+            const commonText = normalizedBase.length > 0 ? normalizedBase : '学習計画を作成して実行';
+
+            return targetSubjects.map((subject, idx) => {
+                const subjectProfile = guidance?.subjectProfiles?.[subject];
+                const actionPlanFallback = (guidance?.actionPlan || []).find(item => item.subjectName === subject);
+                const sourceText = subjectProfile?.sourceText || actionPlanFallback?.sourceText || '';
+
+                return {
+                    key: `user-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
+                    day: 'User',
+                    subject,
+                    task: `自主課題(${subject}): ${commonText}${sourceText ? `（推奨テーマ: ${sourceText}）` : ''}`,
+                    done: false
+                };
+            });
         }
 
         function getAiProviderConfig() {
@@ -2409,14 +2420,20 @@
                     }
 
                     if (shouldRegisterTaskFromQuestion(text)) {
-                        const task = buildTaskFromQuestion(text, guidance);
-                        const stored = await persistTask(task);
-                        if (stored) {
-                            reply += `\n\n✅ 分析結果を反映して、課題トラッカーに追加しました。\n- ${task.subject} / ${task.task}`;
+                        const tasks = buildTasksFromQuestion(text, guidance);
+                        let savedCount = 0;
+
+                        for (const task of tasks) {
+                            const stored = await persistTask(task);
+                            if (stored) savedCount += 1;
                             if (onTaskAdded) onTaskAdded(task);
+                        }
+
+                        const listText = tasks.map(task => `- ${task.subject} / ${task.task}`).join('\n');
+                        if (savedCount === tasks.length) {
+                            reply += `\n\n✅ 分析結果を反映して、課題トラッカーに追加しました。\n${listText}`;
                         } else {
-                            reply += `\n\n⚠️ サーバー保存はできませんでしたが、課題トラッカーに端末内追加します。\n- ${task.subject} / ${task.task}`;
-                            if (onTaskAdded) onTaskAdded(task);
+                            reply += `\n\n⚠️ 一部または全部のサーバー保存に失敗しましたが、課題トラッカーには端末内追加しました。\n${listText}`;
                         }
                     }
 
