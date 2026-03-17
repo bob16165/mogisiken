@@ -2861,6 +2861,19 @@
                                         padding: '10px 20px', fontSize: '14px', color: '#1976d2', background: 'white',
                                         border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
                                     }}>ログアウト</button>
+                                    {!user.isTeacher && (
+                                        <div style={{
+                                            marginTop: '6px',
+                                            width: '100%',
+                                            textAlign: 'right',
+                                            fontSize: '13px',
+                                            letterSpacing: '0.04em',
+                                            color: 'transparent',
+                                            WebkitTextStroke: '1px rgba(255,255,255,0.95)'
+                                        }}>
+                                            作成者：井上亜久吏
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             {user.isTeacher && (
