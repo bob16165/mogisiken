@@ -496,7 +496,7 @@
                                             </td>
                                         )}
                                         {!hideCorrectAnswer && (
-                                            <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
+                                            <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 70 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
                                                 {q.correctRate}%
                                             </td>
                                         )}
@@ -1487,7 +1487,7 @@
                         if (cellIdx === 4) {
                             const rate = typeof q.correctRate === 'number' ? q.correctRate : null;
                             td.style.fontWeight = '700';
-                            td.style.color = rate >= 80 ? '#4CAF50' : rate >= 50 ? '#FF9800' : '#F44336';
+                            td.style.color = rate >= 70 ? '#4CAF50' : rate >= 50 ? '#FF9800' : '#F44336';
                         }
                     }
 
@@ -1642,8 +1642,10 @@
                     belowAverageGap: 0,
                     wrongCount: 0,
                     recentWrongCount: 0,
-                    lowCorrectRateMisses: 0,
+                    highCorrectRateMisses: 0,
+                    midCorrectRateMisses: 0,
                     sourceCounts: {},
+                    midBandSourceCounts: {},
                     relatedQuestions: [],
                     correlSum: 0,
                     correlCount: 0
@@ -1702,12 +1704,17 @@
                         if (correct) return;
 
                         const source = question.source || '出典未設定';
+                        const questionCorrectRate = question.correctRate || 0;
                         analytics.wrongCount += 1;
                         if (isCurrentExam) {
                             analytics.recentWrongCount += 1;
                         }
-                        if ((question.correctRate || 0) < 60) {
-                            analytics.lowCorrectRateMisses += 1;
+                        if (questionCorrectRate >= 70) {
+                            analytics.highCorrectRateMisses += 1;
+                        }
+                        if (questionCorrectRate >= 50 && questionCorrectRate < 70) {
+                            analytics.midCorrectRateMisses += 1;
+                            analytics.midBandSourceCounts[source] = (analytics.midBandSourceCounts[source] || 0) + 1;
                         }
                         analytics.sourceCounts[source] = (analytics.sourceCounts[source] || 0) + 1;
                         analytics.relatedQuestions.push({
@@ -1749,13 +1756,22 @@
                             count,
                             displaySource: convertSourceToName(source, item.subjectName, sourceMapping)
                         }));
+                    const midBandDominantSources = Object.entries(item.midBandSourceCounts)
+                        .sort((a, b) => b[1] - a[1])
+                        .slice(0, 3)
+                        .map(([source, count]) => ({
+                            source,
+                            count,
+                            displaySource: convertSourceToName(source, item.subjectName, sourceMapping)
+                        }));
                     const avgSubjectCorrel = item.correlCount > 0 ? item.correlSum / item.correlCount : 0;
                     const priorityScore =
                         Math.max(0, 65 - latestScoreRate) * 1.4 +
                         item.belowAverageGap * 1.1 +
-                        item.wrongCount * 7 +
+                        item.wrongCount * 4 +
                         item.recentWrongCount * 10 +
-                        item.lowCorrectRateMisses * 6 +
+                        item.highCorrectRateMisses * 12 +
+                        item.midCorrectRateMisses * 10 +
                         Math.max(0, avgSubjectCorrel) * 20;
 
                     return {
@@ -1763,6 +1779,7 @@
                         avgScoreRate,
                         latestScoreRate,
                         dominantSources,
+                        midBandDominantSources,
                         subjectCorrel: item.correlCount > 0 ? Math.round((item.correlSum / item.correlCount) * 1000) / 1000 : null,
                         priorityScore: Math.round(priorityScore * 10) / 10
                     };
@@ -1776,6 +1793,9 @@
                 priority.relatedQuestions
                     .sort((a, b) => {
                         if (a.isCurrentExam !== b.isCurrentExam) return a.isCurrentExam ? -1 : 1;
+                        const aBand = (a.correctRate ?? 0) >= 70 ? 2 : ((a.correctRate ?? 0) >= 50 && (a.correctRate ?? 0) < 70 ? 1 : 0);
+                        const bBand = (b.correctRate ?? 0) >= 70 ? 2 : ((b.correctRate ?? 0) >= 50 && (b.correctRate ?? 0) < 70 ? 1 : 0);
+                        if (aBand !== bBand) return bBand - aBand;
                         // 相関係数0.4以上の問題を優先
                         const aHighCorrel = (a.correlWithTotal ?? 0) >= 0.4 ? 1 : 0;
                         const bHighCorrel = (b.correlWithTotal ?? 0) >= 0.4 ? 1 : 0;
@@ -1799,6 +1819,14 @@
             let summary = '問題別データが不足しているため、科目別の得点率から優先順位を出しています。';
             if (topPriorities.length > 0) {
                 summary = `優先順位は ${subjectLine} です。`;
+                const highRateMissTotal = topPriorities.reduce((sum, item) => sum + item.highCorrectRateMisses, 0);
+                const midBandMissTotal = topPriorities.reduce((sum, item) => sum + item.midCorrectRateMisses, 0);
+                if (highRateMissTotal > 0) {
+                    summary += ` 正答率70%以上なのに落としている問題が ${highRateMissTotal}問あり、まずは取りこぼし回収の効果が大きいです。`;
+                }
+                if (midBandMissTotal > 0) {
+                    summary += ` あわせて正答率50〜70%帯で誤答が集まる領域が ${midBandMissTotal}問あり、基礎の抜けを埋めると安定します。`;
+                }
                 // 高相関科目を強調
                 const highCorrelSubjects = topPriorities.filter(p => (p.subjectCorrel ?? 0) >= 0.4).map(p => p.subjectName);
                 if (highCorrelSubjects.length > 0) {
@@ -1814,11 +1842,19 @@
             }
 
             const actionPlan = topPriorities.map(priority => {
-                const sourcesText = priority.dominantSources.length > 0
-                    ? priority.dominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
-                    : '関連出典データなし';
+                const sourcesText = priority.midBandDominantSources.length > 0
+                    ? priority.midBandDominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
+                    : (priority.dominantSources.length > 0
+                        ? priority.dominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
+                        : '関連出典データなし');
                 const latestGap = Math.max(0, Math.round((priority.avgScoreRate - priority.latestScoreRate) * 10) / 10);
                 const isHighCorrelSubject = (priority.subjectCorrel ?? 0) >= 0.4;
+                const midBandLabel = priority.midBandDominantSources.length > 0
+                    ? '50〜70%帯で誤答が集中する領域です。'
+                    : '誤答が集中する領域を優先的に固めるべき科目です。';
+                const highRateLabel = priority.highCorrectRateMisses > 0
+                    ? `正答率70%以上の取りこぼしが ${priority.highCorrectRateMisses}問あります。`
+                    : '';
 
                 return {
                     subjectName: priority.subjectName,
@@ -1826,21 +1862,24 @@
                     avgScoreRate: priority.avgScoreRate,
                     wrongCount: priority.wrongCount,
                     recentWrongCount: priority.recentWrongCount,
-                    lowCorrectRateMisses: priority.lowCorrectRateMisses,
+                    highCorrectRateMisses: priority.highCorrectRateMisses,
+                    midCorrectRateMisses: priority.midCorrectRateMisses,
                     subjectCorrel: priority.subjectCorrel,
                     isHighCorrelSubject,
                     focusText: latestGap > 0
-                        ? `平均より ${latestGap}ポイント低く、取りこぼしの回収効果が大きい科目です。${isHighCorrelSubject ? ' 合否に直結する高相関科目です。' : ''}`
-                        : `平均帯にはいますが、誤答の再発が多く優先的な復習対象です。${isHighCorrelSubject ? ' 合否に直結する高相関科目です。' : ''}`,
+                        ? `平均より ${latestGap}ポイント低く、${highRateLabel}${midBandLabel}${isHighCorrelSubject ? ' 合否に直結する高相関科目です。' : ''}`
+                        : `平均帯にはいますが、${highRateLabel}${midBandLabel}${isHighCorrelSubject ? ' 合否に直結する高相関科目です。' : ''}`,
                     sourceText: sourcesText
                 };
             });
 
             const subjectProfiles = {};
             priorities.forEach(priority => {
-                const sourcesText = priority.dominantSources.length > 0
-                    ? priority.dominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
-                    : '関連出典データなし';
+                const sourcesText = priority.midBandDominantSources.length > 0
+                    ? priority.midBandDominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
+                    : (priority.dominantSources.length > 0
+                        ? priority.dominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
+                        : '関連出典データなし');
 
                 subjectProfiles[priority.subjectName] = {
                     subjectName: priority.subjectName,
@@ -1848,7 +1887,8 @@
                     avgScoreRate: priority.avgScoreRate,
                     wrongCount: priority.wrongCount,
                     recentWrongCount: priority.recentWrongCount,
-                    lowCorrectRateMisses: priority.lowCorrectRateMisses,
+                    highCorrectRateMisses: priority.highCorrectRateMisses,
+                    midCorrectRateMisses: priority.midCorrectRateMisses,
                     sourceText: sourcesText
                 };
             });
@@ -1947,10 +1987,11 @@
                                             <div>最新得点率: {plan.latestScoreRate}%</div>
                                             <div>累積誤答: {plan.wrongCount}問</div>
                                             <div>直近誤答: {plan.recentWrongCount}問</div>
-                                            <div>低正答率誤答: {plan.lowCorrectRateMisses}問</div>
+                                            <div>高正答率取りこぼし: {plan.highCorrectRateMisses}問</div>
+                                            <div>50〜70%帯誤答: {plan.midCorrectRateMisses}問</div>
                                         </div>
                                         <div style={{ marginTop: '10px', fontSize: '12px', lineHeight: 1.6, opacity: 0.88 }}>
-                                            集中テーマ: {plan.sourceText}
+                                            集中領域: {plan.sourceText}
                                         </div>
                                     </div>
                                 ))}
@@ -2067,10 +2108,10 @@
                 const first = priorityQueue[0] || topPlan.subjectName;
                 const second = priorityQueue[1] || first;
                 const third = priorityQueue[2] || second;
-                const firstTheme = guidance?.subjectProfiles?.[first]?.sourceText || plans.find(p => p.subjectName === first)?.sourceText || '誤答テーマ';
-                const secondTheme = guidance?.subjectProfiles?.[second]?.sourceText || plans.find(p => p.subjectName === second)?.sourceText || '誤答テーマ';
+                const firstTheme = guidance?.subjectProfiles?.[first]?.sourceText || plans.find(p => p.subjectName === first)?.sourceText || '集中領域';
+                const secondTheme = guidance?.subjectProfiles?.[second]?.sourceText || plans.find(p => p.subjectName === second)?.sourceText || '集中領域';
 
-                return `7日プランの例です。\n1-3日目: ${first}（出典: ${firstTheme}）\n4-5日目: ${second}（出典: ${secondTheme}）\n6日目: ${third}（苦手問題の再演習）\n7日目: 全科目のミニテストと解き直し。`;
+                return `7日プランの例です。\n1-3日目: ${first}（集中領域: ${firstTheme}）\n4-5日目: ${second}（集中領域: ${secondTheme}）\n6日目: ${third}（高正答率の取りこぼしと50〜70%帯の問題を再演習）\n7日目: 全科目のミニテストと解き直し。`;
             }
 
             if (normalized.includes('過去問') || normalized.includes('問題') || normalized.includes('出典')) {
@@ -2182,7 +2223,7 @@
 
         function buildLlmSystemPrompt(guidance, hideCorrectAnswer) {
             const priorities = (guidance?.actionPlan || []).map((item, idx) =>
-                `${idx + 1}. ${item.subjectName} / 最新得点率:${item.latestScoreRate}% / 誤答:${item.wrongCount} / テーマ:${item.sourceText}`
+                `${idx + 1}. ${item.subjectName} / 最新得点率:${item.latestScoreRate}% / 高正答率取りこぼし:${item.highCorrectRateMisses} / 50〜70%帯誤答:${item.midCorrectRateMisses} / 集中領域:${item.sourceText}`
             ).join('\n');
             const recQuestions = (guidance?.recommendedQuestions || []).slice(0, 8).map((q, idx) => {
                 const answerPart = hideCorrectAnswer ? '' : ` 正答:${q.correctAnswer || '-'}`;
@@ -3352,7 +3393,7 @@
                                                                             </td>
                                                                         )}
                                                                         {!hideCorrectAnswer && (
-                                                                            <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 80 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
+                                                                            <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px', fontWeight: '600', color: q.correctRate >= 70 ? '#4CAF50' : q.correctRate >= 50 ? '#FF9800' : '#F44336' }}>
                                                                                 {q.correctRate}%
                                                                             </td>
                                                                         )}
