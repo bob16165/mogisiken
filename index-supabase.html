@@ -1786,7 +1786,7 @@
                 })
                 .sort((a, b) => b.priorityScore - a.priorityScore);
 
-            const topPriorities = priorities.slice(0, 3);
+            const topPriorities = priorities.slice(0, 5);
             const recommendedQuestionMap = new Map();
 
             topPriorities.forEach(priority => {
@@ -1833,7 +1833,7 @@
                     summary += ` 特に ${highCorrelSubjects.join('・')} は総合点との相関が高く（r≥0.4）、得点に直結する科目です。`;
                 }
                 if (totalTrend > 0) {
-                    summary += ` 総合得点率は初回より ${totalTrend}ポイント上がっていますが、上位3科目の取りこぼしで伸びが止まっています。`;
+                    summary += ` 総合得点率は初回より ${totalTrend}ポイント上がっていますが、優先5科目の取りこぼしで伸びが止まっています。`;
                 } else if (totalTrend < 0) {
                     summary += ` 総合得点率は初回より ${Math.abs(totalTrend)}ポイント下がっており、直近試験の誤答復習を先に固める必要があります。`;
                 } else {
@@ -2108,10 +2108,15 @@
                 const first = priorityQueue[0] || topPlan.subjectName;
                 const second = priorityQueue[1] || first;
                 const third = priorityQueue[2] || second;
+                const fourth = priorityQueue[3] || third;
+                const fifth = priorityQueue[4] || fourth;
                 const firstTheme = guidance?.subjectProfiles?.[first]?.sourceText || plans.find(p => p.subjectName === first)?.sourceText || '集中領域';
                 const secondTheme = guidance?.subjectProfiles?.[second]?.sourceText || plans.find(p => p.subjectName === second)?.sourceText || '集中領域';
+                const thirdTheme = guidance?.subjectProfiles?.[third]?.sourceText || plans.find(p => p.subjectName === third)?.sourceText || '集中領域';
+                const fourthTheme = guidance?.subjectProfiles?.[fourth]?.sourceText || plans.find(p => p.subjectName === fourth)?.sourceText || '集中領域';
+                const fifthTheme = guidance?.subjectProfiles?.[fifth]?.sourceText || plans.find(p => p.subjectName === fifth)?.sourceText || '集中領域';
 
-                return `7日プランの例です。\n1-3日目: ${first}（集中領域: ${firstTheme}）\n4-5日目: ${second}（集中領域: ${secondTheme}）\n6日目: ${third}（高正答率の取りこぼしと50〜70%帯の問題を再演習）\n7日目: 全科目のミニテストと解き直し。`;
+                return `7日プランの例です。\n1日目: ${first}（集中領域: ${firstTheme}）\n2日目: ${second}（集中領域: ${secondTheme}）\n3日目: ${third}（集中領域: ${thirdTheme}）\n4日目: ${fourth}（集中領域: ${fourthTheme}）\n5日目: ${fifth}（集中領域: ${fifthTheme}）\n6日目: ${first} の高正答率の取りこぼしを再確認\n7日目: 優先5科目のミニテストと解き直し。`;
             }
 
             if (normalized.includes('過去問') || normalized.includes('問題') || normalized.includes('出典')) {
@@ -2312,23 +2317,32 @@
             const top = guidance?.actionPlan?.[0]?.subjectName || '必修';
             const second = guidance?.actionPlan?.[1]?.subjectName || top;
             const third = guidance?.actionPlan?.[2]?.subjectName || second;
-            const theme1 = guidance?.actionPlan?.[0]?.sourceText || '誤答テーマ';
-            const theme2 = guidance?.actionPlan?.[1]?.sourceText || '苦手テーマ';
+            const fourth = guidance?.actionPlan?.[3]?.subjectName || third;
+            const fifth = guidance?.actionPlan?.[4]?.subjectName || fourth;
+            const theme1 = guidance?.actionPlan?.[0]?.sourceText || '集中領域';
+            const theme2 = guidance?.actionPlan?.[1]?.sourceText || '集中領域';
+            const theme3 = guidance?.actionPlan?.[2]?.sourceText || '集中領域';
+            const theme4 = guidance?.actionPlan?.[3]?.sourceText || '集中領域';
+            const theme5 = guidance?.actionPlan?.[4]?.sourceText || '集中領域';
             const hc1 = guidance?.actionPlan?.[0]?.isHighCorrelSubject || false;
             const hc2 = guidance?.actionPlan?.[1]?.isHighCorrelSubject || false;
             const hc3 = guidance?.actionPlan?.[2]?.isHighCorrelSubject || false;
+            const hc4 = guidance?.actionPlan?.[3]?.isHighCorrelSubject || false;
+            const hc5 = guidance?.actionPlan?.[4]?.isHighCorrelSubject || false;
             const tag1 = hc1 ? '【合否直結】' : '';
             const tag2 = hc2 ? '【合否直結】' : '';
             const tag3 = hc3 ? '【合否直結】' : '';
+            const tag4 = hc4 ? '【合否直結】' : '';
+            const tag5 = hc5 ? '【合否直結】' : '';
 
             return [
                 { key: 'd1', day: 'Day1', subject: top, task: `${tag1}${top}の誤答5問を解き直し（${theme1}）`, isHighCorrel: hc1 },
-                { key: 'd2', day: 'Day2', subject: top, task: `${tag1}${top}の類題演習5問 + 解説要約`, isHighCorrel: hc1 },
-                { key: 'd3', day: 'Day3', subject: top, task: `${tag1}${top}のミニテスト10問`, isHighCorrel: hc1 },
-                { key: 'd4', day: 'Day4', subject: second, task: `${tag2}${second}の誤答復習（${theme2}）`, isHighCorrel: hc2 },
-                { key: 'd5', day: 'Day5', subject: second, task: `${tag2}${second}の出典別まとめノート作成`, isHighCorrel: hc2 },
-                { key: 'd6', day: 'Day6', subject: third, task: `${tag3}${third}の弱点問題5問 + 振り返り`, isHighCorrel: hc3 },
-                { key: 'd7', day: 'Day7', subject: '総合', task: '優先3科目の混合テストと再復習', isHighCorrel: false }
+                { key: 'd2', day: 'Day2', subject: second, task: `${tag2}${second}の誤答復習（${theme2}）`, isHighCorrel: hc2 },
+                { key: 'd3', day: 'Day3', subject: third, task: `${tag3}${third}の弱点問題5問 + 振り返り（${theme3}）`, isHighCorrel: hc3 },
+                { key: 'd4', day: 'Day4', subject: fourth, task: `${tag4}${fourth}の出典別まとめノート作成（${theme4}）`, isHighCorrel: hc4 },
+                { key: 'd5', day: 'Day5', subject: fifth, task: `${tag5}${fifth}の類題演習5問 + 解説要約（${theme5}）`, isHighCorrel: hc5 },
+                { key: 'd6', day: 'Day6', subject: top, task: `${tag1}${top}のミニテスト10問と取りこぼし再確認`, isHighCorrel: hc1 },
+                { key: 'd7', day: 'Day7', subject: '総合', task: '優先5科目の混合テストと再復習', isHighCorrel: false }
             ];
         }
 
