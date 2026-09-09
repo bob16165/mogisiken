@@ -582,7 +582,7 @@
         }
 
         // CSVアップロードコンポーネント
-        function CSVUpload({ onUpload, onLogout, existingExams, studentMaster, onStudentMasterUpload, onSourceMappingUpdate, onDeleteExam, schools, selectedSchoolId, onSchoolChange }) {
+        function CSVUpload({ onUpload, onLogout, existingExams, studentMaster, onStudentMasterUpload, onSourceMappingUpdate, onDeleteExam, isAdmin, schools, selectedSchoolId, onSchoolChange }) {
             const [examName, setExamName] = useState('');
             const [frontHalfFile, setFrontHalfFile] = useState(null);
             const [backHalfFile, setBackHalfFile] = useState(null);
@@ -1076,7 +1076,7 @@
                                 </button>
                             </div>
                         </div>
-                        {schools && (
+                        {isAdmin && schools && (
                             <div style={{ marginBottom: '20px', padding: '12px', background: '#e3f2fd', borderRadius: '6px', border: '1px solid #90caf9' }}>
                                 <label style={{ display: 'block', marginBottom: '6px', color: '#1565c0', fontWeight: '600' }}>登録先の学校</label>
                                 <select value={selectedSchoolId || ''} onChange={(e) => onSchoolChange(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid #90caf9', borderRadius: '5px', background: 'white' }}>
@@ -4083,7 +4083,10 @@
             }
 
             if (showUpload) {
-                return <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} existingExams={allExams} studentMaster={studentMaster} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={handleSourceMappingUpdate} onDeleteExam={handleDeleteExam} schools={schools} selectedSchoolId={selectedSchoolId} onSchoolChange={(schoolId) => setSelectedSchoolId(schoolId)} />;
+                const uploadExams = loggedInUser.role === 'admin'
+                    ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
+                    : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId);
+                return <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} existingExams={uploadExams} studentMaster={studentMaster} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={handleSourceMappingUpdate} onDeleteExam={handleDeleteExam} isAdmin={loggedInUser.role === 'admin'} schools={schools} selectedSchoolId={selectedSchoolId} onSchoolChange={(schoolId) => setSelectedSchoolId(schoolId)} />;
             }
 
             // CSVアップロードボタンの認証処理
