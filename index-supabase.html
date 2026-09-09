@@ -3582,6 +3582,7 @@
 
             useEffect(() => {
                 let isMounted = true;
+                let loadStage = '初期化';
                 let recoveryDetected = isPasswordRecoveryRedirect();
 
                 const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
@@ -3647,6 +3648,7 @@
 
                     setIsLoading(true);
                     try {
+                        loadStage = '学校一覧';
                         if (loggedInUser.role === 'admin') {
                             const { data: schoolsData, error: schoolsError } = await supabase
                                 .from('schools')
@@ -3660,13 +3662,13 @@
                             setSelectedSchoolId(loggedInUser.schoolId || '');
                         }
 
-                        const { data: examsData, error: examsError } = await supabase
+                        loadStage = '試験一覧';
+                        let examsQuery = supabase
                             .from('exams')
                             .select(`
                                 id,
                                 school_id,
                                 exam_name,
-                                question_layout,
                                 hide_correct_answer,
                                 is_published,
                                 created_at,
@@ -3688,6 +3690,17 @@
                                 )
                             `)
                             .order('created_at', { ascending: true });
+
+                        let { data: examsData, error: examsError } = await examsQuery;
+                        if (!examsError) {
+                            const { data: layoutData, error: layoutError } = await supabase
+                                .from('exams')
+                                .select('id, question_layout');
+                            if (!layoutError) {
+                                const layouts = Object.fromEntries((layoutData || []).map(item => [item.id, item.question_layout]));
+                                examsData = (examsData || []).map(exam => ({ ...exam, question_layout: layouts[exam.id] }));
+                            }
+                        }
 
                         if (examsError) throw examsError;
 
@@ -3720,6 +3733,7 @@
                         if (!isMounted) return;
                         setAllExams(formattedExams);
 
+                        loadStage = '学生マスター';
                         const { data: studentsData, error: studentsError } = await supabase
                             .from('student_master')
                             .select('student_id, name');
@@ -3734,6 +3748,7 @@
                         });
                         setStudentMaster(masterObj);
 
+                        loadStage = '出典マッピング';
                         const { data: mappingData, error: mappingError } = await supabase
                             .from('source_mapping')
                             .select('*');
@@ -3760,7 +3775,7 @@
                         const dnsHint = (errorText.includes('Failed to fetch') || errorText.includes('ERR_NAME_NOT_RESOLVED'))
                             ? `\n\nSupabase接続先に到達できません。\n現在のURL: ${SUPABASE_URL}\n\n右上の「Supabase接続設定」から、Project URL と anon key を再設定してください。`
                             : '';
-                        alert('データの読み込みに失敗しました: ' + errorText + dnsHint);
+                        alert(`データの読み込みに失敗しました（${loadStage}）: ${errorText}${dnsHint}`);
                     } finally {
                         setIsLoading(false);
                     }
