@@ -3533,6 +3533,12 @@
             );
         }
 
+        function isPasswordRecoveryRedirect() {
+            const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+            const queryParams = new URLSearchParams(window.location.search);
+            return hashParams.get('type') === 'recovery' || queryParams.get('type') === 'recovery';
+        }
+
         // メインアプリ
         function App() {
             const [loggedInUser, setLoggedInUser] = useState(null);
@@ -3542,7 +3548,7 @@
             const [isLoading, setIsLoading] = useState(false);
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
-            const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
+            const [isPasswordRecovery, setIsPasswordRecovery] = useState(isPasswordRecoveryRedirect);
             const [showSupabaseConfig, setShowSupabaseConfig] = useState(false);
             const [supabaseUrlInput, setSupabaseUrlInput] = useState(SUPABASE_URL);
             const [supabaseKeyInput, setSupabaseKeyInput] = useState(SUPABASE_ANON_KEY);
@@ -3559,14 +3565,25 @@
 
             useEffect(() => {
                 let isMounted = true;
+                let recoveryDetected = isPasswordRecoveryRedirect();
+
+                const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+                    if (event === 'PASSWORD_RECOVERY' && isMounted) {
+                        recoveryDetected = true;
+                        setIsPasswordRecovery(true);
+                        setLoggedInUser(null);
+                    }
+                    if (event === 'SIGNED_OUT' && isMounted) setLoggedInUser(null);
+                });
 
                 async function restoreSession() {
                     const { data: sessionData } = await supabase.auth.getSession();
                     const authUser = sessionData?.session?.user;
                     if (!authUser) return;
 
-                    if (window.location.hash.includes('type=recovery')) {
+                    if (recoveryDetected || isPasswordRecoveryRedirect()) {
                         setIsPasswordRecovery(true);
+                        setLoggedInUser(null);
                         return;
                     }
 
@@ -3589,13 +3606,6 @@
                 }
 
                 restoreSession().catch(error => console.error('Auth session restore error:', error));
-                const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
-                    if (event === 'PASSWORD_RECOVERY' && isMounted) {
-                        setIsPasswordRecovery(true);
-                        setLoggedInUser(null);
-                    }
-                    if (event === 'SIGNED_OUT' && isMounted) setLoggedInUser(null);
-                });
 
                 return () => {
                     isMounted = false;
