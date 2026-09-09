@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MogiSiken 商品化デモ</title>
+  <style>
+    :root { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; color: #17212b; background: #edf3f1; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: radial-gradient(circle at 8% 0%, #d9f0e7, transparent 34rem), #edf3f1; }
+    main { width: min(1120px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 64px; }
+    header { display: flex; justify-content: space-between; gap: 24px; align-items: end; margin-bottom: 28px; }
+    .eyebrow { color: #087f5b; font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    h1 { margin: 8px 0 0; font-size: clamp(30px, 5vw, 56px); line-height: 1; letter-spacing: -.04em; }
+    .lead { max-width: 560px; color: #5e6b70; line-height: 1.7; }
+    .status { border: 1px solid #b7d9cb; background: #f8fffb; padding: 12px 16px; color: #087f5b; font-weight: 700; white-space: nowrap; }
+    .grid { display: grid; grid-template-columns: 280px 1fr; gap: 18px; }
+    .panel { border: 1px solid #d3dfdb; background: rgba(255,255,255,.84); box-shadow: 0 16px 50px rgba(33, 66, 57, .08); padding: 22px; }
+    .panel h2 { margin: 0 0 16px; font-size: 17px; }
+    .roles { display: grid; gap: 10px; }
+    button { width: 100%; padding: 13px 14px; text-align: left; border: 1px solid #d3dfdb; background: #fff; color: #17212b; cursor: pointer; font: inherit; }
+    button:hover, button.active { border-color: #087f5b; background: #e5f6ee; }
+    button strong, button span { display: block; }
+    button span { color: #68777a; font-size: 12px; margin-top: 4px; }
+    .identity { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e2ebe7; padding-bottom: 18px; margin-bottom: 18px; }
+    .identity h2 { margin: 0; }
+    .badge { padding: 7px 10px; background: #17212b; color: white; font-size: 12px; font-weight: 800; }
+    .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .metric { padding: 16px; background: #f4f8f6; border-left: 3px solid #087f5b; }
+    .metric small { display: block; color: #68777a; }
+    .metric b { display: block; margin-top: 8px; font-size: 24px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { text-align: left; padding: 13px 10px; border-bottom: 1px solid #e2ebe7; }
+    th { color: #68777a; font-size: 12px; }
+    .allowed { color: #087f5b; font-weight: 800; }
+    .hidden { color: #a25b36; }
+    .note { margin-top: 18px; padding: 14px; background: #fff7e8; color: #80522e; line-height: 1.6; font-size: 13px; }
+    code { color: #087f5b; }
+    @media (max-width: 720px) { main { padding-top: 24px; } header, .grid { display: block; } .status { display: inline-block; margin-top: 18px; } .panel + .panel { margin-top: 16px; } .cards { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div><div class="eyebrow">MogiSiken / product demo</div><h1>学習データを、正しく分離する。</h1><p class="lead">Supabase Authのセッションと学校・学生の所属情報を使った、商品化向け認可モデルのデモです。画面の表示だけでなく、最終的なアクセス判定はRLSが行います。</p></div>
+      <div class="status">● RLS設計: 有効</div>
+    </header>
+    <section class="grid">
+      <aside class="panel"><h2>ログイン役割</h2><div class="roles" id="roles"></div><div class="note">実運用ではパスワードをこの画面や業務テーブルで検証しません。<code>supabase.auth.signInWithPassword()</code> が認証を担当します。</div></aside>
+      <section class="panel"><div class="identity"><div><h2 id="title"></h2><div id="subtitle" class="lead"></div></div><div id="badge" class="badge"></div></div><div class="cards" id="metrics"></div><table><thead><tr><th>リソース</th><th>学校</th><th>所有者</th><th>この役割から</th></tr></thead><tbody id="rows"></tbody></table><p class="lead" style="margin-bottom:0">判定の根拠: <code>auth.uid()</code> → <code>app_users</code> → <code>school_id / student_id</code>。クライアント側の絞り込みは補助であり、境界ではありません。</p></section>
+    </section>
+  </main>
+  <script>
+    const users = {
+      studentA: { label: '学生A', id: 'S001', role: 'student', school: '中央校', name: '山田太郎' },
+      studentB: { label: '学生B', id: 'S002', role: 'student', school: '中央校', name: '佐藤花子' },
+      teacher: { label: '教員', id: 'T001', role: 'teacher', school: '中央校', name: '田中先生' }
+    };
+    const resources = [
+      ['試験結果 / S001', '中央校', 'S001'], ['試験結果 / S002', '中央校', 'S002'],
+      ['学習課題 / S001', '中央校', 'S001'], ['チャット履歴 / S002', '中央校', 'S002'],
+      ['別学校の試験結果', '西校', 'S009']
+    ];
+    let current = 'studentA';
+    const canRead = (user, row) => user.role === 'teacher' ? row[1] === user.school : row[2] === user.id;
+    function render() {
+      const user = users[current];
+      document.querySelector('#roles').innerHTML = Object.entries(users).map(([key, item]) => `<button class="${key === current ? 'active' : ''}" data-key="${key}"><strong>${item.label}</strong><span>${item.name} / ${item.school}</span></button>`).join('');
+      document.querySelectorAll('[data-key]').forEach(button => button.onclick = () => { current = button.dataset.key; render(); });
+      document.querySelector('#title').textContent = `${user.name}のダッシュボード`;
+      document.querySelector('#subtitle').textContent = `${user.role === 'teacher' ? '教員' : '学生'} · ${user.school} · ${user.id}`;
+      document.querySelector('#badge').textContent = user.role === 'teacher' ? '自校のみ' : '本人のみ';
+      const visible = resources.filter(row => canRead(user, row));
+      document.querySelector('#metrics').innerHTML = `<div class="metric"><small>閲覧可能</small><b>${visible.length}件</b></div><div class="metric"><small>遮断</small><b>${resources.length - visible.length}件</b></div><div class="metric"><small>認可方式</small><b>RLS</b></div>`;
+      document.querySelector('#rows').innerHTML = resources.map(row => `<tr><td>${row[0]}</td><td>${row[1]}</td><td>${row[2]}</td><td class="${canRead(user, row) ? 'allowed' : 'hidden'}">${canRead(user, row) ? '許可' : '拒否'}</td></tr>`).join('');
+    }
+    render();
+  </script>
+</body>
+</html>
