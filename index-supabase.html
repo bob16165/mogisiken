@@ -1078,7 +1078,7 @@
                         </div>
                         {isAdmin && schools && (
                             <div style={{ marginBottom: '20px', padding: '12px', background: '#e3f2fd', borderRadius: '6px', border: '1px solid #90caf9' }}>
-                                <label style={{ display: 'block', marginBottom: '6px', color: '#1565c0', fontWeight: '600' }}>登録先の学校</label>
+                                <label style={{ display: 'block', marginBottom: '6px', color: '#1565c0', fontWeight: '600' }}>登録先の学校（試験・学生マスター共通）</label>
                                 <select value={selectedSchoolId || ''} onChange={(e) => onSchoolChange(e.target.value)} style={{ width: '100%', padding: '10px', border: '1px solid #90caf9', borderRadius: '5px', background: 'white' }}>
                                     <option value="">{schools.length > 0 ? '学校を選択してください' : '学校が登録されていません'}</option>
                                     {schools.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}
@@ -3919,16 +3919,17 @@
 
             const handleStudentMasterUpload = async (master, shouldReplace) => {
                 try {
-                    if (!loggedInUser?.schoolId) {
-                        throw new Error('所属校が設定された教員アカウントで実行してください');
+                    const targetSchoolId = loggedInUser?.role === 'admin' ? selectedSchoolId : loggedInUser?.schoolId;
+                    if (!targetSchoolId) {
+                        throw new Error('登録先の学校を選択してください');
                     }
 
                     if (shouldReplace) {
-                        // 上書きモード：既存データを全削除
+                        // 上書きモード：登録先の学校だけを削除
                         const { error: deleteError } = await supabase
                             .from('student_master')
                             .delete()
-                            .neq('student_id', ''); // 全件削除
+                            .eq('school_id', targetSchoolId);
 
                         if (deleteError) throw deleteError;
                     }
@@ -3937,7 +3938,7 @@
                     const records = Object.entries(master).map(([studentId, info]) => ({
                         student_id: studentId,
                         name: info.name,
-                        school_id: loggedInUser.schoolId
+                        school_id: targetSchoolId
                     }));
 
                     const { error: upsertError } = await supabase
