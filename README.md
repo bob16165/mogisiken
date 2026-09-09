@@ -22,6 +22,8 @@ Table Editorでは学校が見えるのにアプリで「学校未登録」と�
 
 既存の学生データを東専門学校へ一括移行する場合は、`supabase-assign-students-to-higashi.sql` をSQL Editorで実行します。`student_master` と学生ロールの `app_users` のみを対象にし、教員・管理者は変更しません。
 
+学生がログインできない場合、Authユーザーと学生マスターを学籍番号で一括紐付けする `supabase-link-students.sql` を実行してください。Authメールは `学籍番号@mogisiken.local` の形式で作成しておく必要があります。
+
 現行デモ画面のログインIDは、Supabase Authのメールアドレス `${ID}@mogisiken.local` として登録します。例えば `S001` は `s001@mogisiken.local`、教員ID `teacher001` は `teacher001@mogisiken.local` です。画面はAuth成功後に `app_users` を取得し、その後に試験結果・学生マスタ・出典マッピングを取得します。
 
 パスワード検証は `teachers` や `student_master` では行わず、Supabase Authに分離します。画面側でのID検索や配列フィルタは認可境界ではなく、最終的なアクセス制御はRLSが担当します。
