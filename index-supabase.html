@@ -32,27 +32,6 @@
         const SUPABASE_ANON_KEY = localStorage.getItem('mogisiken_supabase_anon_key') || DEFAULT_SUPABASE_ANON_KEY;
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        // パスワードハッシュ化関数（SHA-256）
-        async function hashPassword(password, salt = 'mogisiken2024') {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(password + salt);
-            const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-            const hashArray = Array.from(new Uint8Array(hashBuffer));
-            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-            return hashHex;
-        }
-
-        // パスワード検証関数（後方互換性：平文もサポート）
-        async function verifyPassword(inputPassword, storedPassword, salt = 'mogisiken2024') {
-            // ハッシュ化されたパスワード（64文字のhex）か確認
-            if (storedPassword.length === 64 && /^[a-f0-9]+$/.test(storedPassword)) {
-                const inputHash = await hashPassword(inputPassword, salt);
-                return inputHash === storedPassword;
-            }
-            // 平文パスワード（移行期間用）
-            return inputPassword === storedPassword;
-        }
-
         function isSupabaseTableMissingError(error) {
             if (!error) return false;
             const code = String(error.code || '');
@@ -68,16 +47,10 @@
             );
         }
 
-        // 教員アカウント
-        const teachers = [
-            { id: 'teacher001', name: '田中先生', password: 'teacher123', role: 'teacher' },
-            { id: 'admin', name: '管理者', password: 'admin123', role: 'teacher' }
-        ];
-
         // 学生データ
         const rawStudentScores = [
             {
-                studentId: 'S001', studentName: '山田太郎', password: 'pass001',
+                studentId: 'S001', studentName: '山田太郎',
                 required: 45, 解剖学: 38, 生理学: 42, 運動学: 35, 病理学: 40,
                 衛生学: 36, リハビリ医学: 41, 一般臨床: 44, 外科学: 39, 整形外科: 43, 柔整理論: 40,
                 questionDetails: {
@@ -96,25 +69,25 @@
                 }
             },
             {
-                studentId: 'S002', studentName: '佐藤花子', password: 'pass002',
+                studentId: 'S002', studentName: '佐藤花子',
                 required: 42, 解剖学: 35, 生理学: 38, 運動学: 40, 病理学: 37,
                 衛生学: 39, リハビリ医学: 38, 一般臨床: 41, 外科学: 36, 整形外科: 40, 柔整理論: 38,
                 questionDetails: {}
             },
             {
-                studentId: 'S003', studentName: '鈴木一郎', password: 'pass003',
+                studentId: 'S003', studentName: '鈴木一郎',
                 required: 48, 解剖学: 42, 生理学: 45, 運動学: 38, 病理学: 43,
                 衛生学: 40, リハビリ医学: 44, 一般臨床: 46, 外科学: 41, 整形外科: 45, 柔整理論: 43,
                 questionDetails: {}
             },
             {
-                studentId: 'S004', studentName: '田中美咲', password: 'pass004',
+                studentId: 'S004', studentName: '田中美咲',
                 required: 40, 解剖学: 33, 生理学: 36, 運動学: 38, 病理学: 35,
                 衛生学: 37, リハビリ医学: 36, 一般臨床: 39, 外科学: 34, 整形外科: 38, 柔整理論: 36,
                 questionDetails: {}
             },
             {
-                studentId: 'S005', studentName: '高橋健', password: 'pass005',
+                studentId: 'S005', studentName: '高橋健',
                 required: 46, 解剖学: 40, 生理学: 43, 運動学: 36, 病理学: 41,
                 衛生学: 38, リハビリ医学: 42, 一般臨床: 44, 外科学: 39, 整形外科: 42, 柔整理論: 41,
                 questionDetails: {}
@@ -127,6 +100,33 @@
         };
 
         const subjectNames = ['解剖学', '生理学', '運動学', '病理学', '衛生学', 'リハビリ医学', '一般臨床', '外科学', '整形外科', '柔整理論'];
+
+        const defaultQuestionLayout = [
+            { section: '前半', start: 1, end: 50, subject: '必修' },
+            { section: '前半', start: 51, end: 80, subject: '解剖学' },
+            { section: '前半', start: 81, end: 105, subject: '生理学' },
+            { section: '前半', start: 106, end: 115, subject: '運動学' },
+            { section: '前半', start: 116, end: 128, subject: '病理学' },
+            { section: '後半', start: 1, end: 12, subject: '衛生学' },
+            { section: '後半', start: 13, end: 23, subject: 'リハビリ医学' },
+            { section: '後半', start: 24, end: 45, subject: '一般臨床' },
+            { section: '後半', start: 46, end: 56, subject: '外科学' },
+            { section: '後半', start: 57, end: 67, subject: '整形外科' },
+            { section: '後半', start: 68, end: 122, subject: '柔整理論' }
+        ];
+
+        function normalizeQuestionLayout(layout) {
+            if (!Array.isArray(layout) || layout.length === 0) return defaultQuestionLayout;
+            return layout
+                .map(item => ({
+                    section: item.section === '後半' ? '後半' : '前半',
+                    start: Number(item.start),
+                    end: Number(item.end),
+                    subject: item.subject
+                }))
+                .filter(item => subjectNames.includes(item.subject) || item.subject === '必修')
+                .filter(item => Number.isInteger(item.start) && Number.isInteger(item.end) && item.start > 0 && item.end >= item.start);
+        }
 
         // 計算関数
         function calculateDeviation(score, scores) {
@@ -301,7 +301,6 @@
                 return {
                     studentId: student.studentId,
                     studentName: student.studentName,
-                    password: student.password,
                     totalScore, totalMaxScore,
                     requiredScore: student.required,
                     requiredMaxScore: maxScores.required,
@@ -596,6 +595,7 @@
             const [isLoading, setIsLoading] = useState(false);
             const [showMasterUpload, setShowMasterUpload] = useState(false);
             const [masterUpdateMode, setMasterUpdateMode] = useState('add'); // 'add' or 'replace'
+            const [questionLayout, setQuestionLayout] = useState(() => defaultQuestionLayout.map(item => ({ ...item })));
 
             const handleDelete = async (index) => {
                 const exam = existingExams[index];
@@ -618,17 +618,13 @@
                     const lines = text.split('\n').filter(line => line.trim());
                     const master = {};
                     
-                    // パスワードハッシュ化を並列処理
                     const promises = lines.slice(1).map(async (line) => {
                         const cols = line.split(',').map(s => s.trim());
                         const studentId = cols[0];
                         const name = cols[1];
-                        const rawPassword = cols[2] || '1234'; // パスワード未設定時のデフォルト
                         
                         if (studentId && name) {
-                            // パスワードをハッシュ化
-                            const hashedPassword = await hashPassword(rawPassword);
-                            master[studentId] = { name, password: hashedPassword };
+                            master[studentId] = { name };
                         }
                     });
                     
@@ -702,6 +698,7 @@
                 setError('');
 
                 try {
+                    const activeQuestionLayout = normalizeQuestionLayout(questionLayout);
                     // Shift-JISエンコーディングに対応
                     const readFileAsText = async (file) => {
                         const arrayBuffer = await file.arrayBuffer();
@@ -931,19 +928,16 @@
                         const finalBackAnswers = backAnswers || (existingStudent ? extractBackAnswers(existingStudent) : []);
                         
                         // 科目別に集計
-                        const answersBySubject = {
-                            '必修': { answers: finalFrontAnswers.slice(0, 50), startQ: 1, prefix: 'Q' },
-                            '解剖学': { answers: finalFrontAnswers.slice(50, 80), startQ: 51, prefix: 'Q' },
-                            '生理学': { answers: finalFrontAnswers.slice(80, 105), startQ: 81, prefix: 'Q' },
-                            '運動学': { answers: finalFrontAnswers.slice(105, 115), startQ: 106, prefix: 'Q' },
-                            '病理学': { answers: finalFrontAnswers.slice(115, 128), startQ: 116, prefix: 'Q' },
-                            '衛生学': { answers: finalBackAnswers.slice(0, 12), startQ: 1, prefix: 'B' },
-                            'リハビリ医学': { answers: finalBackAnswers.slice(12, 23), startQ: 13, prefix: 'B' },
-                            '一般臨床': { answers: finalBackAnswers.slice(23, 45), startQ: 24, prefix: 'B' },
-                            '外科学': { answers: finalBackAnswers.slice(45, 56), startQ: 46, prefix: 'B' },
-                            '整形外科': { answers: finalBackAnswers.slice(56, 67), startQ: 57, prefix: 'B' },
-                            '柔整理論': { answers: finalBackAnswers.slice(67, 122), startQ: 68, prefix: 'B' }
-                        };
+                        const answersBySubject = {};
+                        activeQuestionLayout.forEach(range => {
+                            const answers = range.section === '後半' ? finalBackAnswers : finalFrontAnswers;
+                            const prefix = range.section === '後半' ? 'B' : 'Q';
+                            answersBySubject[range.subject] = {
+                                answers: answers.slice(range.start - 1, range.end),
+                                startQ: range.start,
+                                prefix
+                            };
+                        });
                         
                         // 問題詳細を生成
                         const questionDetails = {};
@@ -1018,7 +1012,6 @@
                         students.push({
                             studentId: studentId,
                             studentName: studentMaster?.[studentId]?.name || studentMaster?.[studentId] || `学生${studentId}`,
-                            password: studentMaster?.[studentId]?.password || '1234',
                             required: scores['必修'] || 0,
                             解剖学: scores['解剖学'] || 0,
                             生理学: scores['生理学'] || 0,
@@ -1034,7 +1027,7 @@
                         });
                     });
                     
-                    onUpload({ examName: examName.trim(), students, hideCorrectAnswer, isPublished: false });
+                    onUpload({ examName: examName.trim(), students, questionLayout: activeQuestionLayout, hideCorrectAnswer, isPublished: false });
                     setIsLoading(false);
                     setExamName('');
                     setHideCorrectAnswer(false);
@@ -1192,6 +1185,61 @@
                                     style={{ width: '100%', padding: '12px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px' }} />
                                 <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
                                     衛生学(Q1~Q12), リハビリ医学(Q13~Q23), 一般臨床(Q24~Q45), 外科学(Q46~Q56), 整形外科(Q57~Q67), 柔整理論(Q68~Q122)
+                                </div>
+                            </div>
+
+                            <div style={{ marginBottom: '20px', padding: '15px', background: '#f3f8ff', borderRadius: '6px', border: '1px solid #90caf9' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+                                    <div>
+                                        <h3 style={{ margin: 0, color: '#1565c0', fontSize: '16px' }}>問題範囲マスター</h3>
+                                        <div style={{ fontSize: '12px', color: '#555', marginTop: '4px' }}>
+                                            この試験だけに適用されます。学校ごとに異なる構成も設定できます。
+                                        </div>
+                                    </div>
+                                    <button type="button" onClick={() => setQuestionLayout(defaultQuestionLayout.map(item => ({ ...item })))}
+                                        style={{ padding: '6px 10px', fontSize: '12px', background: 'white', color: '#1565c0', border: '1px solid #90caf9', borderRadius: '4px', cursor: 'pointer' }}>
+                                        初期値に戻す
+                                    </button>
+                                </div>
+                                <div style={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', background: 'white' }}>
+                                        <thead>
+                                            <tr style={{ background: '#e3f2fd' }}>
+                                                <th style={{ padding: '7px', textAlign: 'left' }}>データ</th>
+                                                <th style={{ padding: '7px', textAlign: 'left' }}>開始</th>
+                                                <th style={{ padding: '7px', textAlign: 'left' }}>終了</th>
+                                                <th style={{ padding: '7px', textAlign: 'left' }}>科目</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {questionLayout.map((range, index) => (
+                                                <tr key={`${range.section}-${index}`}>
+                                                    <td style={{ padding: '5px' }}>
+                                                        <select value={range.section} onChange={(e) => setQuestionLayout(prev => prev.map((item, itemIndex) => itemIndex === index ? { ...item, section: e.target.value } : item))}
+                                                            style={{ padding: '6px', width: '90px' }}>
+                                                            <option value="前半">前半 Q</option>
+                                                            <option value="後半">後半 B</option>
+                                                        </select>
+                                                    </td>
+                                                    <td style={{ padding: '5px' }}>
+                                                        <input type="number" min="1" value={range.start} onChange={(e) => setQuestionLayout(prev => prev.map((item, itemIndex) => itemIndex === index ? { ...item, start: e.target.value } : item))}
+                                                            style={{ padding: '6px', width: '75px' }} />
+                                                    </td>
+                                                    <td style={{ padding: '5px' }}>
+                                                        <input type="number" min="1" value={range.end} onChange={(e) => setQuestionLayout(prev => prev.map((item, itemIndex) => itemIndex === index ? { ...item, end: e.target.value } : item))}
+                                                            style={{ padding: '6px', width: '75px' }} />
+                                                    </td>
+                                                    <td style={{ padding: '5px' }}>
+                                                        <select value={range.subject} onChange={(e) => setQuestionLayout(prev => prev.map((item, itemIndex) => itemIndex === index ? { ...item, subject: e.target.value } : item))}
+                                                            style={{ padding: '6px', minWidth: '130px' }}>
+                                                            <option value="必修">必修</option>
+                                                            {subjectNames.map(subjectName => <option key={subjectName} value={subjectName}>{subjectName}</option>)}
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
                                 </div>
                             </div>
                             
@@ -1526,7 +1574,7 @@
         }
 
         // ログインコンポーネント
-        function LoginForm({ onLogin, currentExam, studentMaster }) {
+        function LoginForm({ onLogin }) {
             const [studentId, setStudentId] = useState('');
             const [password, setPassword] = useState('');
             const [error, setError] = useState('');
@@ -1538,56 +1586,41 @@
                 setError('');
 
                 try {
-                    // 教員認証をSupabaseで確認
-                    const { data: teachersData, error: teacherError } = await supabase
-                        .from('teachers')
-                        .select('*')
-                        .eq('username', studentId);
+                    const normalizedId = studentId.trim().toLowerCase();
+                    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+                        email: `${normalizedId}@mogisiken.local`,
+                        password
+                    });
 
-                    if (teachersData && teachersData.length > 0) {
-                        const teacher = teachersData[0];
-                        // パスワード検証（ハッシュ化対応）
-                        const isValid = await verifyPassword(password, teacher.password);
-                        if (isValid) {
-                            setIsLoading(false);
-                            onLogin({ 
-                                id: studentId,
-                                name: teacher.name,
-                                isTeacher: true 
-                            });
-                            return;
-                        }
+                    if (authError || !authData.user) {
+                        throw authError || new Error('認証情報を確認できませんでした');
                     }
 
-                    // 学生認証
-                    if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
-                        setError('公開中の試験がありません');
-                        return;
+                    const { data: profile, error: profileError } = await supabase
+                        .from('app_users')
+                        .select('id, role, school_id, student_id, display_name')
+                        .eq('id', authData.user.id)
+                        .single();
+
+                    if (profileError || !profile) {
+                        await supabase.auth.signOut();
+                        throw profileError || new Error('利用者プロフィールが登録されていません');
                     }
 
-                    if (studentMaster[studentId]) {
-                        const masterInfo = studentMaster[studentId];
-                        // パスワード検証（ハッシュ化対応）
-                        const isValid = await verifyPassword(password, masterInfo.password);
-                        if (isValid) {
-                            // 現在の試験データから結果を取得
-                            const dataSource = currentExam.students;
-                            const allResults = generateExamResults(dataSource);
-                            const student = allResults.find(s => s.studentId === studentId);
-                            
-                            if (student) {
-                                setIsLoading(false);
-                                onLogin({ ...student, isTeacher: false });
-                                return;
-                            }
-                        }
-                    }
-
-                    console.log('ログイン失敗');
-                    setError('IDまたはパスワードが間違っています');
+                    onLogin({
+                        id: profile.id,
+                        studentId: profile.student_id,
+                        name: profile.display_name,
+                        role: profile.role,
+                        schoolId: profile.school_id,
+                        isTeacher: profile.role === 'teacher' || profile.role === 'admin'
+                    });
                 } catch (err) {
                     console.error('Login error:', err);
-                    setError('ログイン処理中にエラーが発生しました: ' + err.message);
+                    const errorMessage = String(err?.message || '');
+                    setError(errorMessage.includes('Failed to fetch')
+                        ? 'Supabaseに接続できません。右上の「Supabase接続設定」で実際のProject URLとanon keyを設定してください。'
+                        : (errorMessage || 'IDまたはパスワードが間違っています'));
                 } finally {
                     setIsLoading(false);
                 }
@@ -1615,14 +1648,6 @@
                                 border: 'none', borderRadius: '6px', cursor: isLoading ? 'not-allowed' : 'pointer'
                             }}>{isLoading ? 'ログイン中...' : 'ログイン'}</button>
                         </form>
-                        {currentExam && currentExam.students && currentExam.students.length > 0 && (
-                            <div style={{ marginTop: '30px', padding: '15px', background: '#f5f5f5', borderRadius: '6px', fontSize: '12px', color: '#666' }}>
-                                <strong>ログイン情報:</strong><br/>
-                                <div style={{ marginTop: '8px' }}><strong>学生:</strong><br/>
-                                    ID: {currentExam.students.slice(0, 3).map(s => s.studentId).join(', ')} など / パスワード: 学生マスターで設定したパスワード
-                                </div>
-                            </div>
-                        )}
                     </div>
                 </div>
             );
@@ -2931,7 +2956,7 @@
         }
 
         // 結果表示コンポーネント
-        function ExamResultView({ user, onLogout, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping }) {
+        function ExamResultView({ user, onLogout, onOpenUpload, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
                 return (
@@ -2941,11 +2966,18 @@
                                 <h2 style={{ color: '#333' }}>
                                     {user.isTeacher ? `ようこそ、${user.name}先生` : `ようこそ、${user.name}さん`}
                                 </h2>
-                                <button onClick={onLogout} style={{
-                                    padding: '10px 20px', fontSize: '14px', fontWeight: '600',
-                                    background: '#f44336', color: 'white', border: 'none',
-                                    borderRadius: '6px', cursor: 'pointer'
-                                }}>ログアウト</button>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    {user.isTeacher && <button onClick={onOpenUpload} style={{
+                                        padding: '10px 20px', fontSize: '14px', fontWeight: '600',
+                                        background: '#2e7d32', color: 'white', border: 'none',
+                                        borderRadius: '6px', cursor: 'pointer'
+                                    }}>CSVアップロード</button>}
+                                    <button onClick={onLogout} style={{
+                                        padding: '10px 20px', fontSize: '14px', fontWeight: '600',
+                                        background: '#f44336', color: 'white', border: 'none',
+                                        borderRadius: '6px', cursor: 'pointer'
+                                    }}>ログアウト</button>
+                                </div>
                             </div>
                             <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
                                 <p style={{ fontSize: '18px', marginBottom: '20px' }}>
@@ -3066,7 +3098,12 @@
                                             )}
                                         </>
                                     )}
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        {user.isTeacher && <button onClick={onOpenUpload} style={{
+                                            padding: '10px 15px', fontSize: '14px', color: 'white', background: '#2e7d32',
+                                            border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
+                                        }}>CSVアップロード</button>}
+                                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                                         <button onClick={onLogout} style={{
                                             padding: '10px 20px', fontSize: '14px', color: '#1976d2', background: 'white',
                                             border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
@@ -3083,6 +3120,7 @@
                                                 作成者：井上亜久吏
                                             </div>
                                         )}
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -3440,9 +3478,12 @@
             const [allExams, setAllExams] = useState([]);
             const [studentMaster, setStudentMaster] = useState({});
             const [sourceMapping, setSourceMapping] = useState(null);
-            const [isLoading, setIsLoading] = useState(true);
+            const [isLoading, setIsLoading] = useState(false);
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
+            const [showSupabaseConfig, setShowSupabaseConfig] = useState(false);
+            const [supabaseUrlInput, setSupabaseUrlInput] = useState(SUPABASE_URL);
+            const [supabaseKeyInput, setSupabaseKeyInput] = useState(SUPABASE_ANON_KEY);
 
             const formatSupabaseError = (error) => {
                 if (!error) return '不明なエラーです';
@@ -3454,16 +3495,64 @@
                 return parts.join(' | ');
             };
 
-            // Supabaseからデータを読み込む
             useEffect(() => {
+                let isMounted = true;
+
+                async function restoreSession() {
+                    const { data: sessionData } = await supabase.auth.getSession();
+                    const authUser = sessionData?.session?.user;
+                    if (!authUser) return;
+
+                    const { data: profile, error } = await supabase
+                        .from('app_users')
+                        .select('id, role, school_id, student_id, display_name')
+                        .eq('id', authUser.id)
+                        .single();
+
+                    if (isMounted && profile && !error) {
+                        setLoggedInUser({
+                            id: profile.id,
+                            studentId: profile.student_id,
+                            name: profile.display_name,
+                            role: profile.role,
+                            schoolId: profile.school_id,
+                            isTeacher: profile.role === 'teacher' || profile.role === 'admin'
+                        });
+                    }
+                }
+
+                restoreSession().catch(error => console.error('Auth session restore error:', error));
+                const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+                    if (event === 'SIGNED_OUT' && isMounted) setLoggedInUser(null);
+                });
+
+                return () => {
+                    isMounted = false;
+                    authListener.subscription.unsubscribe();
+                };
+            }, []);
+
+            // Authセッション確認後、RLSが適用された状態でデータを読み込む
+            useEffect(() => {
+                let isMounted = true;
+
                 async function loadData() {
+                    if (!loggedInUser) {
+                        setAllExams([]);
+                        setStudentMaster({});
+                        setSourceMapping(null);
+                        setIsLoading(false);
+                        return;
+                    }
+
+                    setIsLoading(true);
                     try {
-                        // 試験データを読み込む
                         const { data: examsData, error: examsError } = await supabase
                             .from('exams')
                             .select(`
                                 id,
                                 exam_name,
+                                question_layout,
                                 hide_correct_answer,
                                 is_published,
                                 created_at,
@@ -3492,6 +3581,7 @@
                         const formattedExams = (examsData || []).map(exam => ({
                             id: exam.id, // 試験IDを保持
                             examName: exam.exam_name,
+                            questionLayout: normalizeQuestionLayout(exam.question_layout),
                             hideCorrectAnswer: exam.hide_correct_answer || false,
                             isPublished: exam.is_published ?? false,
                             students: exam.student_exam_results.map(result => ({
@@ -3512,25 +3602,23 @@
                             }))
                         }));
 
+                        if (!isMounted) return;
                         setAllExams(formattedExams);
 
-                        // 学生マスタを読み込む
                         const { data: studentsData, error: studentsError } = await supabase
                             .from('student_master')
-                            .select('*');
+                            .select('student_id, name');
 
                         if (studentsError) throw studentsError;
 
                         const masterObj = {};
                         (studentsData || []).forEach(student => {
                             masterObj[student.student_id] = {
-                                name: student.name,
-                                password: student.password
+                                name: student.name
                             };
                         });
                         setStudentMaster(masterObj);
 
-                        // 出典マッピングを読み込む
                         const { data: mappingData, error: mappingError } = await supabase
                             .from('source_mapping')
                             .select('*');
@@ -3547,6 +3635,8 @@
                                 mappingObj[subject][item.source_number] = item.item_name;
                             });
                             setSourceMapping(mappingObj);
+                        } else {
+                            setSourceMapping(null);
                         }
 
                     } catch (error) {
@@ -3562,11 +3652,18 @@
                 }
 
                 loadData();
-            }, []);
+                return () => {
+                    isMounted = false;
+                };
+            }, [loggedInUser]);
 
             const handleCSVUpload = async (examData) => {
                 let createdExamId = null;
                 try {
+                    if (!loggedInUser?.schoolId) {
+                        throw new Error('所属校が設定された教員アカウントで実行してください');
+                    }
+
                     // 同名の試験が既に存在するかチェック
                     const existingExamIndex = allExams.findIndex(exam => exam.examName === examData.examName);
                     
@@ -3596,7 +3693,10 @@
                     const { data: examRecord, error: examError } = await supabase
                         .from('exams')
                         .insert([{
+                            school_id: loggedInUser.schoolId,
+                            created_by: loggedInUser.id,
                             exam_name: examData.examName,
+                            question_layout: normalizeQuestionLayout(examData.questionLayout),
                             hide_correct_answer: examData.hideCorrectAnswer || false,
                             is_published: examData.isPublished ?? false
                         }])
@@ -3609,6 +3709,7 @@
                     // 学生の結果を保存
                     const resultRecords = examData.students.map(student => ({
                         exam_id: examRecord.id,
+                        school_id: loggedInUser.schoolId,
                         student_id: student.studentId,
                         student_name: student.studentName,
                         question_details: student.questionDetails,
@@ -3669,6 +3770,10 @@
 
             const handleStudentMasterUpload = async (master, shouldReplace) => {
                 try {
+                    if (!loggedInUser?.schoolId) {
+                        throw new Error('所属校が設定された教員アカウントで実行してください');
+                    }
+
                     if (shouldReplace) {
                         // 上書きモード：既存データを全削除
                         const { error: deleteError } = await supabase
@@ -3683,7 +3788,7 @@
                     const records = Object.entries(master).map(([studentId, info]) => ({
                         student_id: studentId,
                         name: info.name,
-                        password: info.password
+                        school_id: loggedInUser.schoolId
                     }));
 
                     const { error: upsertError } = await supabase
@@ -3826,36 +3931,34 @@
 
             // CSVアップロードボタンの認証処理
             const handleCSVUploadClick = () => {
-                const adminId = prompt('管理者IDを入力してください:');
-                if (!adminId) return;
-                
-                const adminPassword = prompt('管理者パスワードを入力してください:');
-                if (!adminPassword) return;
-                
-                // 管理者認証チェック
-                if (adminId === 'admin' && adminPassword === 'admin123') {
+                if (loggedInUser?.isTeacher) {
                     setShowUpload(true);
                 } else {
-                    alert('IDまたはパスワードが間違っています');
+                    alert('教員権限が必要です');
                 }
             };
 
             const handleSupabaseConfigClick = () => {
-                const nextUrl = prompt('Supabase Project URL を入力してください', SUPABASE_URL);
-                if (!nextUrl) return;
+                setShowSupabaseConfig(true);
+            };
 
-                const nextKey = prompt('Supabase anon key を入力してください', SUPABASE_ANON_KEY);
-                if (!nextKey) return;
+            const handleSupabaseConfigSave = () => {
+                const nextUrl = supabaseUrlInput.trim();
+                const nextKey = supabaseKeyInput.trim();
+                if (!nextUrl || !nextKey) {
+                    alert('Project URL と anon key を入力してください');
+                    return;
+                }
 
                 try {
-                    const normalizedUrl = nextUrl.trim().replace(/\/$/, '');
+                    const normalizedUrl = nextUrl.replace(/\/$/, '');
                     if (!/^https:\/\/.+\.supabase\.co$/.test(normalizedUrl)) {
                         alert('URL形式が不正です。例: https://xxxx.supabase.co');
                         return;
                     }
 
                     localStorage.setItem('mogisiken_supabase_url', normalizedUrl);
-                    localStorage.setItem('mogisiken_supabase_anon_key', nextKey.trim());
+                    localStorage.setItem('mogisiken_supabase_anon_key', nextKey);
                     alert('Supabase接続設定を保存しました。再読み込みします。');
                     window.location.reload();
                 } catch (e) {
@@ -3874,15 +3977,25 @@
                             }}>
                                 Supabase接続設定
                             </button>
-                            <button onClick={handleCSVUploadClick} style={{
-                                padding: '10px 20px', fontSize: '14px', fontWeight: '600',
-                                background: '#4CAF50', color: 'white', border: 'none',
-                                borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                            }}>
-                                CSVアップロード
-                            </button>
                         </div>
-                        <LoginForm onLogin={setLoggedInUser} currentExam={publishedExams[0] || null} studentMaster={studentMaster} />
+                        {showSupabaseConfig && (
+                            <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+                                <div style={{ width: '100%', maxWidth: '520px', background: 'white', borderRadius: '10px', padding: '24px', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}>
+                                    <h2 style={{ margin: '0 0 18px 0', color: '#333' }}>Supabase接続設定</h2>
+                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600' }}>Project URL</label>
+                                    <input value={supabaseUrlInput} onChange={(e) => setSupabaseUrlInput(e.target.value)} placeholder="https://xxxx.supabase.co"
+                                        style={{ width: '100%', padding: '10px', marginBottom: '14px', border: '1px solid #bbb', borderRadius: '5px' }} />
+                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600' }}>anon key</label>
+                                    <input type="password" value={supabaseKeyInput} onChange={(e) => setSupabaseKeyInput(e.target.value)} placeholder="Supabase anon key"
+                                        style={{ width: '100%', padding: '10px', marginBottom: '18px', border: '1px solid #bbb', borderRadius: '5px' }} />
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                                        <button onClick={() => setShowSupabaseConfig(false)} style={{ padding: '9px 16px', background: '#eee', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>キャンセル</button>
+                                        <button onClick={handleSupabaseConfigSave} style={{ padding: '9px 16px', background: '#1565c0', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>保存して再読み込み</button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+                        <LoginForm onLogin={setLoggedInUser} />
                     </div>
                 );
             }
@@ -3893,7 +4006,11 @@
             return (
                 <ExamResultView 
                     user={loggedInUser} 
-                    onLogout={() => setLoggedInUser(null)} 
+                    onLogout={async () => {
+                        await supabase.auth.signOut();
+                        setLoggedInUser(null);
+                    }}
+                    onOpenUpload={handleCSVUploadClick}
                     currentExam={currentExam}
                     allExams={visibleExams}
                     selectedExamIndex={selectedExamIndex}
