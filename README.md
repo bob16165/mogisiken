@@ -14,6 +14,8 @@
 
 問題番号と科目の対応を試験ごと・学校ごとに変更する場合は、`supabase-question-layout.sql` を追加適用してください。CSVアップロード画面の「問題範囲マスター」で、前半/後半、開始番号、終了番号、科目を設定して試験を登録できます。既存試験は従来の固定範囲を初期値として扱います。
 
+管理者ログインの初期登録は `supabase-admin-bootstrap.sql` を使います。先にSupabase Authで `admin@mogisiken.local`（またはSQL内で変更したメールアドレス）のユーザーを作成・確認済みにし、そのSQLを実行してください。アプリにはID `admin` とAuthで設定したパスワードでログインします。
+
 現行デモ画面のログインIDは、Supabase Authのメールアドレス `${ID}@mogisiken.local` として登録します。例えば `S001` は `s001@mogisiken.local`、教員ID `teacher001` は `teacher001@mogisiken.local` です。画面はAuth成功後に `app_users` を取得し、その後に試験結果・学生マスタ・出典マッピングを取得します。
 
 パスワード検証は `teachers` や `student_master` では行わず、Supabase Authに分離します。画面側でのID検索や配列フィルタは認可境界ではなく、最終的なアクセス制御はRLSが担当します。

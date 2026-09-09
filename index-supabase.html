@@ -1604,7 +1604,9 @@
 
                     if (profileError || !profile) {
                         await supabase.auth.signOut();
-                        throw profileError || new Error('利用者プロフィールが登録されていません');
+                        throw new Error(profileError?.code === 'PGRST116'
+                            ? 'Authユーザーは認証できましたが、app_usersに登録されていません。管理者はsupabase-admin-bootstrap.sqlを実行してください。'
+                            : (profileError?.message || '利用者プロフィールが登録されていません'));
                     }
 
                     onLogin({
