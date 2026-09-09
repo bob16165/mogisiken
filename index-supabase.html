@@ -622,20 +622,32 @@
                         const cols = line.split(',').map(s => s.trim());
                         const studentId = cols[0];
                         const name = cols[1];
+                        const password = /^\d{4}$/.test(cols[2] || '')
+                            ? cols[2]
+                            : String(Math.floor(1000 + Math.random() * 9000));
                         
-                        if (studentId && name) {
-                            master[studentId] = { name };
+                        if (studentId && name && password) {
+                            master[studentId] = { name, password };
                         }
                     });
                     
                     await Promise.all(promises);
                     
-                    onStudentMasterUpload(master, masterUpdateMode === 'replace');
+                    const credentials = await onStudentMasterUpload(master, masterUpdateMode === 'replace');
+                    if (credentials?.length) {
+                        const csv = ['学籍番号,氏名,初期パスワード', ...credentials.map(item => `${item.studentId},${item.name},${item.password}`)].join('\n');
+                        const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+                        const link = document.createElement('a');
+                        link.href = URL.createObjectURL(blob);
+                        link.download = '学生ログイン情報.csv';
+                        link.click();
+                        URL.revokeObjectURL(link.href);
+                    }
                     setStudentMasterFile(null);
                     setShowMasterUpload(false);
                     const message = masterUpdateMode === 'replace' 
-                        ? `${Object.keys(master).length}名の学生氏名・パスワードで上書きしました！`
-                        : `${Object.keys(master).length}名の学生氏名・パスワードを追加しました！`;
+                        ? `${Object.keys(master).length}名の学生アカウントを上書きしました。ログイン情報CSVを保存しました！`
+                        : `${Object.keys(master).length}名の学生アカウントを追加しました。ログイン情報CSVを保存しました！`;
                     alert(message);
                 } catch (err) {
                     setError('学生マスターファイルの読み込みに失敗しました: ' + err.message);
@@ -1116,8 +1128,8 @@
                                 <input type="file" accept=".csv" onChange={(e) => setStudentMasterFile(e.target.files[0])}
                                     style={{ width: '100%', padding: '10px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px', marginBottom: '10px' }} />
                                 <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-                                    形式: 学籍番号,氏名,パスワード（例: 216030,山田太郎,1234）<br/>
-                                    ※ パスワードは4桁の数字を推奨。省略時は「1234」が設定されます
+                                    形式: 学籍番号,氏名,初期パスワード（例: 216030,山田太郎,1234）<br/>
+                                    ※ 初期パスワードは4桁の数字で入力します。登録時にAuthログインへ反映されます
                                 </div>
                                 <button type="button" onClick={handleMasterUpload} disabled={isLoading || !studentMasterFile} style={{
                                     width: '100%', padding: '10px', fontSize: '14px', fontWeight: '600',
@@ -1357,12 +1369,12 @@
         }
 
         function downloadSampleStudentMaster() {
-            const content = `学籍番号,氏名,パスワード
-216030,山田太郎,2024
-216062,佐藤花子,2024
-226005,鈴木一郎,2024
-226055,田中美咲,2024
-227015,高橋健,2024`;
+            const content = `学籍番号,氏名
+216030,山田太郎
+216062,佐藤花子
+226005,鈴木一郎
+226055,田中美咲
+227015,高橋健`;
             const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
@@ -3937,39 +3949,26 @@
                         throw new Error('登録先の学校を選択してください');
                     }
 
-                    if (shouldReplace) {
-                        // 上書きモード：登録先の学校だけを削除
-                        const { error: deleteError } = await supabase
-                            .from('student_master')
-                            .delete()
-                            .eq('school_id', targetSchoolId);
-
-                        if (deleteError) throw deleteError;
-                    }
-
-                    // UPSERT（既存データは更新、新規データは挿入）
-                    const records = Object.entries(master).map(([studentId, info]) => ({
-                        student_id: studentId,
+                    const students = Object.entries(master).map(([studentId, info]) => ({
+                        studentId,
                         name: info.name,
-                        school_id: targetSchoolId
+                        password: info.password
                     }));
-
-                    const { error: upsertError } = await supabase
-                        .from('student_master')
-                        .upsert(records, { 
-                            onConflict: 'student_id',
-                            ignoreDuplicates: false 
-                        });
-
-                    if (upsertError) throw upsertError;
+                    const { data, error: functionError } = await supabase.functions.invoke('import-student-master', {
+                        body: { schoolId: targetSchoolId, students, replace: shouldReplace }
+                    });
+                    if (functionError) throw functionError;
+                    if (data?.error) throw new Error(data.error);
 
                     const updatedMaster = shouldReplace ? master : { ...studentMaster, ...master };
                     setStudentMaster(updatedMaster);
                     const count = Object.keys(master).length;
                     alert(`学籍マスタを${shouldReplace ? '上書き' : '追加'}登録しました（${count}件）`);
+                    return students;
                 } catch (err) {
                     alert('学籍マスタの保存に失敗しました: ' + err.message);
                     console.error('Student master upload error:', err);
+                    return null;
                 }
             };
 
