@@ -634,6 +634,9 @@
                     await Promise.all(promises);
                     
                     const credentials = await onStudentMasterUpload(master, masterUpdateMode === 'replace');
+                    if (!credentials) {
+                        throw new Error('学生アカウントの保存に失敗しました。成功メッセージは表示しません。');
+                    }
                     if (credentials?.length) {
                         const csv = ['学籍番号,氏名,初期パスワード', ...credentials.map(item => `${item.studentId},${item.name},${item.password}`)].join('\n');
                         const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
@@ -650,7 +653,7 @@
                         : `${Object.keys(master).length}名の学生アカウントを追加しました。ログイン情報CSVを保存しました！`;
                     alert(message);
                 } catch (err) {
-                    setError('学生マスターファイルの読み込みに失敗しました: ' + err.message);
+                    setError('学生マスターの保存に失敗しました: ' + err.message);
                 } finally {
                     setIsLoading(false);
                 }
@@ -3966,7 +3969,7 @@
                     alert(`学籍マスタを${shouldReplace ? '上書き' : '追加'}登録しました（${count}件）`);
                     return students;
                 } catch (err) {
-                    alert('学籍マスタの保存に失敗しました: ' + err.message);
+                    alert('学籍マスターの保存に失敗しました: ' + err.message);
                     console.error('Student master upload error:', err);
                     return null;
                 }
