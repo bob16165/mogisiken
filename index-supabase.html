@@ -3019,7 +3019,7 @@
         }
 
         // 結果表示コンポーネント
-        function ExamResultView({ user, onLogout, onOpenUpload, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping }) {
+        function ExamResultView({ user, onLogout, onOpenUpload, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
                 return (
@@ -3029,7 +3029,13 @@
                                 <h2 style={{ color: '#333' }}>
                                     {user.isTeacher ? `ようこそ、${user.name}先生` : `ようこそ、${user.name}さん`}
                                 </h2>
-                                <div style={{ display: 'flex', gap: '10px' }}>
+                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    {user.role === 'admin' && schools.length > 0 && (
+                                        <select value={selectedSchoolId || ''} onChange={(e) => onSchoolChange(e.target.value)} style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }}>
+                                            <option value="">学校を選択</option>
+                                            {schools.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}
+                                        </select>
+                                    )}
                                     {user.isTeacher && <button onClick={onOpenUpload} style={{
                                         padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                         background: '#2e7d32', color: 'white', border: 'none',
@@ -3139,6 +3145,13 @@
                                     {currentExam && <p style={{ margin: '5px 0 0 0', fontSize: '14px', opacity: 0.9 }}>📋 {currentExam.examName}</p>}
                                 </div>
                                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    {user.role === 'admin' && schools.length > 0 && (
+                                        <select value={selectedSchoolId || ''} onChange={(e) => onSchoolChange(e.target.value)}
+                                            style={{ padding: '10px 15px', fontSize: '14px', borderRadius: '6px', border: 'none', fontWeight: '600' }}>
+                                            <option value="">学校を選択</option>
+                                            {schools.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}
+                                        </select>
+                                    )}
                                     {allExams && allExams.length > 0 && (
                                         <>
                                             <select value={selectedExamIndex} onChange={(e) => onExamChange(parseInt(e.target.value))}
@@ -3545,6 +3558,8 @@
         function App() {
             const [loggedInUser, setLoggedInUser] = useState(null);
             const [allExams, setAllExams] = useState([]);
+            const [schools, setSchools] = useState([]);
+            const [selectedSchoolId, setSelectedSchoolId] = useState('');
             const [studentMaster, setStudentMaster] = useState({});
             const [sourceMapping, setSourceMapping] = useState(null);
             const [isLoading, setIsLoading] = useState(false);
@@ -3622,6 +3637,8 @@
                 async function loadData() {
                     if (!loggedInUser || isPasswordRecovery) {
                         setAllExams([]);
+                        setSchools([]);
+                        setSelectedSchoolId('');
                         setStudentMaster({});
                         setSourceMapping(null);
                         setIsLoading(false);
@@ -3630,10 +3647,24 @@
 
                     setIsLoading(true);
                     try {
+                        if (loggedInUser.role === 'admin') {
+                            const { data: schoolsData, error: schoolsError } = await supabase
+                                .from('schools')
+                                .select('id, name')
+                                .order('name');
+                            if (schoolsError) throw schoolsError;
+                            setSchools(schoolsData || []);
+                            setSelectedSchoolId(current => current || schoolsData?.[0]?.id || '');
+                        } else {
+                            setSchools([]);
+                            setSelectedSchoolId(loggedInUser.schoolId || '');
+                        }
+
                         const { data: examsData, error: examsError } = await supabase
                             .from('exams')
                             .select(`
                                 id,
+                                school_id,
                                 exam_name,
                                 question_layout,
                                 hide_correct_answer,
@@ -3663,6 +3694,7 @@
                         // データ変換: Supabaseスキーマ → ローカル形式
                         const formattedExams = (examsData || []).map(exam => ({
                             id: exam.id, // 試験IDを保持
+                            schoolId: exam.school_id,
                             examName: exam.exam_name,
                             questionLayout: normalizeQuestionLayout(exam.question_layout),
                             hideCorrectAnswer: exam.hide_correct_answer || false,
@@ -3743,7 +3775,8 @@
             const handleCSVUpload = async (examData) => {
                 let createdExamId = null;
                 try {
-                    if (!loggedInUser?.schoolId) {
+                    const targetSchoolId = loggedInUser?.role === 'admin' ? selectedSchoolId : loggedInUser?.schoolId;
+                    if (!targetSchoolId) {
                         throw new Error('所属校が設定された教員アカウントで実行してください');
                     }
 
@@ -3776,7 +3809,7 @@
                     const { data: examRecord, error: examError } = await supabase
                         .from('exams')
                         .insert([{
-                            school_id: loggedInUser.schoolId,
+                            school_id: targetSchoolId,
                             created_by: loggedInUser.id,
                             exam_name: examData.examName,
                             question_layout: normalizeQuestionLayout(examData.questionLayout),
@@ -3792,7 +3825,7 @@
                     // 学生の結果を保存
                     const resultRecords = examData.students.map(student => ({
                         exam_id: examRecord.id,
-                        school_id: loggedInUser.schoolId,
+                        school_id: targetSchoolId,
                         student_id: student.studentId,
                         student_name: student.studentName,
                         question_details: student.questionDetails,
@@ -4091,7 +4124,10 @@
                 );
             }
 
-            const visibleExams = loggedInUser.isTeacher ? allExams : publishedExams;
+            const schoolExams = loggedInUser.role === 'admin'
+                ? allExams.filter(exam => !selectedSchoolId || exam.schoolId === selectedSchoolId)
+                : allExams;
+            const visibleExams = loggedInUser.isTeacher ? schoolExams : publishedExams;
             const currentExam = visibleExams[selectedExamIndex] || null;
 
             return (
@@ -4109,6 +4145,12 @@
                     onDeleteExam={handleDeleteExam}
                     onPublishToggle={handlePublishToggle}
                     sourceMapping={sourceMapping}
+                    schools={schools}
+                    selectedSchoolId={selectedSchoolId}
+                    onSchoolChange={(schoolId) => {
+                        setSelectedSchoolId(schoolId);
+                        setSelectedExamIndex(0);
+                    }}
                 />
             );
         }
