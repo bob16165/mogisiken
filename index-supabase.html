@@ -1653,6 +1653,67 @@
             );
         }
 
+        function PasswordRecoveryForm({ onComplete }) {
+            const [password, setPassword] = useState('');
+            const [confirmation, setConfirmation] = useState('');
+            const [error, setError] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [isComplete, setIsComplete] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError('');
+                if (password.length < 6) {
+                    setError('パスワードは6文字以上で入力してください');
+                    return;
+                }
+                if (password !== confirmation) {
+                    setError('パスワードが一致していません');
+                    return;
+                }
+
+                setIsLoading(true);
+                const { error: updateError } = await supabase.auth.updateUser({ password });
+                setIsLoading(false);
+                if (updateError) {
+                    setError(updateError.message || 'パスワードの変更に失敗しました');
+                    return;
+                }
+                setIsComplete(true);
+            };
+
+            if (isComplete) {
+                return (
+                    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5', padding: '20px' }}>
+                        <div style={{ background: 'white', padding: '32px', borderRadius: '10px', width: '100%', maxWidth: '420px', textAlign: 'center', boxShadow: '0 4px 18px rgba(0,0,0,0.12)' }}>
+                            <h2 style={{ color: '#2e7d32' }}>パスワードを変更しました</h2>
+                            <p style={{ color: '#555', lineHeight: 1.7 }}>新しいパスワードでログインしてください。</p>
+                            <button onClick={onComplete} style={{ padding: '12px 20px', background: '#1565c0', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>ログイン画面へ</button>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f5f5f5', padding: '20px' }}>
+                    <div style={{ background: 'white', padding: '32px', borderRadius: '10px', width: '100%', maxWidth: '420px', boxShadow: '0 4px 18px rgba(0,0,0,0.12)' }}>
+                        <h2 style={{ margin: '0 0 10px', color: '#333' }}>新しいパスワードを設定</h2>
+                        <p style={{ margin: '0 0 20px', color: '#666', fontSize: '13px' }}>新しいパスワードを入力してください。</p>
+                        <form onSubmit={handleSubmit}>
+                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="新しいパスワード（6文字以上）" required
+                                style={{ width: '100%', padding: '12px', marginBottom: '12px', border: '1px solid #bbb', borderRadius: '5px' }} />
+                            <input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} placeholder="新しいパスワード（確認）" required
+                                style={{ width: '100%', padding: '12px', marginBottom: '16px', border: '1px solid #bbb', borderRadius: '5px' }} />
+                            {error && <div style={{ padding: '10px', marginBottom: '14px', background: '#ffebee', color: '#c62828', borderRadius: '5px', fontSize: '13px' }}>{error}</div>}
+                            <button type="submit" disabled={isLoading} style={{ width: '100%', padding: '12px', background: isLoading ? '#aaa' : '#1565c0', color: 'white', border: 'none', borderRadius: '5px', cursor: isLoading ? 'not-allowed' : 'pointer' }}>
+                                {isLoading ? '変更中...' : 'パスワードを変更'}
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        }
+
         function buildStudentAiGuidance(allExams, currentExam, studentId, sourceMapping) {
             const trackedSubjects = ['必修', ...subjectNames];
             const subjectAnalytics = {};
@@ -3481,6 +3542,7 @@
             const [isLoading, setIsLoading] = useState(false);
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
+            const [isPasswordRecovery, setIsPasswordRecovery] = useState(false);
             const [showSupabaseConfig, setShowSupabaseConfig] = useState(false);
             const [supabaseUrlInput, setSupabaseUrlInput] = useState(SUPABASE_URL);
             const [supabaseKeyInput, setSupabaseKeyInput] = useState(SUPABASE_ANON_KEY);
@@ -3503,6 +3565,11 @@
                     const authUser = sessionData?.session?.user;
                     if (!authUser) return;
 
+                    if (window.location.hash.includes('type=recovery')) {
+                        setIsPasswordRecovery(true);
+                        return;
+                    }
+
                     const { data: profile, error } = await supabase
                         .from('app_users')
                         .select('id, role, school_id, student_id, display_name')
@@ -3523,6 +3590,10 @@
 
                 restoreSession().catch(error => console.error('Auth session restore error:', error));
                 const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+                    if (event === 'PASSWORD_RECOVERY' && isMounted) {
+                        setIsPasswordRecovery(true);
+                        setLoggedInUser(null);
+                    }
                     if (event === 'SIGNED_OUT' && isMounted) setLoggedInUser(null);
                 });
 
@@ -3537,7 +3608,7 @@
                 let isMounted = true;
 
                 async function loadData() {
-                    if (!loggedInUser) {
+                    if (!loggedInUser || isPasswordRecovery) {
                         setAllExams([]);
                         setStudentMaster({});
                         setSourceMapping(null);
@@ -3655,7 +3726,7 @@
                 return () => {
                     isMounted = false;
                 };
-            }, [loggedInUser]);
+            }, [loggedInUser, isPasswordRecovery]);
 
             const handleCSVUpload = async (examData) => {
                 let createdExamId = null;
@@ -3923,6 +3994,14 @@
                         データを読み込んでいます...
                     </div>
                 );
+            }
+
+            if (isPasswordRecovery) {
+                return <PasswordRecoveryForm onComplete={async () => {
+                    await supabase.auth.signOut();
+                    setIsPasswordRecovery(false);
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                }} />;
             }
 
             if (showUpload) {
