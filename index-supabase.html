@@ -4159,7 +4159,7 @@
 
             const schoolExams = loggedInUser.role === 'admin'
                 ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
-                : allExams;
+                : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId);
             const visibleExams = loggedInUser.isTeacher ? schoolExams : publishedExams;
             const currentExam = visibleExams[selectedExamIndex] || null;
 
