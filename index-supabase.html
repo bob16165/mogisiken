@@ -3667,7 +3667,6 @@
                             .from('exams')
                             .select(`
                                 id,
-                                school_id,
                                 exam_name,
                                 hide_correct_answer,
                                 is_published,
@@ -3692,6 +3691,15 @@
                             .order('created_at', { ascending: true });
 
                         let { data: examsData, error: examsError } = await examsQuery;
+                        if (!examsError) {
+                            const { data: schoolData, error: schoolColumnError } = await supabase
+                                .from('exams')
+                                .select('id, school_id');
+                            if (!schoolColumnError) {
+                                const schoolIds = Object.fromEntries((schoolData || []).map(item => [item.id, item.school_id]));
+                                examsData = (examsData || []).map(exam => ({ ...exam, school_id: schoolIds[exam.id] }));
+                            }
+                        }
                         if (!examsError) {
                             const { data: layoutData, error: layoutError } = await supabase
                                 .from('exams')
@@ -4140,7 +4148,7 @@
             }
 
             const schoolExams = loggedInUser.role === 'admin'
-                ? allExams.filter(exam => !selectedSchoolId || exam.schoolId === selectedSchoolId)
+                ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
                 : allExams;
             const visibleExams = loggedInUser.isTeacher ? schoolExams : publishedExams;
             const currentExam = visibleExams[selectedExamIndex] || null;
