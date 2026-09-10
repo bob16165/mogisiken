@@ -76,18 +76,31 @@ Deno.serve(async (request) => {
     }
 
     stage = 'Authユーザー一覧取得';
-    const { data: existingUsers, error: listUsersError } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
-    if (listUsersError) throw listUsersError;
+    const existingUsers = [];
+    for (let page = 1; page <= 100; page += 1) {
+      const { data: pageData, error: listUsersError } = await adminClient.auth.admin.listUsers({ page, perPage: 1000 });
+      if (listUsersError) throw listUsersError;
+      existingUsers.push(...pageData.users);
+      if (pageData.users.length < 1000) break;
+    }
     const results = [];
     for (const student of students) {
       stage = `学生 ${student.studentId} のAuth登録`;
       const loginId = `${schoolLabel}_${student.studentId.trim()}`;
       const email = `${encodeURIComponent(loginId)}@mogisiken.local`;
       let authUser;
-      const existing = existingUsers.users.find((user) => user.email?.toLowerCase() === email);
+      const { data: existingAppUser, error: appLookupError } = await adminClient
+        .from('app_users')
+        .select('id')
+        .eq('student_id', student.studentId)
+        .eq('school_id', targetSchoolId)
+        .maybeSingle();
+      if (appLookupError) throw appLookupError;
+      const existing = existingUsers.find((user) => user.email?.toLowerCase() === email);
+      const linkedAuthUser = existing || (existingAppUser ? (await adminClient.auth.admin.getUserById(existingAppUser.id)).data.user : null);
 
-      if (existing) {
-        const { data, error } = await adminClient.auth.admin.updateUserById(existing.id, {
+      if (linkedAuthUser) {
+        const { data, error } = await adminClient.auth.admin.updateUserById(linkedAuthUser.id, {
           password: student.password,
           email_confirm: true
         });
@@ -110,15 +123,6 @@ Deno.serve(async (request) => {
         school_id: targetSchoolId
       }, { onConflict: 'school_id,student_id' });
       if (masterError) throw masterError;
-
-      stage = `学生 ${student.studentId} のapp_users確認`;
-      const { data: existingAppUser, error: appLookupError } = await adminClient
-        .from('app_users')
-        .select('id')
-        .eq('student_id', student.studentId)
-        .eq('school_id', targetSchoolId)
-        .maybeSingle();
-      if (appLookupError) throw appLookupError;
 
       const appUserPayload = {
         role: 'student',
