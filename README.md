@@ -26,6 +26,8 @@ Table Editorでは学校が見えるのにアプリで「学校未登録」と�
 
 学生CSVからAuthアカウントを一括作成するには、Supabase CLIで `supabase/functions/import-student-master` をデプロイしてください。プロジェクトにリンクした後、`supabase functions deploy import-student-master` を実行します。CSV登録時に6文字以上のパスワードを指定した場合はそれを使用し、省略した場合は自動生成した6桁を `学生ログイン情報.csv` としてダウンロードします。Edge Functionが未デプロイの場合、学生マスター登録は失敗します。
 
+旧 `student_master` に `password` のNOT NULL制約が残っている場合は、`supabase-student-password-migration.sql` を先に実行してください。パスワードは平文で学生マスターへ保存せず、Supabase Authで管理します。
+
 現行デモ画面のログインIDは、Supabase Authのメールアドレス `${ID}@mogisiken.local` として登録します。例えば `S001` は `s001@mogisiken.local`、教員ID `teacher001` は `teacher001@mogisiken.local` です。画面はAuth成功後に `app_users` を取得し、その後に試験結果・学生マスタ・出典マッピングを取得します。
 
 パスワード検証は `teachers` や `student_master` では行わず、Supabase Authに分離します。画面側でのID検索や配列フィルタは認可境界ではなく、最終的なアクセス制御はRLSが担当します。
