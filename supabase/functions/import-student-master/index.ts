@@ -8,6 +8,7 @@ type StudentInput = {
 };
 
 Deno.serve(async (request) => {
+  let stage = '開始';
   if (request.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
@@ -16,6 +17,7 @@ Deno.serve(async (request) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const adminClient = createClient(supabaseUrl, serviceRoleKey);
+    stage = '認証';
     const authHeader = request.headers.get('Authorization') || '';
     const token = authHeader.replace(/^Bearer\s+/i, '');
     const { data: authData, error: authError } = await adminClient.auth.getUser(token);
@@ -34,6 +36,7 @@ Deno.serve(async (request) => {
       throw new Error('教員または管理者権限が必要です');
     }
 
+    stage = '入力データ確認';
     const body = await request.json();
     const targetSchoolId = operator.role === 'admin' ? body.schoolId : operator.school_id;
     const students = body.students as StudentInput[];
@@ -45,6 +48,7 @@ Deno.serve(async (request) => {
     }
 
     if (body.replace === true) {
+      stage = '既存データ整理';
       const ids = students.map((student) => student.studentId);
       const { error: deleteMasterError } = await adminClient
         .from('student_master')
@@ -62,9 +66,12 @@ Deno.serve(async (request) => {
       if (deleteAppUserError) throw deleteAppUserError;
     }
 
-    const { data: existingUsers } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    stage = 'Authユーザー一覧取得';
+    const { data: existingUsers, error: listUsersError } = await adminClient.auth.admin.listUsers({ page: 1, perPage: 1000 });
+    if (listUsersError) throw listUsersError;
     const results = [];
     for (const student of students) {
+      stage = `学生 ${student.studentId} のAuth登録`;
       const email = `${student.studentId.trim().toLowerCase()}@mogisiken.local`;
       let authUser;
       const existing = existingUsers.users.find((user) => user.email?.toLowerCase() === email);
@@ -86,6 +93,7 @@ Deno.serve(async (request) => {
         authUser = data.user;
       }
 
+      stage = `学生 ${student.studentId} の学生マスター登録`;
       const { error: masterError } = await adminClient.from('student_master').upsert({
         student_id: student.studentId,
         name: student.name,
@@ -93,6 +101,7 @@ Deno.serve(async (request) => {
       }, { onConflict: 'student_id' });
       if (masterError) throw masterError;
 
+      stage = `学生 ${student.studentId} のapp_users確認`;
       const { data: existingAppUser, error: appLookupError } = await adminClient
         .from('app_users')
         .select('id')
@@ -107,6 +116,7 @@ Deno.serve(async (request) => {
         display_name: student.name
       };
       if (existingAppUser && existingAppUser.id !== authUser.id) {
+        stage = `学生 ${student.studentId} の旧app_users整理`;
         const { error: oldAppUserError } = await adminClient
           .from('app_users')
           .delete()
@@ -114,6 +124,7 @@ Deno.serve(async (request) => {
         if (oldAppUserError) throw oldAppUserError;
       }
 
+      stage = `学生 ${student.studentId} のapp_users登録`;
       const { error: appUserError } = await adminClient.from('app_users').upsert({
         id: authUser.id,
         ...appUserPayload
@@ -128,7 +139,8 @@ Deno.serve(async (request) => {
       status: 200
     });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error instanceof Error ? error.message : String(error) }), {
+    const message = error instanceof Error ? error.message : JSON.stringify(error);
+    return new Response(JSON.stringify({ error: `処理箇所: ${stage} / ${message}` }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 400
     });
