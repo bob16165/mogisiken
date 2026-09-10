@@ -3982,8 +3982,15 @@
                                 }
                             }
                         }
+                        if (detail === '[object Object]' || detail === '不明なエラー') {
+                            const serializableError = { ...err };
+                            if (err?.name) serializableError.name = err.name;
+                            if (err?.status) serializableError.status = err.status;
+                            detail = JSON.stringify(serializableError);
+                        }
                     } catch (readError) {
                         console.error('Function error response read error:', readError);
+                        detail = JSON.stringify(err, Object.getOwnPropertyNames(err));
                     }
                     alert('学生マスターの保存に失敗しました: ' + detail);
                     console.error('Student master upload error:', err);
