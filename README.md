@@ -28,6 +28,8 @@ Table Editorでは学校が見えるのにアプリで「学校未登録」と�
 
 旧 `student_master` に `password` のNOT NULL制約が残っている場合は、`supabase-student-password-migration.sql` を先に実行してください。パスワードは平文で学生マスターへ保存せず、Supabase Authで管理します。
 
+学生IDを学校単位で重複可能にする場合は `supabase-school-scoped-student-id.sql` を実行してください。`student_master` と `app_users` を `school_id, student_id` の複合一意に変更します。同一学校内の重複は移行前に解消が必要です。なお、現在の学生ログインメールは学生IDだけで生成しているため、同じ学生IDを複数校で使う場合は、ログイン画面にも学校識別子を追加する必要があります。
+
 現行デモ画面のログインIDは、Supabase Authのメールアドレス `${ID}@mogisiken.local` として登録します。例えば `S001` は `s001@mogisiken.local`、教員ID `teacher001` は `teacher001@mogisiken.local` です。画面はAuth成功後に `app_users` を取得し、その後に試験結果・学生マスタ・出典マッピングを取得します。
 
 パスワード検証は `teachers` や `student_master` では行わず、Supabase Authに分離します。画面側でのID検索や配列フィルタは認可境界ではなく、最終的なアクセス制御はRLSが担当します。

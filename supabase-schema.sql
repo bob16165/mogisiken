@@ -15,7 +15,7 @@ CREATE TABLE app_users (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'admin')),
   school_id UUID REFERENCES schools(id) ON DELETE RESTRICT,
-  student_id TEXT UNIQUE,
+  student_id TEXT,
   display_name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   CHECK ((role = 'student' AND student_id IS NOT NULL AND school_id IS NOT NULL) OR (role = 'teacher' AND school_id IS NOT NULL) OR role = 'admin')
@@ -23,7 +23,7 @@ CREATE TABLE app_users (
 
 CREATE TABLE student_master (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  student_id TEXT NOT NULL UNIQUE,
+  student_id TEXT NOT NULL,
   school_id UUID NOT NULL REFERENCES schools(id) ON DELETE RESTRICT,
   name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
@@ -107,6 +107,13 @@ CREATE INDEX idx_results_school_student ON student_exam_results(school_id, stude
 CREATE INDEX idx_exams_school ON exams(school_id);
 CREATE INDEX idx_chat_school_student ON student_chat_messages(school_id, student_id);
 CREATE INDEX idx_tasks_school_student ON student_study_tasks(school_id, student_id);
+
+CREATE UNIQUE INDEX uq_app_users_school_student
+  ON app_users(school_id, student_id)
+  WHERE student_id IS NOT NULL;
+
+CREATE UNIQUE INDEX uq_student_master_school_student
+  ON student_master(school_id, student_id);
 
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$

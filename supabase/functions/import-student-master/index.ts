@@ -98,7 +98,7 @@ Deno.serve(async (request) => {
         student_id: student.studentId,
         name: student.name,
         school_id: targetSchoolId
-      }, { onConflict: 'student_id' });
+      }, { onConflict: 'school_id,student_id' });
       if (masterError) throw masterError;
 
       stage = `学生 ${student.studentId} のapp_users確認`;
@@ -106,6 +106,7 @@ Deno.serve(async (request) => {
         .from('app_users')
         .select('id')
         .eq('student_id', student.studentId)
+        .eq('school_id', targetSchoolId)
         .maybeSingle();
       if (appLookupError) throw appLookupError;
 
