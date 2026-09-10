@@ -26,7 +26,7 @@ Table Editorでは学校が見えるのにアプリで「学校未登録」と�
 
 学生CSVからAuthアカウントを一括作成するには、Supabase CLIで `supabase/functions/import-student-master` をデプロイしてください。プロジェクトにリンクした後、`supabase functions deploy import-student-master` を実行します。CSV登録時に6文字以上のパスワードを指定した場合はそれを使用し、省略した場合は自動生成した6桁を `学生ログイン情報.csv` としてダウンロードします。Edge Functionが未デプロイの場合、学生マスター登録は失敗します。
 
-旧 `student_master` に `password` のNOT NULL制約が残っている場合は、`supabase-student-password-migration.sql` を先に実行してください。パスワードは平文で学生マスターへ保存せず、Supabase Authで管理します。
+旧 `student_master` に `password` のNOT NULL制約が残っている場合、または学校名付きログインIDの `app_users.login_id` 列が未作成の場合は、`supabase-student-password-migration.sql` を実行してください。パスワードは平文で学生マスターへ保存せず、Supabase Authで管理します。
 
 学生IDを学校単位で重複可能にする場合は `supabase-school-scoped-student-id.sql` を実行してください。`student_master` と `app_users` を `school_id, student_id` の複合一意に変更します。同一学校内の重複は移行前に解消が必要です。なお、現在の学生ログインメールは学生IDだけで生成しているため、同じ学生IDを複数校で使う場合は、ログイン画面にも学校識別子を追加する必要があります。
 

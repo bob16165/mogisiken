@@ -14,3 +14,11 @@ BEGIN
       ALTER COLUMN password DROP NOT NULL;
   END IF;
 END $$;
+
+-- 学校名付きログインIDを保存する列（例: 東_001）
+ALTER TABLE public.app_users
+  ADD COLUMN IF NOT EXISTS login_id TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_app_users_login_id
+  ON public.app_users(login_id)
+  WHERE login_id IS NOT NULL;
