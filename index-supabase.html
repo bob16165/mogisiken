@@ -858,7 +858,7 @@
                     }
                     
                     // 出典マッピングデータの読み込み（科目名,番号,項目名 または 番号,項目名）
-                    if (sourceMappingFile) {
+                    if (isAdmin && sourceMappingFile) {
                         const mappingText = await readFileAsText(sourceMappingFile);
                         const mappingLines = mappingText.split('\n').filter(line => line.trim());
                         const mappingHeaders = mappingLines[0].split(',').map(h => h.trim());
@@ -1306,7 +1306,7 @@
                                     </div>
                                 </div>
                                 
-                                <div style={{ marginBottom: '25px' }}>
+                                {isAdmin && <div style={{ marginBottom: '25px' }}>
                                     <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>
                                         出典マッピングファイル（任意）
                                     </label>
@@ -1316,7 +1316,7 @@
                                         形式1: 科目名,番号,項目名（例: 解剖学,1,骨格系）<br/>
                                         形式2: 番号,項目名（全科目共通）
                                     </div>
-                                </div>
+                                </div>}
 
                                 <div style={{ marginTop: '20px', padding: '15px', background: '#fff3e0', borderRadius: '6px', border: '1px solid #ffb74d' }}>
                                     <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer' }}>
@@ -4062,6 +4062,9 @@
             // ソースマッピング更新
             const handleSourceMappingUpdate = async (mapping) => {
                 try {
+                    if (loggedInUser?.role !== 'admin') {
+                        throw new Error('出典マッピングのアップロードは管理者のみ実行できます');
+                    }
                     // 既存のマッピングを削除
                     const { error: deleteError } = await supabase
                         .from('source_mapping')

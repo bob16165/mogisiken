@@ -154,7 +154,7 @@ CREATE POLICY exams_teacher_write ON exams FOR ALL TO authenticated USING (publi
 CREATE POLICY results_read ON student_exam_results FOR SELECT TO authenticated USING (public.is_student_owner(student_id) OR public.is_teacher_of(school_id));
 CREATE POLICY results_teacher_write ON student_exam_results FOR ALL TO authenticated USING (public.is_teacher_of(school_id)) WITH CHECK (public.is_teacher_of(school_id));
 CREATE POLICY source_mapping_read ON source_mapping FOR SELECT TO authenticated USING (school_id IS NULL OR public.is_teacher_of(school_id) OR EXISTS (SELECT 1 FROM app_users u WHERE u.id = auth.uid() AND u.school_id = source_mapping.school_id));
-CREATE POLICY source_mapping_teacher_write ON source_mapping FOR ALL TO authenticated USING (school_id IS NULL OR public.is_teacher_of(school_id)) WITH CHECK (school_id IS NULL OR public.is_teacher_of(school_id));
+CREATE POLICY source_mapping_admin_write ON source_mapping FOR ALL TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
 CREATE POLICY chat_owner_read ON student_chat_messages FOR SELECT TO authenticated USING (public.is_student_owner(student_id) OR public.is_teacher_of(school_id));
 CREATE POLICY chat_owner_insert ON student_chat_messages FOR INSERT TO authenticated WITH CHECK (public.is_student_owner(student_id) AND EXISTS (SELECT 1 FROM app_users u WHERE u.id = auth.uid() AND u.school_id = student_chat_messages.school_id));
 CREATE POLICY chat_owner_update ON student_chat_messages FOR UPDATE TO authenticated USING (public.is_student_owner(student_id)) WITH CHECK (public.is_student_owner(student_id));
