@@ -3969,7 +3969,23 @@
                     alert(`学籍マスタを${shouldReplace ? '上書き' : '追加'}登録しました（${count}件）`);
                     return students;
                 } catch (err) {
-                    alert('学籍マスターの保存に失敗しました: ' + err.message);
+                    let detail = err?.message || '不明なエラー';
+                    try {
+                        if (err?.context && typeof err.context.text === 'function') {
+                            const responseText = await err.context.text();
+                            if (responseText) {
+                                try {
+                                    const responseJson = JSON.parse(responseText);
+                                    detail = responseJson.error || responseJson.message || responseText;
+                                } catch {
+                                    detail = responseText;
+                                }
+                            }
+                        }
+                    } catch (readError) {
+                        console.error('Function error response read error:', readError);
+                    }
+                    alert('学生マスターの保存に失敗しました: ' + detail);
                     console.error('Student master upload error:', err);
                     return null;
                 }
