@@ -40,8 +40,8 @@ Deno.serve(async (request) => {
 
     if (!targetSchoolId) throw new Error('登録先の学校が指定されていません');
     if (!Array.isArray(students) || students.length === 0) throw new Error('学生データがありません');
-    if (students.some((student) => !/^\d{4}$/.test(student.password))) {
-      throw new Error('パスワードは4桁の数字で入力してください');
+    if (students.some((student) => typeof student.password !== 'string' || student.password.length < 6)) {
+      throw new Error('パスワードは6文字以上で入力してください');
     }
 
     if (body.replace === true) {

@@ -24,7 +24,7 @@ Table Editorでは学校が見えるのにアプリで「学校未登録」と�
 
 学生がログインできない場合、Authユーザーと学生マスターを学籍番号で一括紐付けする `supabase-link-students.sql` を実行してください。Authメールは `学籍番号@mogisiken.local` の形式で作成しておく必要があります。
 
-学生CSVからAuthアカウントを一括作成するには、Supabase CLIで `supabase/functions/import-student-master` をデプロイしてください。プロジェクトにリンクした後、`supabase functions deploy import-student-master` を実行します。CSV登録時に4桁パスワードを指定した場合はそれを使用し、省略した場合は自動生成した4桁を `学生ログイン情報.csv` としてダウンロードします。Edge Functionが未デプロイの場合、学生マスター登録は失敗します。
+学生CSVからAuthアカウントを一括作成するには、Supabase CLIで `supabase/functions/import-student-master` をデプロイしてください。プロジェクトにリンクした後、`supabase functions deploy import-student-master` を実行します。CSV登録時に6文字以上のパスワードを指定した場合はそれを使用し、省略した場合は自動生成した6桁を `学生ログイン情報.csv` としてダウンロードします。Edge Functionが未デプロイの場合、学生マスター登録は失敗します。
 
 現行デモ画面のログインIDは、Supabase Authのメールアドレス `${ID}@mogisiken.local` として登録します。例えば `S001` は `s001@mogisiken.local`、教員ID `teacher001` は `teacher001@mogisiken.local` です。画面はAuth成功後に `app_users` を取得し、その後に試験結果・学生マスタ・出典マッピングを取得します。
 

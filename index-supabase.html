@@ -622,9 +622,9 @@
                         const cols = line.split(',').map(s => s.trim());
                         const studentId = cols[0];
                         const name = cols[1];
-                        const password = /^\d{4}$/.test(cols[2] || '')
+                        const password = (cols[2] || '').length >= 6
                             ? cols[2]
-                            : String(Math.floor(1000 + Math.random() * 9000));
+                            : String(Math.floor(100000 + Math.random() * 900000));
                         
                         if (studentId && name && password) {
                             master[studentId] = { name, password };
@@ -1131,8 +1131,8 @@
                                 <input type="file" accept=".csv" onChange={(e) => setStudentMasterFile(e.target.files[0])}
                                     style={{ width: '100%', padding: '10px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px', marginBottom: '10px' }} />
                                 <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-                                    形式: 学籍番号,氏名,初期パスワード（例: 216030,山田太郎,1234）<br/>
-                                    ※ 初期パスワードは4桁の数字で入力します。登録時にAuthログインへ反映されます
+                                    形式: 学籍番号,氏名,初期パスワード（例: 216030,山田太郎,password123）<br/>
+                                    ※ 初期パスワードは6文字以上で入力します。省略時は6桁の数字を自動生成します
                                 </div>
                                 <button type="button" onClick={handleMasterUpload} disabled={isLoading || !studentMasterFile} style={{
                                     width: '100%', padding: '10px', fontSize: '14px', fontWeight: '600',
