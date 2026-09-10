@@ -638,7 +638,7 @@
                         throw new Error('学生アカウントの保存に失敗しました。成功メッセージは表示しません。');
                     }
                     if (credentials?.length) {
-                        const csv = ['学籍番号,氏名,初期パスワード', ...credentials.map(item => `${item.studentId},${item.name},${item.password}`)].join('\n');
+                        const csv = ['ログインID,学籍番号,氏名,初期パスワード', ...credentials.map(item => `${item.loginId},${item.studentId},${item.name},${item.password}`)].join('\n');
                         const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
                         const link = document.createElement('a');
                         link.href = URL.createObjectURL(blob);
@@ -1618,7 +1618,7 @@
                 try {
                     const normalizedId = studentId.trim().toLowerCase();
                     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-                        email: `${normalizedId}@mogisiken.local`,
+                        email: `${encodeURIComponent(normalizedId)}@mogisiken.local`,
                         password
                     });
 

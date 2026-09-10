@@ -47,6 +47,15 @@ Deno.serve(async (request) => {
       throw new Error('パスワードは6文字以上で入力してください');
     }
 
+    const { data: school, error: schoolError } = await adminClient
+      .from('schools')
+      .select('name')
+      .eq('id', targetSchoolId)
+      .single();
+    if (schoolError || !school) throw new Error('登録先の学校が見つかりません');
+    const schoolLabel = school.name.replace(/専門学校/g, '').trim().replace(/\s+/g, '');
+    if (!schoolLabel) throw new Error('学校名からログインIDを作成できません');
+
     if (body.replace === true) {
       stage = '既存データ整理';
       const ids = students.map((student) => student.studentId);
@@ -72,7 +81,8 @@ Deno.serve(async (request) => {
     const results = [];
     for (const student of students) {
       stage = `学生 ${student.studentId} のAuth登録`;
-      const email = `${student.studentId.trim().toLowerCase()}@mogisiken.local`;
+      const loginId = `${schoolLabel}_${student.studentId.trim()}`;
+      const email = `${encodeURIComponent(loginId)}@mogisiken.local`;
       let authUser;
       const existing = existingUsers.users.find((user) => user.email?.toLowerCase() === email);
 
@@ -114,6 +124,7 @@ Deno.serve(async (request) => {
         role: 'student',
         school_id: targetSchoolId,
         student_id: student.studentId,
+        login_id: loginId,
         display_name: student.name
       };
       if (existingAppUser && existingAppUser.id !== authUser.id) {
@@ -132,7 +143,7 @@ Deno.serve(async (request) => {
       }, { onConflict: 'id' });
       if (appUserError) throw appUserError;
 
-      results.push({ studentId: student.studentId, email });
+      results.push({ studentId: student.studentId, loginId, name: student.name, password: student.password, email });
     }
 
     return new Response(JSON.stringify({ count: results.length, students: results }), {

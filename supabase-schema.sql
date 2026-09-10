@@ -16,6 +16,7 @@ CREATE TABLE app_users (
   role TEXT NOT NULL CHECK (role IN ('student', 'teacher', 'admin')),
   school_id UUID REFERENCES schools(id) ON DELETE RESTRICT,
   student_id TEXT,
+  login_id TEXT,
   display_name TEXT NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
   CHECK ((role = 'student' AND student_id IS NOT NULL AND school_id IS NOT NULL) OR (role = 'teacher' AND school_id IS NOT NULL) OR role = 'admin')
@@ -111,6 +112,10 @@ CREATE INDEX idx_tasks_school_student ON student_study_tasks(school_id, student_
 CREATE UNIQUE INDEX uq_app_users_school_student
   ON app_users(school_id, student_id)
   WHERE student_id IS NOT NULL;
+
+CREATE UNIQUE INDEX uq_app_users_login_id
+  ON app_users(login_id)
+  WHERE login_id IS NOT NULL;
 
 CREATE UNIQUE INDEX uq_student_master_school_student
   ON student_master(school_id, student_id);
