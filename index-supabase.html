@@ -614,7 +614,15 @@
                 setError('');
                 
                 try {
-                    const text = await studentMasterFile.text();
+                    const arrayBuffer = await studentMasterFile.arrayBuffer();
+                    let text;
+                    try {
+                        text = new TextDecoder('utf-8').decode(arrayBuffer);
+                        if (text.includes('�')) throw new Error('UTF-8 decode failed');
+                    } catch {
+                        text = new TextDecoder('shift-jis').decode(arrayBuffer);
+                    }
+                    text = text.replace(/^\uFEFF/, '');
                     const lines = text.split('\n').filter(line => line.trim());
                     const master = {};
                     
@@ -3967,7 +3975,7 @@
                     setStudentMaster(updatedMaster);
                     const count = Object.keys(master).length;
                     alert(`学籍マスタを${shouldReplace ? '上書き' : '追加'}登録しました（${count}件）`);
-                    return students;
+                    return data?.students || students;
                 } catch (err) {
                     let detail = err?.message || '不明なエラー';
                     try {
