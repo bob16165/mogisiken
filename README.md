@@ -28,7 +28,7 @@ Table Editorでは学校が見えるのにアプリで「学校未登録」と�
 
 旧 `student_master` に `password` のNOT NULL制約が残っている場合、または学校名付きログインIDの `app_users.login_id` 列が未作成の場合は、`supabase-student-password-migration.sql` を実行してください。パスワードは平文で学生マスターへ保存せず、Supabase Authで管理します。
 
-学生IDを学校単位で重複可能にする場合は `supabase-school-scoped-student-id.sql` を実行してください。`student_master` と `app_users` を `school_id, student_id` の複合一意に変更します。同一学校内の重複は移行前に解消が必要です。なお、現在の学生ログインメールは学生IDだけで生成しているため、同じ学生IDを複数校で使う場合は、ログイン画面にも学校識別子を追加する必要があります。
+学生IDを学校単位で重複可能にする場合は `supabase-school-scoped-student-id.sql` を実行してください。`student_master` と `app_users` を `school_id, student_id` の複合一意制約に変更します。同一学校内の重複は移行前に解消が必要です。なお、現在の学生ログインメールは学生IDだけで生成しているため、同じ学生IDを複数校で使う場合は、ログイン画面にも学校識別子を追加する必要があります。
 
 学校別ログインID対応には、追加で `supabase-login-id-migration.sql` を実行してください。以後、学校名から「専門学校」を除いた名前と学生IDを結合したID（例: `東_001`）を生成します。学生ログイン時も、このログインIDを入力します。
 

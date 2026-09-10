@@ -31,9 +31,10 @@ BEGIN
   END IF;
 END $$;
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_student_master_school_student
-  ON public.student_master(school_id, student_id);
+ALTER TABLE public.student_master
+  ADD CONSTRAINT student_master_school_student_key
+  UNIQUE (school_id, student_id);
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_app_users_school_student
-  ON public.app_users(school_id, student_id)
-  WHERE student_id IS NOT NULL;
+ALTER TABLE public.app_users
+  ADD CONSTRAINT app_users_school_student_key
+  UNIQUE (school_id, student_id);

@@ -109,16 +109,14 @@ CREATE INDEX idx_exams_school ON exams(school_id);
 CREATE INDEX idx_chat_school_student ON student_chat_messages(school_id, student_id);
 CREATE INDEX idx_tasks_school_student ON student_study_tasks(school_id, student_id);
 
-CREATE UNIQUE INDEX uq_app_users_school_student
-  ON app_users(school_id, student_id)
-  WHERE student_id IS NOT NULL;
+ALTER TABLE app_users
+  ADD CONSTRAINT app_users_school_student_key UNIQUE (school_id, student_id);
 
-CREATE UNIQUE INDEX uq_app_users_login_id
-  ON app_users(login_id)
-  WHERE login_id IS NOT NULL;
+ALTER TABLE app_users
+  ADD CONSTRAINT app_users_login_id_key UNIQUE (login_id);
 
-CREATE UNIQUE INDEX uq_student_master_school_student
-  ON student_master(school_id, student_id);
+ALTER TABLE student_master
+  ADD CONSTRAINT student_master_school_student_key UNIQUE (school_id, student_id);
 
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
