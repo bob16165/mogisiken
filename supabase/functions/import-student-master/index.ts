@@ -93,12 +93,30 @@ Deno.serve(async (request) => {
       }, { onConflict: 'student_id' });
       if (masterError) throw masterError;
 
-      const { error: appUserError } = await adminClient.from('app_users').upsert({
-        id: authUser.id,
+      const { data: existingAppUser, error: appLookupError } = await adminClient
+        .from('app_users')
+        .select('id')
+        .eq('student_id', student.studentId)
+        .maybeSingle();
+      if (appLookupError) throw appLookupError;
+
+      const appUserPayload = {
         role: 'student',
         school_id: targetSchoolId,
         student_id: student.studentId,
         display_name: student.name
+      };
+      if (existingAppUser && existingAppUser.id !== authUser.id) {
+        const { error: oldAppUserError } = await adminClient
+          .from('app_users')
+          .delete()
+          .eq('id', existingAppUser.id);
+        if (oldAppUserError) throw oldAppUserError;
+      }
+
+      const { error: appUserError } = await adminClient.from('app_users').upsert({
+        id: authUser.id,
+        ...appUserPayload
       }, { onConflict: 'id' });
       if (appUserError) throw appUserError;
 
