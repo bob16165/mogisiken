@@ -28,6 +28,22 @@ Table Editorでは学校が見えるのにアプリで「学校未登録」と�
 
 旧 `student_master` に `password` のNOT NULL制約が残っている場合、または学校名付きログインIDの `app_users.login_id` 列が未作成の場合は、`supabase-student-password-migration.sql` を実行してください。パスワードは平文で学生マスターへ保存せず、Supabase Authで管理します。
 
+## 対話型AI学習コーチ（現在：ローカル推論のみ）
+
+`index-supabase.html` の学習コーチは現在、外部API（ChatGPT）と連携せず、ブラウザ内のルールベース推論（`buildLocalChatReply`）のみで応答します。契約校が増えるなど外部AI連携が必要になったタイミングで、以下の手順でChatGPT連携を再有効化できます。
+
+1. OpenAIの実際のAPIキー（`sk-xxxxxxxx` はプレースホルダーなので必ず実キーに置き換える。全角文字が混ざらないよう半角入力で）をSecretsに登録する
+   ```
+   supabase secrets set OPENAI_API_KEY=<実際のAPIキー>
+   ```
+2. Edge Functionをデプロイする
+   ```
+   supabase functions deploy ai-chat
+   ```
+3. `index-supabase.html` の `askExternalLlm`（Edge Function `${SUPABASE_URL}/functions/v1/ai-chat` を呼び出す処理、Git履歴上は削除済み）を復元し、`StudyChatAssistant` の `sendMessage` から呼び出すよう戻す
+4. `ai-chat` はリクエストのSupabase認証トークンから `app_users` を照会し、`role = student` かつ本人の `student_id` と一致する場合のみ応答します（他の生徒のIDを指定した呼び出しは拒否）。また同一学生からの直近1分間のリクエスト数が一定数を超えると429を返し、APIコストの暴走を防ぎます。
+5. Edge Functionが未デプロイ、またはエラーになった場合は、クライアント側でローカル推論（ルールベース）に自動フォールバックします。
+
 学生IDを学校単位で重複可能にする場合は `supabase-school-scoped-student-id.sql` を実行してください。`student_master` と `app_users` を `school_id, student_id` の複合一意制約に変更します。同一学校内の重複は移行前に解消が必要です。なお、現在の学生ログインメールは学生IDだけで生成しているため、同じ学生IDを複数校で使う場合は、ログイン画面にも学校識別子を追加する必要があります。
 
 学校別ログインID対応には、追加で `supabase-login-id-migration.sql` を実行してください。以後、学校名から「専門学校」を除いた名前と学生IDを結合したID（例: `東_001`）を生成します。学生ログイン時も、このログインIDを入力します。

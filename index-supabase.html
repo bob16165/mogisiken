@@ -2479,114 +2479,7 @@
             });
         }
 
-        function getAiProviderConfig() {
-            return {
-                provider: localStorage.getItem('mogisiken_ai_provider') || 'local',
-                openaiApiKey: localStorage.getItem('mogisiken_openai_api_key') || '',
-                openaiModel: localStorage.getItem('mogisiken_openai_model') || 'gpt-4o-mini',
-                azureApiKey: localStorage.getItem('mogisiken_azure_api_key') || '',
-                azureEndpoint: localStorage.getItem('mogisiken_azure_endpoint') || '',
-                azureDeployment: localStorage.getItem('mogisiken_azure_deployment') || '',
-                azureApiVersion: localStorage.getItem('mogisiken_azure_api_version') || '2024-10-21'
-            };
-        }
-
-        function saveAiProviderConfig(config) {
-            localStorage.setItem('mogisiken_ai_provider', config.provider || 'local');
-            localStorage.setItem('mogisiken_openai_api_key', config.openaiApiKey || '');
-            localStorage.setItem('mogisiken_openai_model', config.openaiModel || 'gpt-4o-mini');
-            localStorage.setItem('mogisiken_azure_api_key', config.azureApiKey || '');
-            localStorage.setItem('mogisiken_azure_endpoint', config.azureEndpoint || '');
-            localStorage.setItem('mogisiken_azure_deployment', config.azureDeployment || '');
-            localStorage.setItem('mogisiken_azure_api_version', config.azureApiVersion || '2024-10-21');
-        }
-
-        function buildLlmSystemPrompt(guidance, hideCorrectAnswer) {
-            const priorities = (guidance?.actionPlan || []).map((item, idx) =>
-                `${idx + 1}. ${item.subjectName} / 最新得点率:${item.latestScoreRate}% / 高正答率取りこぼし:${item.highCorrectRateMisses} / 50〜70%帯誤答:${item.midCorrectRateMisses} / 集中領域:${item.sourceText}`
-            ).join('\n');
-            const recQuestions = (guidance?.recommendedQuestions || []).slice(0, 8).map((q, idx) => {
-                const answerPart = hideCorrectAnswer ? '' : ` 正答:${q.correctAnswer || '-'}`;
-                return `${idx + 1}. ${q.subjectName} ${q.questionNumber} 出典:${q.displaySource} 正答率:${q.correctRate ?? '-'}% 自分:${q.userAnswer || '-'}${answerPart}`;
-            }).join('\n');
-
-            return [
-                'あなたは柔道整復師国家試験対策の学習コーチです。',
-                '学生に寄り添って短く具体的に提案してください。',
-                '与えられた成績データに基づかない断定はしないでください。',
-                hideCorrectAnswer ? '正答は開示禁止です。' : '必要なら正答も提示できます。',
-                '優先科目:',
-                priorities || 'データなし',
-                '関連問題:',
-                recQuestions || 'データなし'
-            ].join('\n');
-        }
-
-        async function askExternalLlm(question, history, guidance, hideCorrectAnswer, config) {
-            const systemPrompt = buildLlmSystemPrompt(guidance, hideCorrectAnswer);
-            const historyMessages = (history || []).slice(-6).map(m => ({ role: m.role, content: m.text }));
-
-            if (config.provider === 'openai') {
-                if (!config.openaiApiKey) throw new Error('OpenAI APIキーが未設定です');
-                const response = await fetch('https://api.openai.com/v1/chat/completions', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${config.openaiApiKey}`
-                    },
-                    body: JSON.stringify({
-                        model: config.openaiModel || 'gpt-4o-mini',
-                        temperature: 0.4,
-                        messages: [
-                            { role: 'system', content: systemPrompt },
-                            ...historyMessages,
-                            { role: 'user', content: question }
-                        ]
-                    })
-                });
-
-                if (!response.ok) {
-                    const errText = await response.text();
-                    throw new Error(`OpenAI APIエラー: ${response.status} ${errText}`);
-                }
-                const data = await response.json();
-                return data?.choices?.[0]?.message?.content?.trim() || 'OpenAIから応答がありませんでした。';
-            }
-
-            if (config.provider === 'azure') {
-                if (!config.azureApiKey || !config.azureEndpoint || !config.azureDeployment) {
-                    throw new Error('Azure OpenAI の設定（endpoint/deployment/key）が不足しています');
-                }
-                const endpoint = config.azureEndpoint.replace(/\/$/, '');
-                const apiVersion = config.azureApiVersion || '2024-10-21';
-                const url = `${endpoint}/openai/deployments/${config.azureDeployment}/chat/completions?api-version=${apiVersion}`;
-
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'api-key': config.azureApiKey
-                    },
-                    body: JSON.stringify({
-                        temperature: 0.4,
-                        messages: [
-                            { role: 'system', content: systemPrompt },
-                            ...historyMessages,
-                            { role: 'user', content: question }
-                        ]
-                    })
-                });
-
-                if (!response.ok) {
-                    const errText = await response.text();
-                    throw new Error(`Azure OpenAIエラー: ${response.status} ${errText}`);
-                }
-                const data = await response.json();
-                return data?.choices?.[0]?.message?.content?.trim() || 'Azure OpenAIから応答がありませんでした。';
-            }
-
-            return null;
-        }
+        // ChatGPT連携(supabase/functions/ai-chat)は契約学校が増えた際に再検討。現時点ではクライアントから呼び出さない
 
         function buildWeeklyStudyTasks(guidance) {
             const top = guidance?.actionPlan?.[0]?.subjectName || '必修';
@@ -2844,7 +2737,6 @@
             const [messages, setMessages] = React.useState([{ role: 'assistant', text: initialText }]);
             const [input, setInput] = React.useState('');
             const [isResponding, setIsResponding] = React.useState(false);
-            const [providerConfig, setProviderConfig] = React.useState(getAiProviderConfig());
             const [statusText, setStatusText] = React.useState('ローカル推論で応答中');
             const [chatStorageEnabled, setChatStorageEnabled] = React.useState(true);
             const loadedRef = React.useRef(false);
@@ -2918,41 +2810,6 @@
                 return !error;
             };
 
-            const openAiSettingPrompt = () => {
-                const provider = prompt('AIプロバイダーを選択してください: local / openai / azure', providerConfig.provider || 'local');
-                if (!provider) return;
-
-                const normalizedProvider = provider.trim().toLowerCase();
-                const next = { ...providerConfig, provider: normalizedProvider };
-
-                if (normalizedProvider === 'openai') {
-                    const apiKey = prompt('OpenAI API Key を入力してください', providerConfig.openaiApiKey);
-                    if (!apiKey) return;
-                    const model = prompt('OpenAI model を入力してください', providerConfig.openaiModel || 'gpt-4o-mini') || 'gpt-4o-mini';
-                    next.openaiApiKey = apiKey.trim();
-                    next.openaiModel = model.trim();
-                } else if (normalizedProvider === 'azure') {
-                    const endpoint = prompt('Azure OpenAI endpoint を入力してください (https://xxxx.openai.azure.com)', providerConfig.azureEndpoint);
-                    if (!endpoint) return;
-                    const deployment = prompt('Azure deployment名を入力してください', providerConfig.azureDeployment);
-                    if (!deployment) return;
-                    const apiKey = prompt('Azure API Key を入力してください', providerConfig.azureApiKey);
-                    if (!apiKey) return;
-                    const version = prompt('api-version を入力してください', providerConfig.azureApiVersion || '2024-10-21') || '2024-10-21';
-                    next.azureEndpoint = endpoint.trim();
-                    next.azureDeployment = deployment.trim();
-                    next.azureApiKey = apiKey.trim();
-                    next.azureApiVersion = version.trim();
-                } else {
-                    next.provider = 'local';
-                }
-
-                saveAiProviderConfig(next);
-                setProviderConfig(next);
-                setStatusText(next.provider === 'local' ? 'ローカル推論で応答中' : `${next.provider.toUpperCase()}連携で応答中`);
-                alert('AI接続設定を保存しました。');
-            };
-
             const sendMessage = async (rawText) => {
                 const text = (rawText || '').trim();
                 if (!text || isResponding) return;
@@ -2961,21 +2818,11 @@
                 setMessages(prev => [...prev, userMessage]);
                 setInput('');
                 setIsResponding(true);
-                await persistMessage('user', text, providerConfig.provider);
+                await persistMessage('user', text, 'local');
 
                 try {
-                    let reply = null;
-                    let providerUsed = 'local';
-
-                    if (providerConfig.provider !== 'local') {
-                        reply = await askExternalLlm(text, messages, guidance, hideCorrectAnswer, providerConfig);
-                        providerUsed = providerConfig.provider;
-                    }
-
-                    if (!reply) {
-                        reply = buildLocalChatReply(text, guidance, result, hideCorrectAnswer);
-                        providerUsed = 'local';
-                    }
+                    let reply = buildLocalChatReply(text, guidance, result, hideCorrectAnswer);
+                    const providerUsed = 'local';
 
                     if (shouldRegisterTaskFromQuestion(text)) {
                         const tasks = buildTasksFromQuestion(text, guidance);
@@ -2999,7 +2846,7 @@
                     await persistMessage('assistant', reply, providerUsed);
                 } catch (e) {
                     const fallback = buildLocalChatReply(text, guidance, result, hideCorrectAnswer);
-                    const errorNotice = `外部AI連携でエラーが発生したため、ローカル推論で回答しました。\n理由: ${e?.message || e}`;
+                    const errorNotice = `回答生成でエラーが発生したため、簡易回答に切り替えました。\n理由: ${e?.message || e}`;
                     setMessages(prev => [...prev, { role: 'assistant', text: `${errorNotice}\n\n${fallback}` }]);
                     await persistMessage('assistant', `${errorNotice}\n\n${fallback}`, 'local-fallback');
                 } finally {
@@ -3018,18 +2865,7 @@
                 }}>
                     <div style={{ padding: '14px 16px', background: '#0f766e', color: 'white' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-                            <h3 style={{ margin: 0, fontSize: '18px' }}>対話型AI 学習コーチ</h3>
-                            <button onClick={openAiSettingPrompt} style={{
-                                padding: '6px 10px',
-                                fontSize: '12px',
-                                border: '1px solid rgba(255,255,255,0.5)',
-                                borderRadius: '8px',
-                                background: 'rgba(255,255,255,0.15)',
-                                color: 'white',
-                                cursor: 'pointer'
-                            }}>
-                                AI接続設定
-                            </button>
+                            <h3 style={{ margin: 0, fontSize: '18px' }}>対話型AI 学習コーチ（ローカル推論）</h3>
                         </div>
                         <p style={{ margin: '4px 0 0 0', fontSize: '12px', opacity: 0.9 }}>
                             {statusText} / 会話履歴はサーバーに保存されます
