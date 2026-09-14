@@ -1727,7 +1727,7 @@
 
                     const { data: profile, error: profileError } = await supabase
                         .from('app_users')
-                        .select('id, role, school_id, student_id, display_name')
+                        .select('id, role, school_id, student_id, display_name, login_id')
                         .eq('id', authData.user.id)
                         .single();
 
@@ -1736,6 +1736,12 @@
                         throw new Error(profileError?.code === 'PGRST116'
                             ? 'Authユーザーは認証できましたが、app_usersに登録されていません。管理者はsupabase-admin-bootstrap.sqlを実行してください。'
                             : (profileError?.message || '利用者プロフィールが登録されていません'));
+                    }
+
+                    // login_idが存在する場合、入力されたIDと一致することを確認
+                    if (profile.login_id && normalizedId !== profile.login_id.toLowerCase()) {
+                        await supabase.auth.signOut();
+                        throw new Error(`入力されたIDが登録されたログインIDと一致しません。割り振られたID（例：${profile.login_id}）を入力してください。`);
                     }
 
                     onLogin({
@@ -1763,8 +1769,8 @@
                         <h1 style={{ textAlign: 'center', marginBottom: '30px', color: '#333', fontSize: '24px' }}>模擬試験結果閲覧システム</h1>
                         <form onSubmit={handleSubmit}>
                             <div style={{ marginBottom: '20px' }}>
-                                <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>ID（学籍番号 or 教員ID）</label>
-                                <input type="text" value={studentId} onChange={(e) => setStudentId(e.target.value)} placeholder="例: S001 または teacher001"
+                                <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>ログインID（割り振られたID）</label>
+                                <input type="text" value={studentId} onChange={(e) => setStudentId(e.target.value)} placeholder="例: 東_001 または teacher001"
                                     style={{ width: '100%', padding: '12px', fontSize: '16px', border: '2px solid #e0e0e0', borderRadius: '6px', outline: 'none' }} required />
                             </div>
                             <div style={{ marginBottom: '25px' }}>
