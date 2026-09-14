@@ -1716,13 +1716,31 @@
 
                 try {
                     const normalizedId = studentId.trim().toLowerCase();
-                    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-                        email: `${encodeURIComponent(normalizedId)}@mogisiken.local`,
-                        password
-                    });
+                    
+                    // メールアドレス生成パターン
+                    const emailPatterns = [
+                        `${encodeURIComponent(normalizedId)}@mogisiken.local`, // 入力されたID形式
+                        `${normalizedId}@mogisiken.local`, // エンコードなし
+                    ];
+                    
+                    let authData = null;
+                    let lastError = null;
+                    
+                    // 複数のパターンを試す
+                    for (const email of emailPatterns) {
+                        const { data, error } = await supabase.auth.signInWithPassword({
+                            email,
+                            password
+                        });
+                        if (!error && data.user) {
+                            authData = data;
+                            break;
+                        }
+                        lastError = error;
+                    }
 
-                    if (authError || !authData.user) {
-                        throw authError || new Error('認証情報を確認できませんでした');
+                    if (!authData || !authData.user) {
+                        throw lastError || new Error('認証情報を確認できませんでした');
                     }
 
                     const { data: profile, error: profileError } = await supabase
@@ -1738,11 +1756,11 @@
                             : (profileError?.message || '利用者プロフィールが登録されていません'));
                     }
 
-                    // login_idが存在する場合、入力されたIDと一致することを確認
-                    if (profile.login_id && normalizedId !== profile.login_id.toLowerCase()) {
-                        await supabase.auth.signOut();
-                        throw new Error(`入力されたIDが登録されたログインIDと一致しません。割り振られたID（例：${profile.login_id}）を入力してください。`);
-                    }
+                    // login_idの検証は、実際に運用されるようになってから有効にする
+                    // if (profile.login_id && normalizedId !== profile.login_id.toLowerCase()) {
+                    //     await supabase.auth.signOut();
+                    //     throw new Error(`入力されたIDが登録されたログインIDと一致しません。割り振られたID（例：${profile.login_id}）を入力してください。`);
+                    // }
 
                     onLogin({
                         id: profile.id,
@@ -1755,9 +1773,14 @@
                 } catch (err) {
                     console.error('Login error:', err);
                     const errorMessage = String(err?.message || '');
-                    setError(errorMessage.includes('Failed to fetch')
-                        ? 'Supabaseに接続できません。右上の「Supabase接続設定」で実際のProject URLとanon keyを設定してください。'
-                        : (errorMessage || 'IDまたはパスワードが間違っています'));
+                    
+                    if (errorMessage.includes('Failed to fetch')) {
+                        setError('Supabaseに接続できません。右上の「Supabase接続設定」で実際のProject URLとanon keyを設定してください。');
+                    } else if (errorMessage.includes('Invalid login credentials')) {
+                        setError('IDまたはパスワードが間違っています。割り振られたID（例：東_001）を入力してください。');
+                    } else {
+                        setError(errorMessage || 'IDまたはパスワードが間違っています');
+                    }
                 } finally {
                     setIsLoading(false);
                 }
