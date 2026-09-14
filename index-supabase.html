@@ -399,6 +399,60 @@
             return weakAreas;
         }
 
+        function calculateTopReviewItems(exam, studentId, sourceMapping, limit = 5) {
+            const student = exam?.students?.find(s => s.studentId === studentId);
+            const itemCounts = {};
+
+            Object.entries(student?.questionDetails || {}).forEach(([subjectName, questions]) => {
+                questions.forEach(q => {
+                    if (!isAnswerCorrect(q.userAnswer, q.correctAnswer) && q.source) {
+                        const key = `${subjectName}\u0000${q.source}`;
+                        if (!itemCounts[key]) {
+                            itemCounts[key] = {
+                                subjectName,
+                                source: q.source,
+                                displaySource: convertSourceToName(q.source, subjectName, sourceMapping),
+                                count: 0
+                            };
+                        }
+                        itemCounts[key].count++;
+                    }
+                });
+            });
+
+            return Object.values(itemCounts)
+                .sort((a, b) => b.count - a.count || a.subjectName.localeCompare(b.subjectName))
+                .slice(0, limit);
+        }
+
+        function calculateTopWeakAreas(allExams, studentId, sourceMapping, limit = 5) {
+            const itemCounts = {};
+
+            allExams.forEach(exam => {
+                const student = exam.students?.find(s => s.studentId === studentId);
+                Object.entries(student?.questionDetails || {}).forEach(([subjectName, questions]) => {
+                    questions.forEach(q => {
+                        if (!isAnswerCorrect(q.userAnswer, q.correctAnswer) && q.source) {
+                            const key = `${subjectName}\u0000${q.source}`;
+                            if (!itemCounts[key]) {
+                                itemCounts[key] = {
+                                    subjectName,
+                                    source: q.source,
+                                    displaySource: convertSourceToName(q.source, subjectName, sourceMapping),
+                                    count: 0
+                                };
+                            }
+                            itemCounts[key].count++;
+                        }
+                    });
+                });
+            });
+
+            return Object.values(itemCounts)
+                .sort((a, b) => b.count - a.count || a.subjectName.localeCompare(b.subjectName))
+                .slice(0, limit);
+        }
+
         // 出典番号を項目名に変換する関数
         function convertSourceToName(source, subjectName, sourceMapping) {
             if (!sourceMapping || !source) return source;
@@ -414,6 +468,43 @@
             }
             
             return source; // マッピングがなければそのまま返す
+        }
+
+        function TeacherReviewSummary({ currentExam, allExams, studentId, sourceMapping }) {
+            const currentExamItems = calculateTopReviewItems(currentExam, studentId, sourceMapping);
+            const weakAreas = calculateTopWeakAreas(allExams, studentId, sourceMapping);
+
+            const renderItems = (items, emptyMessage) => {
+                if (items.length === 0) {
+                    return <p style={{ margin: 0, color: '#666' }}>{emptyMessage}</p>;
+                }
+
+                return (
+                    <ol style={{ margin: 0, paddingLeft: '26px' }}>
+                        {items.map(item => (
+                            <li key={`${item.subjectName}-${item.source}`} style={{ padding: '7px 0', borderBottom: '1px solid #eee' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
+                                    <span><strong>{item.displaySource}</strong><span style={{ color: '#666', fontSize: '12px' }}>（{item.subjectName}）</span></span>
+                                    <strong style={{ whiteSpace: 'nowrap', color: '#c62828' }}>{item.count}回</strong>
+                                </div>
+                            </li>
+                        ))}
+                    </ol>
+                );
+            };
+
+            return (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '15px', marginBottom: '20px' }}>
+                    <div style={{ background: '#fff8e1', padding: '15px', borderRadius: '8px', border: '1px solid #ffcc80' }}>
+                        <h3 style={{ margin: '0 0 10px 0', color: '#e65100' }}>今回の復習項目 TOP5</h3>
+                        {renderItems(currentExamItems, '今回の試験で間違えた項目はありません。')}
+                    </div>
+                    <div style={{ background: '#fbe9e7', padding: '15px', borderRadius: '8px', border: '1px solid #ffab91' }}>
+                        <h3 style={{ margin: '0 0 10px 0', color: '#bf360c' }}>通算の苦手領域 TOP5</h3>
+                        {renderItems(weakAreas, 'これまでの試験で間違えた項目はありません。')}
+                    </div>
+                </div>
+            );
         }
 
         // 解答を文字列に変換（配列の場合はカンマ区切り）
@@ -3120,6 +3211,9 @@
             const weakAreas = !user.isTeacher && user.studentId && allExams && allExams.length > 0 
                 ? calculateWeakAreas(allExams, user.studentId) 
                 : null;
+            const teacherReviewSummary = user.isTeacher && result && allExams && allExams.length > 0
+                ? <TeacherReviewSummary currentExam={currentExam} allExams={allExams} studentId={selectedStudentId} sourceMapping={sourceMapping} />
+                : null;
             const aiGuidance = !user.isTeacher && user.studentId && allExams && allExams.length > 0
                 ? buildStudentAiGuidance(allExams, currentExam, user.studentId, sourceMapping)
                 : null;
@@ -3339,6 +3433,7 @@
                                 <p style={{ margin: '5px 0' }}><strong>受験番号:</strong> {result.studentId}</p>
                                 <p style={{ margin: '5px 0' }}><strong>氏名:</strong> {result.studentName}</p>
                             </div>
+                            {teacherReviewSummary}
                             <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
                                 <h3 style={{ margin: '0 0 10px 0' }}>総合成績</h3>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' }}>
