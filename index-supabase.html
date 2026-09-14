@@ -1721,6 +1721,7 @@
                     const emailPatterns = [
                         `${encodeURIComponent(normalizedId)}@mogisiken.local`, // 入力されたID形式
                         `${normalizedId}@mogisiken.local`, // エンコードなし
+                        `${encodeURIComponent(normalizedId.replace(/^.*_/, ''))}@mogisiken.local`, // 旧形式（学籍番号のみ）
                     ];
                     
                     console.log('=== ログイン試行開始 ===');
@@ -1761,8 +1762,8 @@
                         console.error('\n【対応手順】');
                         console.error('1. Supabase管理画面で以下のメールアドレスが登録されているか確認:');
                         attemptResults.forEach(r => console.error(`   - ${r.email}`));
-                        console.error('2. 登録されていない場合は、Auth > Users で手動作成してください');
-                        console.error('3. または、Supabase Edge Functions で一括作成してください');
+                        console.error('2. CSV登録時に出力された「学生ログイン情報.csv」のパスワードを使用してください');
+                        console.error('3. SupabaseのAuth > Usersで、上記メールアドレスが存在するか確認してください');
                         
                         throw lastError || new Error('認証情報を確認できませんでした');
                     }
