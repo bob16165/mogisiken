@@ -2150,11 +2150,12 @@
 
             const subjectProfiles = {};
             priorities.forEach(priority => {
-                const sourcesText = priority.midBandDominantSources.length > 0
-                    ? priority.midBandDominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
-                    : (priority.dominantSources.length > 0
-                        ? priority.dominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
-                        : '関連出典データなし');
+                const sources = priority.midBandDominantSources.length > 0
+                    ? priority.midBandDominantSources
+                    : priority.dominantSources;
+                const sourcesText = sources.length > 0
+                    ? sources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
+                    : '関連出典データなし';
 
                 subjectProfiles[priority.subjectName] = {
                     subjectName: priority.subjectName,
@@ -2164,7 +2165,8 @@
                     recentWrongCount: priority.recentWrongCount,
                     highCorrectRateMisses: priority.highCorrectRateMisses,
                     midCorrectRateMisses: priority.midCorrectRateMisses,
-                    sourceText: sourcesText
+                    sourceText: sourcesText,
+                    sources
                 };
             });
 
@@ -2372,6 +2374,36 @@
             }
 
             if (normalized.includes('計画') || normalized.includes('スケジュール') || normalized.includes('何日')) {
+                const isExclusiveOnly = (normalized.includes('だけ') || normalized.includes('のみ')) && selectedSubjects.length > 0;
+
+                if (isExclusiveOnly) {
+                    const targetSubjects = selectedSubjects;
+                    const dayTask = (subject, dayIndex, sources) => {
+                        const theme = sources.length > 0
+                            ? sources[dayIndex % sources.length].displaySource
+                            : (guidance?.subjectProfiles?.[subject]?.sourceText || '弱点領域');
+                        return `${subject}の問題演習30問（${theme}）`;
+                    };
+
+                    const reasonLines = targetSubjects.map(subject => {
+                        const profile = guidance?.subjectProfiles?.[subject];
+                        if (!profile) return `${subject}: 分析データが不足しています。`;
+                        const missText = profile.highCorrectRateMisses > 0
+                            ? `うち正答率70%以上の取りこぼしが${profile.highCorrectRateMisses}問`
+                            : '';
+                        return `${subject}: 直近正答率${profile.latestScoreRate}%、誤答${profile.wrongCount}問${missText ? `（${missText}）` : ''}。誤答が集中する出典は ${profile.sourceText} のため重点演習します。`;
+                    });
+
+                    const lines = [];
+                    for (let day = 0; day < 7; day++) {
+                        const subject = targetSubjects[day % targetSubjects.length];
+                        const sources = guidance?.subjectProfiles?.[subject]?.sources || [];
+                        lines.push(`${day + 1}日目: ${dayTask(subject, day, sources)}`);
+                    }
+
+                    return `${targetSubjects.join('・')}だけに絞った7日プランです。\n\n【根拠】\n${reasonLines.join('\n')}\n\n【プラン】\n${lines.join('\n')}`;
+                }
+
                 const priorityQueue = [];
                 selectedSubjects.forEach(subject => {
                     if (!priorityQueue.includes(subject)) priorityQueue.push(subject);
@@ -2391,7 +2423,12 @@
                 const fourthTheme = guidance?.subjectProfiles?.[fourth]?.sourceText || plans.find(p => p.subjectName === fourth)?.sourceText || '集中領域';
                 const fifthTheme = guidance?.subjectProfiles?.[fifth]?.sourceText || plans.find(p => p.subjectName === fifth)?.sourceText || '集中領域';
 
-                return `7日プランの例です。\n1日目: ${first}（集中領域: ${firstTheme}）\n2日目: ${second}（集中領域: ${secondTheme}）\n3日目: ${third}（集中領域: ${thirdTheme}）\n4日目: ${fourth}（集中領域: ${fourthTheme}）\n5日目: ${fifth}（集中領域: ${fifthTheme}）\n6日目: ${first} の高正答率の取りこぼしを再確認\n7日目: 優先5科目のミニテストと解き直し。`;
+                const reasonLines = [first, second, third, fourth, fifth].map(subject => {
+                    const plan = plans.find(p => p.subjectName === subject);
+                    return plan ? `${subject}: ${plan.focusText}` : `${subject}: ご指定の科目のため優先に組み込みました。`;
+                });
+
+                return `7日プランの例です。\n\n【根拠】\n${reasonLines.join('\n')}\n\n【プラン】\n1日目: ${first}（集中領域: ${firstTheme}）\n2日目: ${second}（集中領域: ${secondTheme}）\n3日目: ${third}（集中領域: ${thirdTheme}）\n4日目: ${fourth}（集中領域: ${fourthTheme}）\n5日目: ${fifth}（集中領域: ${fifthTheme}）\n6日目: ${first} の高正答率の取りこぼしを再確認\n7日目: 優先5科目のミニテストと解き直し。`;
             }
 
             if (normalized.includes('過去問') || normalized.includes('問題') || normalized.includes('出典')) {
@@ -2925,12 +2962,6 @@
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                    e.preventDefault();
-                                    sendMessage(input);
-                                }
-                            }}
                             placeholder="例: 今週の学習計画を作って"
                             style={{
                                 flex: 1,
