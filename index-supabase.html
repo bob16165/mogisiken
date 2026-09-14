@@ -1723,34 +1723,51 @@
                         `${normalizedId}@mogisiken.local`, // エンコードなし
                     ];
                     
-                    console.log('ログイン試行:', { normalizedId, emailPatterns });
+                    console.log('=== ログイン試行開始 ===');
+                    console.log('入力ID:', studentId);
+                    console.log('正規化ID:', normalizedId);
+                    console.log('試行メールアドレス:');
+                    emailPatterns.forEach((email, idx) => console.log(`  ${idx + 1}. ${email}`));
                     
                     let authData = null;
                     let lastError = null;
-                    let triedEmails = [];
+                    let attemptResults = [];
                     
                     // 複数のパターンを試す
                     for (const email of emailPatterns) {
-                        console.log(`試行中: ${email}`);
-                        triedEmails.push(email);
+                        console.log(`\n[${email}] 認証試行中...`);
                         const { data, error } = await supabase.auth.signInWithPassword({
                             email,
                             password
                         });
+                        
                         if (!error && data.user) {
                             authData = data;
-                            console.log('認証成功:', email);
+                            console.log(`✅ [${email}] 認証成功`);
+                            attemptResults.push({ email, success: true });
                             break;
                         }
-                        console.log(`認証失敗 (${email}):`, error?.message);
+                        
+                        const errorMsg = error?.message || 'Unknown error';
+                        console.log(`❌ [${email}] 認証失敗:`, errorMsg);
+                        attemptResults.push({ email, success: false, error: errorMsg });
                         lastError = error;
                     }
 
                     if (!authData || !authData.user) {
-                        const errorDetails = lastError?.message || '認証情報を確認できませんでした';
-                        console.error('ログイン失敗 詳細:', { triedEmails, errorDetails, lastError });
+                        console.error('\n=== ログイン失敗 ===');
+                        console.error('試行結果:', attemptResults);
+                        console.error('最終エラー:', lastError?.message);
+                        console.error('\n【対応手順】');
+                        console.error('1. Supabase管理画面で以下のメールアドレスが登録されているか確認:');
+                        attemptResults.forEach(r => console.error(`   - ${r.email}`));
+                        console.error('2. 登録されていない場合は、Auth > Users で手動作成してください');
+                        console.error('3. または、Supabase Edge Functions で一括作成してください');
+                        
                         throw lastError || new Error('認証情報を確認できませんでした');
                     }
+                    
+                    console.log('✅ 認証成功。プロフィール取得中...');
 
                     const { data: profile, error: profileError } = await supabase
                         .from('app_users')
