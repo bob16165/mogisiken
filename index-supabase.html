@@ -1723,23 +1723,32 @@
                         `${normalizedId}@mogisiken.local`, // エンコードなし
                     ];
                     
+                    console.log('ログイン試行:', { normalizedId, emailPatterns });
+                    
                     let authData = null;
                     let lastError = null;
+                    let triedEmails = [];
                     
                     // 複数のパターンを試す
                     for (const email of emailPatterns) {
+                        console.log(`試行中: ${email}`);
+                        triedEmails.push(email);
                         const { data, error } = await supabase.auth.signInWithPassword({
                             email,
                             password
                         });
                         if (!error && data.user) {
                             authData = data;
+                            console.log('認証成功:', email);
                             break;
                         }
+                        console.log(`認証失敗 (${email}):`, error?.message);
                         lastError = error;
                     }
 
                     if (!authData || !authData.user) {
+                        const errorDetails = lastError?.message || '認証情報を確認できませんでした';
+                        console.error('ログイン失敗 詳細:', { triedEmails, errorDetails, lastError });
                         throw lastError || new Error('認証情報を確認できませんでした');
                     }
 
@@ -1777,9 +1786,11 @@
                     if (errorMessage.includes('Failed to fetch')) {
                         setError('Supabaseに接続できません。右上の「Supabase接続設定」で実際のProject URLとanon keyを設定してください。');
                     } else if (errorMessage.includes('Invalid login credentials')) {
-                        setError('IDまたはパスワードが間違っています。割り振られたID（例：東_001）を入力してください。');
+                        setError(`ログインに失敗しました。以下を確認してください：\n1. IDが正確に入力されているか\n2. パスワードが正確に入力されているか\n3. Supabase Authにユーザーが登録されているか\n\n開発者ツール（F12）のコンソールで詳細を確認できます。`);
+                    } else if (errorMessage.includes('利用者プロフィール')) {
+                        setError(errorMessage);
                     } else {
-                        setError(errorMessage || 'IDまたはパスワードが間違っています');
+                        setError(errorMessage || 'ログインに失敗しました。IDまたはパスワードを確認してください。');
                     }
                 } finally {
                     setIsLoading(false);
