@@ -3133,8 +3133,8 @@
             const [downloadMode, setDownloadMode] = useState('list');
             const [taskSyncToken, setTaskSyncToken] = useState(0);
             
-            // 正答データは学生レスポンスに含めないため、学生画面では常に非表示
-            const hideCorrectAnswer = !user.isTeacher;
+            // 正答は卒業判定試験(hide_correct_answer)の場合のみ非表示。それ以外の試験は学生にも正答を表示する
+            const hideCorrectAnswer = !user.isTeacher && !!currentExam?.hideCorrectAnswer;
             
             // 学生用の場合も、試験が切り替わったらallResultsから最新データを取得
             const result = user.isTeacher

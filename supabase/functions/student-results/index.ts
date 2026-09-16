@@ -217,7 +217,8 @@ Deno.serve(async (request) => {
       const visibleRows = operator.role === 'student'
         ? allRows.filter((row) => row.school_id === operator.school_id && row.student_id === operator.student_id)
         : allRows;
-      const exposeAnswers = operator.role !== 'student';
+      // 正答を隠すのは卒業判定試験(hide_correct_answer)だけ。通常試験は学生にも正答を返す
+      const exposeAnswers = operator.role !== 'student' || !exam.hide_correct_answer;
       const questionStats = buildQuestionStats(allRows);
       return {
         id: exam.id,
