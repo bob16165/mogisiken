@@ -3721,6 +3721,7 @@
             // Authセッション確認後、RLSが適用された状態でデータを読み込む
             useEffect(() => {
                 let isMounted = true;
+                let loadStage = '初期化';
 
                 async function loadData() {
                     if (!loggedInUser || isPasswordRecovery) {
