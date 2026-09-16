@@ -1,16 +1,58 @@
 # 模擬試験結果閲覧システム 使用マニュアル
 
+## 公開範囲と本番セキュリティ境界
+
+OSS の利用ライセンスと、Edge Function への秘密処理の移行状況は [OSS-LICENSES.md](OSS-LICENSES.md) にまとめています。
+バックアップと障害時の復旧手順は [BACKUP-RECOVERY.md](BACKUP-RECOVERY.md) にまとめています。
+
+このリポジトリは GitHub Public のまま運用できます。ただし、GitHub Pages に公開するのはログイン画面と UI だけにし、認証後のデータ取得・認可・判定処理は Supabase 側で実行します。
+
+```text
+【Public: GitHub / GitHub Pages】
+   ログイン画面・UI
+          ↓ Supabase Auth のセッション
+【Private: Supabase】
+   RLS / Edge Functions / 判定ロジック / AI API / Secrets
+```
+
+### 公開してよいもの
+
+- React の画面コード、静的アセット、Supabase Project URL
+- Supabase の `anon` キー（これは公開キー。ただし RLS が正しく有効であることが前提）
+- RLS と Edge Function のレビュー用ソースコード（秘密値を含めないもの）
+
+### 公開してはいけないもの
+
+- `service_role` キー、OpenAI など外部サービスの API キー、JWT の署名秘密鍵
+- `.env`、Supabase の Secret、管理者アクセストークン、バックアップ
+- 本番の初期パスワード、平文パスワード、個人情報を含む CSV やログ
+- 認証・認可をブラウザだけで完結させるコード
+
+`anon` キーは秘密情報ではありませんが、キーを知っている利用者からのアクセスを RLS が拒否できることが必須です。画面側の配列フィルタや URL 非表示は認可ではありません。
+
+### 本番リリース前の必須確認
+
+1. 新規 DB では [supabase-schema.sql](supabase-schema.sql) を一度だけ適用する。既存 DB では [supabase-security-hardening.sql](supabase-security-hardening.sql) などの移行 SQL だけを適用し、全業務テーブルで RLS と `FORCE ROW LEVEL SECURITY` が有効であることを確認する
+2. 未認証の匿名クライアントから、学校・ユーザー・試験・成績・チャット・課題の読み書きができないことを確認する
+3. 学生は自分の学校・自分の成績だけ、教員は所属校だけ、管理者は運用上必要な範囲だけを取得できることを確認する
+4. `service_role`、AI API キー、Auth 管理 API は Edge Function または Supabase Dashboard の Secrets にだけ設定する
+5. GitHub Pages の公開ファイルにパスワード、API キー、CSV、管理用 URL が混入していないことを確認する
+
+本番のデータ登録・Auth ユーザー作成・AI 呼び出しは Edge Function から行います。ブラウザに `service_role` キーを渡したり、業務テーブルでパスワードを照合したりしてはいけません。
+
 ## 商品化デモ（新しい認証・認可モデル）
 
 `product-demo.html` をブラウザで開くと、学生A・学生B・教員のデータ可視範囲を切り替えて確認できます。学生は本人のデータだけ、教員は所属校のデータだけが許可される想定です。
 
-商品化環境では、次の順でSupabaseを構築します。
+新規の Supabase プロジェクトでは、次の順で構築します。
 
 1. `supabase-schema.sql` を適用する
 2. Supabase Authでユーザーを作成する（このSQLに初期パスワードや初期アカウントはありません）
 3. 管理者権限を持つ運用用処理から、AuthユーザーのUUIDを `app_users` に登録する
 4. `schools` を作成し、教員・学生に `school_id` と必要な `student_id` を紐付ける
 5. `supabase-chat-task-patch.sql` が必要な場合だけ追加適用する
+
+すでに `schools` などのテーブルが存在する本番 DB に `supabase-schema.sql` を再実行すると、`ERROR: 42P07: relation "schools" already exists` が発生します。その場合は初回構築 SQL を再実行せず、今回の RLS 強化だけなら [supabase-security-hardening.sql](supabase-security-hardening.sql) を SQL Editor で実行してください。
 
 問題番号と科目の対応を試験ごと・学校ごとに変更する場合は、`supabase-question-layout.sql` を追加適用してください。CSVアップロード画面の「問題範囲マスター」で、前半/後半、開始番号、終了番号、科目を設定して試験を登録できます。既存試験は従来の固定範囲を初期値として扱います。
 
@@ -25,6 +67,15 @@ Table Editorでは学校が見えるのにアプリで「学校未登録」と�
 学生がログインできない場合、Authユーザーと学生マスターを学籍番号で一括紐付けする `supabase-link-students.sql` を実行してください。Authメールは `学籍番号@mogisiken.local` の形式で作成しておく必要があります。
 
 学生CSVからAuthアカウントを一括作成するには、Supabase CLIで `supabase/functions/import-student-master` をデプロイしてください。プロジェクトにリンクした後、`supabase functions deploy import-student-master` を実行します。CSV登録時に6文字以上のパスワードを指定した場合はそれを使用し、省略した場合は自動生成した6桁を `学生ログイン情報.csv` としてダウンロードします。Edge Functionが未デプロイの場合、学生マスター登録は失敗します。
+
+試験の採点・保存と学生向け結果の生成には、次の Edge Function もデプロイしてください。
+
+```sh
+supabase functions deploy import-exam
+supabase functions deploy student-results
+```
+
+学生・教員・別学校のアクセス拒否テストは、テスト用アカウントの環境変数を設定したうえで `npm run test:security` を実行します。バックアップ取得とテスト用 DB への復元確認は、`DATABASE_URL` と `BACKUP_RESTORE_DATABASE_URL` を設定して `npm run test:backup-restore` を実行します。
 
 旧 `student_master` に `password` のNOT NULL制約が残っている場合、または学校名付きログインIDの `app_users.login_id` 列が未作成の場合は、`supabase-student-password-migration.sql` を実行してください。パスワードは平文で学生マスターへ保存せず、Supabase Authで管理します。
 
@@ -301,14 +352,17 @@ Excelで以下の形式で作成し、CSV形式で保存：
 - A. 通常の使用では十分な容量です
 
 **Q. データのバックアップは？**
-- A. Supabaseが自動バックアップ
-- A. CSVファイルを保管しておけば再アップロード可能
+- A. Supabaseの契約プランに含まれるバックアップ機能を確認し、必要に応じてPITRを有効化してください
+- A. 本番DBは定期的に論理バックアップを取得し、別の安全な場所へ暗号化して保管してください
+- A. バックアップは取得するだけでなく、定期的にテスト環境へ復元してください
+- A. 詳細は [BACKUP-RECOVERY.md](BACKUP-RECOVERY.md) を参照してください
 
 ---
 
 # 🔐 セキュリティについて
 
-- パスワードはSHA-256でハッシュ化されて保存されます
+- パスワードはSupabase Authで管理し、業務テーブルへ平文保存しません
+- `service_role` キーと外部APIキーはEdge FunctionまたはSupabase Secretsで管理します
 - 教員アカウントは管理者が管理してください
 - URLは関係者のみに共有してください
 

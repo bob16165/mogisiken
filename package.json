@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:security": "node scripts/security-access-test.mjs",
+    "test:backup-restore": "sh scripts/run-backup-restore-test.sh"
   },
   "dependencies": {
     "react": "^18.2.0",

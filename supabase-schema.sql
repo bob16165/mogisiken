@@ -128,9 +128,9 @@ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
   SELECT EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role IN ('teacher', 'admin') AND (role = 'admin' OR school_id = target_school));
 $$;
 
-CREATE OR REPLACE FUNCTION public.is_student_owner(target_student_id TEXT)
+CREATE OR REPLACE FUNCTION public.is_student_owner(target_school UUID, target_student_id TEXT)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role = 'student' AND student_id = target_student_id);
+  SELECT EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role = 'student' AND school_id = target_school AND student_id = target_student_id);
 $$;
 
 ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
@@ -142,26 +142,48 @@ ALTER TABLE source_mapping ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_chat_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_study_tasks ENABLE ROW LEVEL SECURITY;
 
+-- テーブル所有者や誤った接続経路によるRLSバイパスも防ぐ。本番DBではRLSを強制する。
+ALTER TABLE schools FORCE ROW LEVEL SECURITY;
+ALTER TABLE app_users FORCE ROW LEVEL SECURITY;
+ALTER TABLE student_master FORCE ROW LEVEL SECURITY;
+ALTER TABLE exams FORCE ROW LEVEL SECURITY;
+ALTER TABLE student_exam_results FORCE ROW LEVEL SECURITY;
+ALTER TABLE source_mapping FORCE ROW LEVEL SECURITY;
+ALTER TABLE student_chat_messages FORCE ROW LEVEL SECURITY;
+ALTER TABLE student_study_tasks FORCE ROW LEVEL SECURITY;
+
+-- anonロールから業務テーブルへ直接到達できないようにする。
+REVOKE ALL ON TABLE schools, app_users, student_master, exams, student_exam_results,
+  source_mapping, student_chat_messages, student_study_tasks FROM anon;
+
 CREATE POLICY schools_read_member ON schools FOR SELECT TO authenticated USING (public.is_teacher_of(id) OR EXISTS (SELECT 1 FROM app_users u WHERE u.id = auth.uid() AND u.school_id = id));
 CREATE POLICY app_users_self_or_school_teacher ON app_users FOR SELECT TO authenticated USING (id = auth.uid() OR public.is_teacher_of(school_id));
 CREATE POLICY app_users_admin_write ON app_users FOR ALL TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
-CREATE POLICY student_master_read ON student_master FOR SELECT TO authenticated USING (public.is_student_owner(student_id) OR public.is_teacher_of(school_id));
+CREATE POLICY student_master_read ON student_master FOR SELECT TO authenticated USING (public.is_student_owner(school_id, student_id) OR public.is_teacher_of(school_id));
 CREATE POLICY student_master_teacher_write ON student_master FOR INSERT TO authenticated WITH CHECK (public.is_teacher_of(school_id));
 CREATE POLICY student_master_teacher_update ON student_master FOR UPDATE TO authenticated USING (public.is_teacher_of(school_id)) WITH CHECK (public.is_teacher_of(school_id));
 CREATE POLICY student_master_teacher_delete ON student_master FOR DELETE TO authenticated USING (public.is_teacher_of(school_id));
 CREATE POLICY exams_read ON exams FOR SELECT TO authenticated USING (public.is_teacher_of(school_id) OR (is_published AND EXISTS (SELECT 1 FROM app_users u WHERE u.id = auth.uid() AND u.role = 'student' AND u.school_id = exams.school_id)));
 CREATE POLICY exams_teacher_write ON exams FOR ALL TO authenticated USING (public.is_teacher_of(school_id)) WITH CHECK (public.is_teacher_of(school_id) AND created_by = auth.uid());
-CREATE POLICY results_read ON student_exam_results FOR SELECT TO authenticated USING (public.is_student_owner(student_id) OR public.is_teacher_of(school_id));
+CREATE POLICY results_read ON student_exam_results FOR SELECT TO authenticated USING (public.is_student_owner(school_id, student_id) OR public.is_teacher_of(school_id));
 CREATE POLICY results_teacher_write ON student_exam_results FOR ALL TO authenticated USING (public.is_teacher_of(school_id)) WITH CHECK (public.is_teacher_of(school_id));
 CREATE POLICY source_mapping_read ON source_mapping FOR SELECT TO authenticated USING (school_id IS NULL OR public.is_teacher_of(school_id) OR EXISTS (SELECT 1 FROM app_users u WHERE u.id = auth.uid() AND u.school_id = source_mapping.school_id));
 CREATE POLICY source_mapping_admin_write ON source_mapping FOR ALL TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
-CREATE POLICY chat_owner_read ON student_chat_messages FOR SELECT TO authenticated USING (public.is_student_owner(student_id) OR public.is_teacher_of(school_id));
-CREATE POLICY chat_owner_insert ON student_chat_messages FOR INSERT TO authenticated WITH CHECK (public.is_student_owner(student_id) AND EXISTS (SELECT 1 FROM app_users u WHERE u.id = auth.uid() AND u.school_id = student_chat_messages.school_id));
-CREATE POLICY chat_owner_update ON student_chat_messages FOR UPDATE TO authenticated USING (public.is_student_owner(student_id)) WITH CHECK (public.is_student_owner(student_id));
-CREATE POLICY chat_owner_delete ON student_chat_messages FOR DELETE TO authenticated USING (public.is_student_owner(student_id) OR public.is_teacher_of(school_id));
-CREATE POLICY task_owner_read ON student_study_tasks FOR SELECT TO authenticated USING (public.is_student_owner(student_id) OR public.is_teacher_of(school_id));
-CREATE POLICY task_owner_insert ON student_study_tasks FOR INSERT TO authenticated WITH CHECK (public.is_student_owner(student_id) AND EXISTS (SELECT 1 FROM app_users u WHERE u.id = auth.uid() AND u.school_id = student_study_tasks.school_id));
-CREATE POLICY task_owner_update ON student_study_tasks FOR UPDATE TO authenticated USING (public.is_student_owner(student_id)) WITH CHECK (public.is_student_owner(student_id));
-CREATE POLICY task_owner_delete ON student_study_tasks FOR DELETE TO authenticated USING (public.is_student_owner(student_id) OR public.is_teacher_of(school_id));
+CREATE POLICY chat_owner_read ON student_chat_messages FOR SELECT TO authenticated USING (public.is_student_owner(school_id, student_id) OR public.is_teacher_of(school_id));
+CREATE POLICY chat_owner_user_insert ON student_chat_messages FOR INSERT TO authenticated WITH CHECK (role = 'user' AND public.is_student_owner(school_id, student_id));
+CREATE POLICY chat_owner_user_update ON student_chat_messages FOR UPDATE TO authenticated USING (role = 'user' AND public.is_student_owner(school_id, student_id)) WITH CHECK (role = 'user' AND public.is_student_owner(school_id, student_id));
+CREATE POLICY chat_owner_delete ON student_chat_messages FOR DELETE TO authenticated USING (public.is_student_owner(school_id, student_id) OR public.is_teacher_of(school_id));
+CREATE POLICY task_owner_read ON student_study_tasks FOR SELECT TO authenticated USING (public.is_student_owner(school_id, student_id) OR public.is_teacher_of(school_id));
+CREATE POLICY task_owner_insert ON student_study_tasks FOR INSERT TO authenticated WITH CHECK (public.is_student_owner(school_id, student_id));
+CREATE POLICY task_owner_update ON student_study_tasks FOR UPDATE TO authenticated USING (public.is_student_owner(school_id, student_id)) WITH CHECK (public.is_student_owner(school_id, student_id));
+CREATE POLICY task_owner_delete ON student_study_tasks FOR DELETE TO authenticated USING (public.is_student_owner(school_id, student_id) OR public.is_teacher_of(school_id));
+
+-- 認可判定用関数も匿名クライアントから直接実行できないようにする。
+REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.is_teacher_of(UUID) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.is_student_owner(UUID, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_teacher_of(UUID) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_student_owner(UUID, TEXT) TO authenticated, service_role;
 
 -- 初期アカウントはINSERTしない。Supabase Authでユーザーを作成後、app_usersへ管理者が紐付ける。

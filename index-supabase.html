@@ -4,10 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>模擬試験結果閲覧 (Supabase版)</title>
-    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.26.9/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <style>
@@ -184,6 +184,9 @@
 
         function generateExamResults(dataSource) {
             const studentScores = dataSource || rawStudentScores;
+            if (studentScores.length > 0 && studentScores.every(student => student.computed)) {
+                return studentScores.map(student => student.computed);
+            }
             const allRequiredScores = studentScores.map(s => s.required);
             const allSubjectScores = {};
             
@@ -2551,7 +2554,7 @@
             ];
         }
 
-        function WeeklyPlanTracker({ guidance, studentId, examId, syncToken }) {
+        function WeeklyPlanTracker({ guidance, studentId, schoolId, examId, syncToken }) {
             const TASK_TRACKER_SCHEMA_VERSION = 'v2';
             const storageKey = `mogisiken_weekly_tasks_${studentId}_${examId || 'no_exam'}`;
             const storageMetaKey = `${storageKey}_meta`;
@@ -2629,12 +2632,13 @@
                     localStorage.setItem(storageMetaKey, JSON.stringify({ guidanceSignature, schemaVersion: TASK_TRACKER_SCHEMA_VERSION }));
                     localStorage.setItem(initFlagKey, '1');
 
-                    if (!studentId || !examId || !remoteTasksEnabled) return;
+                    if (!studentId || !schoolId || !examId || !remoteTasksEnabled) return;
 
                     const { error: deleteError } = await supabase
                         .from('student_study_tasks')
                         .delete()
                         .eq('student_id', studentId)
+                        .eq('school_id', schoolId)
                         .eq('exam_id', examId);
 
                     if (deleteError) {
@@ -2647,6 +2651,7 @@
 
                     const payload = resetTasks.map(task => ({
                         student_id: studentId,
+                        school_id: schoolId,
                         exam_id: examId,
                         task_key: task.key,
                         day_label: task.day,
@@ -2659,15 +2664,16 @@
                 };
 
                 applyResetIfNeeded();
-            }, [guidanceSignature, generatedTasks, storageKey, storageMetaKey, initFlagKey, studentId, examId, remoteTasksEnabled]);
+            }, [guidanceSignature, generatedTasks, storageKey, storageMetaKey, initFlagKey, studentId, schoolId, examId, remoteTasksEnabled]);
 
             React.useEffect(() => {
                 const loadRemoteProgress = async () => {
-                    if (!studentId || !examId || !remoteTasksEnabled) return;
+                    if (!studentId || !schoolId || !examId || !remoteTasksEnabled) return;
                     const { data, error } = await supabase
                         .from('student_study_tasks')
                         .select('task_key, day_label, subject_name, task_text, is_done')
                         .eq('student_id', studentId)
+                        .eq('school_id', schoolId)
                         .eq('exam_id', examId);
                     if (error) {
                         if (isSupabaseTableMissingError(error)) {
@@ -2682,17 +2688,18 @@
                 };
 
                 loadRemoteProgress();
-            }, [studentId, examId, syncToken, remoteTasksEnabled]);
+            }, [studentId, schoolId, examId, syncToken, remoteTasksEnabled]);
 
             const completedCount = tasks.filter(t => t.done).length;
             const progressRate = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
 
             const updateRemoteTask = async (task, done) => {
-                if (!studentId || !examId || !remoteTasksEnabled) return;
+                if (!studentId || !schoolId || !examId || !remoteTasksEnabled) return;
                 const { error } = await supabase
                     .from('student_study_tasks')
                     .upsert({
                         student_id: studentId,
+                        school_id: schoolId,
                         exam_id: examId,
                         task_key: task.key,
                         day_label: task.day,
@@ -2767,7 +2774,7 @@
             );
         }
 
-        function StudyChatAssistant({ guidance, result, hideCorrectAnswer, studentId, examId, onTaskAdded }) {
+        function StudyChatAssistant({ guidance, result, hideCorrectAnswer, studentId, schoolId, examId, onTaskAdded }) {
             const initialText = guidance?.actionPlan?.[0]
                 ? `対話学習モードです。まずは ${guidance.actionPlan[0].subjectName} から着手するのが効果的です。`
                 : '対話学習モードです。質問を入力してください。';
@@ -2815,9 +2822,10 @@
             }, [studentId, chatStorageEnabled]);
 
             const persistMessage = async (role, text, provider) => {
-                if (!studentId || !text || !chatStorageEnabled) return;
+                if (role !== 'user' || !studentId || !schoolId || !text || !chatStorageEnabled) return;
                 const { error } = await supabase.from('student_chat_messages').insert({
                     student_id: studentId,
+                    school_id: schoolId,
                     exam_id: examId || null,
                     role,
                     content: text,
@@ -2831,11 +2839,12 @@
             };
 
             const persistTask = async (task) => {
-                if (!studentId || !examId || !task) return false;
+                if (!studentId || !schoolId || !examId || !task) return false;
                 const { error } = await supabase
                     .from('student_study_tasks')
                     .upsert({
                         student_id: studentId,
+                        school_id: schoolId,
                         exam_id: examId,
                         task_key: task.key,
                         day_label: task.day,
@@ -3124,13 +3133,30 @@
             const [downloadMode, setDownloadMode] = useState('list');
             const [taskSyncToken, setTaskSyncToken] = useState(0);
             
-            // 卒業判定試験の場合、学生には正答を非表示
-            const hideCorrectAnswer = !user.isTeacher && currentExam?.hideCorrectAnswer;
+            // 正答データは学生レスポンスに含めないため、学生画面では常に非表示
+            const hideCorrectAnswer = !user.isTeacher;
             
             // 学生用の場合も、試験が切り替わったらallResultsから最新データを取得
-            const result = user.isTeacher 
-                ? allResults.find(r => r.studentId === selectedStudentId) 
-                : allResults.find(r => r.studentId === user.studentId) || user;
+            const result = user.isTeacher
+                ? (allResults.find(r => r.studentId === selectedStudentId) || allResults[0])
+                : (allResults.find(r => r.studentId === user.studentId) || user);
+
+            // 公開切替や試験の絞り込みで選択中の学籍番号が消えた場合は先頭の学生へ戻す
+            useEffect(() => {
+                if (!user.isTeacher) return;
+                if (allResults.length === 0) return;
+                if (!allResults.some(r => r.studentId === selectedStudentId)) {
+                    setSelectedStudentId(allResults[0].studentId);
+                }
+            }, [allResults, selectedStudentId, user.isTeacher]);
+
+            if (!result) {
+                return (
+                    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666' }}>
+                        表示できる学生データがありません。
+                    </div>
+                );
+            }
             
             // 学生の場合のみ苦手領域を計算（全試験累積）
             const weakAreas = !user.isTeacher && user.studentId && allExams && allExams.length > 0 
@@ -3418,6 +3444,7 @@
                                     result={result}
                                     hideCorrectAnswer={hideCorrectAnswer}
                                     studentId={user.studentId}
+                                    schoolId={user.schoolId}
                                     examId={currentExam?.id || null}
                                     onTaskAdded={() => setTaskSyncToken(prev => prev + 1)}
                                 />
@@ -3427,6 +3454,7 @@
                                 <WeeklyPlanTracker
                                     guidance={aiGuidance}
                                     studentId={user.studentId}
+                                    schoolId={user.schoolId}
                                     examId={currentExam?.id || null}
                                     syncToken={taskSyncToken}
                                 />
@@ -3722,55 +3750,12 @@
                             setSelectedSchoolId(loggedInUser.schoolId || '');
                         }
 
-                        loadStage = '試験一覧';
-                        let examsQuery = supabase
-                            .from('exams')
-                            .select(`
-                                id,
-                                exam_name,
-                                hide_correct_answer,
-                                is_published,
-                                created_at,
-                                student_exam_results (
-                                    student_id,
-                                    student_name,
-                                    question_details,
-                                    required_score,
-                                    anatomy_score,
-                                    physiology_score,
-                                    kinesiology_score,
-                                    pathology_score,
-                                    hygiene_score,
-                                    rehabilitation_score,
-                                    general_clinical_score,
-                                    surgery_score,
-                                    orthopedics_score,
-                                    judo_therapy_score
-                                )
-                            `)
-                            .order('created_at', { ascending: true });
-
-                        let { data: examsData, error: examsError } = await examsQuery;
-                        if (!examsError) {
-                            const { data: schoolData, error: schoolColumnError } = await supabase
-                                .from('exams')
-                                .select('id, school_id');
-                            if (!schoolColumnError) {
-                                const schoolIds = Object.fromEntries((schoolData || []).map(item => [item.id, item.school_id]));
-                                examsData = (examsData || []).map(exam => ({ ...exam, school_id: schoolIds[exam.id] }));
-                            }
-                        }
-                        if (!examsError) {
-                            const { data: layoutData, error: layoutError } = await supabase
-                                .from('exams')
-                                .select('id, question_layout');
-                            if (!layoutError) {
-                                const layouts = Object.fromEntries((layoutData || []).map(item => [item.id, item.question_layout]));
-                                examsData = (examsData || []).map(exam => ({ ...exam, question_layout: layouts[exam.id] }));
-                            }
-                        }
-
-                        if (examsError) throw examsError;
+                        loadStage = '試験結果';
+                        const { data: resultsResponse, error: resultsError } = await supabase.functions.invoke('student-results', {
+                            body: { schoolId: loggedInUser.role === 'admin' ? null : loggedInUser.schoolId }
+                        });
+                        if (resultsError) throw resultsError;
+                        const examsData = resultsResponse?.exams || [];
 
                         // データ変換: Supabaseスキーマ → ローカル形式
                         const formattedExams = (examsData || []).map(exam => ({
@@ -3794,7 +3779,8 @@
                                 外科学: result.surgery_score,
                                 整形外科: result.orthopedics_score,
                                 柔整理論: result.judo_therapy_score,
-                                questionDetails: result.question_details || {}
+                                questionDetails: result.question_details || {},
+                                computed: result.computed
                             }))
                         }));
 
@@ -3894,52 +3880,26 @@
                         if (deleteError) throw deleteError;
                     }
                     
-                    // 試験データを保存
-                    const { data: examRecord, error: examError } = await supabase
-                        .from('exams')
-                        .insert([{
-                            school_id: targetSchoolId,
-                            created_by: loggedInUser.id,
-                            exam_name: examData.examName,
-                            question_layout: normalizeQuestionLayout(examData.questionLayout),
-                            hide_correct_answer: examData.hideCorrectAnswer || false,
-                            is_published: examData.isPublished ?? false
-                        }])
-                        .select()
-                        .single();
-
-                    if (examError) throw examError;
+                    // 問題回答からの採点と保存はEdge Function側で行う
+                    const { data: importResponse, error: importError } = await supabase.functions.invoke('import-exam', {
+                        body: {
+                            schoolId: targetSchoolId,
+                            examName: examData.examName,
+                            questionLayout: normalizeQuestionLayout(examData.questionLayout),
+                            hideCorrectAnswer: examData.hideCorrectAnswer || false,
+                            isPublished: examData.isPublished ?? false,
+                            students: examData.students.map(student => ({
+                                studentId: student.studentId,
+                                studentName: student.studentName,
+                                questionDetails: student.questionDetails
+                            }))
+                        }
+                    });
+                    if (importError) throw importError;
+                    if (importResponse?.error) throw new Error(importResponse.error);
+                    const examRecord = importResponse?.exam;
+                    if (!examRecord?.id) throw new Error('試験の保存結果が取得できませんでした');
                     createdExamId = examRecord.id;
-
-                    // 学生の結果を保存
-                    const resultRecords = examData.students.map(student => ({
-                        exam_id: examRecord.id,
-                        school_id: targetSchoolId,
-                        student_id: student.studentId,
-                        student_name: student.studentName,
-                        question_details: student.questionDetails,
-                        required_score: student.required || 0,
-                        anatomy_score: student.解剖学 || 0,
-                        physiology_score: student.生理学 || 0,
-                        kinesiology_score: student.運動学 || 0,
-                        pathology_score: student.病理学 || 0,
-                        hygiene_score: student.衛生学 || 0,
-                        rehabilitation_score: student.リハビリ医学 || 0,
-                        general_clinical_score: student.一般臨床 || 0,
-                        surgery_score: student.外科学 || 0,
-                        orthopedics_score: student.整形外科 || 0,
-                        judo_therapy_score: student.柔整理論 || 0
-                    }));
-
-                    const chunkSize = 100;
-                    for (let i = 0; i < resultRecords.length; i += chunkSize) {
-                        const chunk = resultRecords.slice(i, i + chunkSize);
-                        const { error: resultsError } = await supabase
-                            .from('student_exam_results')
-                            .insert(chunk);
-
-                        if (resultsError) throw resultsError;
-                    }
 
                     // ローカルステートを更新
                     let updatedExams;
