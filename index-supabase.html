@@ -558,7 +558,7 @@
                         <tbody>
                             {questions.map((q, index) => {
                                 const isCorrect = isAnswerCorrect(q.userAnswer, q.correctAnswer);
-                                const isHighCorrel = q.correlWithTotal !== null && q.correlWithTotal >= 0.4;
+                                const isHighCorrel = q.correlWithTotal != null && q.correlWithTotal >= 0.4;
                                 return (
                                     <tr key={index} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
                                         <td style={{ padding: '8px', textAlign: 'center', color: isHighCorrel ? '#dc2626' : 'inherit', fontWeight: isHighCorrel ? 'bold' : 'normal' }}>
@@ -595,7 +595,7 @@
                                         )}
                                         {!hideCorrectAnswer && (
                                             <td style={{ padding: '8px', textAlign: 'center', fontSize: '12px' }}>
-                                                {q.correlWithTotal !== null ? (
+                                                {q.correlWithTotal != null ? (
                                                     <span style={{ fontWeight: '600', color: isHighCorrel ? '#dc2626' : '#475569' }}>
                                                         {q.correlWithTotal.toFixed(3)}
                                                     </span>
@@ -2303,7 +2303,7 @@
                                             </thead>
                                             <tbody>
                                                 {guidance.recommendedQuestions.map((question, index) => {
-                                                    const qHighCorrel = question.correlWithTotal !== null && question.correlWithTotal >= 0.4;
+                                                    const qHighCorrel = question.correlWithTotal != null && question.correlWithTotal >= 0.4;
                                                     return (
                                                     <tr key={`${question.examName}-${question.subjectName}-${question.questionNumber}-${index}`} style={{
                                                         borderTop: '1px solid rgba(255,255,255,0.12)',
@@ -2319,7 +2319,7 @@
                                                             {question.correctRate ?? '-'}{question.correctRate !== null ? '%' : ''}
                                                         </td>
                                                         <td style={{ padding: '10px', textAlign: 'center' }}>
-                                                            {question.correlWithTotal !== null ? (
+                                                            {question.correlWithTotal != null ? (
                                                                 <span style={{ fontSize: '12px', fontWeight: '600', color: qHighCorrel ? '#fca5a5' : 'rgba(255,255,255,0.7)' }}>
                                                                     {question.correlWithTotal.toFixed(3)}
                                                                 </span>

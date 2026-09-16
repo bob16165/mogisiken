@@ -54,7 +54,72 @@ function sanitizeQuestion(question: Record<string, unknown>, exposeAnswers: bool
   return safeQuestion;
 }
 
-function buildComputed(row: Record<string, any>, allRows: Record<string, any>[], exposeAnswers: boolean) {
+function computePearsonCorrel(xArr: number[], yArr: number[]) {
+  const n = xArr.length;
+  if (n < 2 || n !== yArr.length) return null;
+  const xMean = xArr.reduce((sum, value) => sum + value, 0) / n;
+  const yMean = yArr.reduce((sum, value) => sum + value, 0) / n;
+  let num = 0, xVar = 0, yVar = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xArr[i] - xMean;
+    const dy = yArr[i] - yMean;
+    num += dx * dy;
+    xVar += dx * dx;
+    yVar += dy * dy;
+  }
+  if (xVar === 0 || yVar === 0) return null;
+  return Math.round((num / Math.sqrt(xVar * yVar)) * 1000) / 1000;
+}
+
+// 正答率・相関係数はクラス全体（allRows）に対する統計のため、試験単位で一度だけ計算する
+function buildQuestionStats(allRows: Record<string, any>[]) {
+  const allTotals = allRows.map((item) => Number(item.required_score || 0) + SUBJECTS.reduce((sum, [column]) => sum + Number(item[column] || 0), 0));
+  const correctRateMap: Record<string, Record<number, number>> = {};
+  const correlMap: Record<string, Record<number, number | null>> = {};
+
+  const subjectNames = new Set<string>();
+  allRows.forEach((row) => Object.keys(row.question_details || {}).forEach((subject) => subjectNames.add(subject)));
+
+  subjectNames.forEach((subject) => {
+    correctRateMap[subject] = {};
+    correlMap[subject] = {};
+    const questionNumbers = new Set<number>();
+    allRows.forEach((row) => {
+      (row.question_details?.[subject] || []).forEach((question: Record<string, unknown>) => {
+        questionNumbers.add(Number(question.questionNumber));
+      });
+    });
+
+    questionNumbers.forEach((questionNumber) => {
+      let correctCount = 0;
+      let totalCount = 0;
+      const pairs: { x: number; y: number }[] = [];
+
+      allRows.forEach((row, index) => {
+        const question = (row.question_details?.[subject] || []).find((q: Record<string, unknown>) => Number(q.questionNumber) === questionNumber);
+        if (!question) return;
+        totalCount += 1;
+        const correct = isCorrect(question.userAnswer, question.correctAnswer);
+        if (correct) correctCount += 1;
+        pairs.push({ x: correct ? 1 : 0, y: allTotals[index] });
+      });
+
+      correctRateMap[subject][questionNumber] = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
+      correlMap[subject][questionNumber] = pairs.length >= 2
+        ? computePearsonCorrel(pairs.map((p) => p.x), pairs.map((p) => p.y))
+        : null;
+    });
+  });
+
+  return { correctRateMap, correlMap };
+}
+
+function buildComputed(
+  row: Record<string, any>,
+  allRows: Record<string, any>[],
+  exposeAnswers: boolean,
+  questionStats: { correctRateMap: Record<string, Record<number, number>>; correlMap: Record<string, Record<number, number | null>> }
+) {
   const subjectScores = SUBJECTS.map(([column]) => Number(row[column] || 0));
   const allTotals = allRows.map((item) => Number(item.required_score || 0) + SUBJECTS.reduce((sum, [column]) => sum + Number(item[column] || 0), 0));
   const totalScore = Number(row.required_score || 0) + subjectScores.reduce((sum, value) => sum + value, 0);
@@ -64,7 +129,15 @@ function buildComputed(row: Record<string, any>, allRows: Record<string, any>[],
 
   Object.entries(source).forEach(([subject, questions]) => {
     if (!Array.isArray(questions)) return;
-    questionDetails[subject] = questions.map((question: Record<string, unknown>) => sanitizeQuestion(question, exposeAnswers));
+    questionDetails[subject] = questions.map((question: Record<string, unknown>) => {
+      const questionNumber = Number(question.questionNumber);
+      const enriched = {
+        ...question,
+        correctRate: questionStats.correctRateMap[subject]?.[questionNumber] ?? null,
+        correlWithTotal: questionStats.correlMap[subject]?.[questionNumber] ?? null
+      };
+      return sanitizeQuestion(enriched, exposeAnswers);
+    });
   });
 
   const result: Record<string, any> = {
@@ -144,6 +217,7 @@ Deno.serve(async (request) => {
         ? allRows.filter((row) => row.school_id === operator.school_id && row.student_id === operator.student_id)
         : allRows;
       const exposeAnswers = operator.role !== 'student';
+      const questionStats = buildQuestionStats(allRows);
       return {
         id: exam.id,
         school_id: exam.school_id,
@@ -158,7 +232,7 @@ Deno.serve(async (request) => {
             subject,
             Array.isArray(questions) ? questions.map((question) => sanitizeQuestion(question as Record<string, unknown>, exposeAnswers)) : []
           ])),
-          computed: buildComputed(row, allRows, exposeAnswers)
+          computed: buildComputed(row, allRows, exposeAnswers, questionStats)
         }))
       };
     });
