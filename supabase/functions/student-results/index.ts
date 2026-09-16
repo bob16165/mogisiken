@@ -72,10 +72,11 @@ function computePearsonCorrel(xArr: number[], yArr: number[]) {
 }
 
 // 正答率・相関係数はクラス全体（allRows）に対する統計のため、試験単位で一度だけ計算する
+// questionNumberはCSVの列名(例: "Q1")が文字列のまま入っているため、Number変換せず文字列キーで突き合わせる
 function buildQuestionStats(allRows: Record<string, any>[]) {
   const allTotals = allRows.map((item) => Number(item.required_score || 0) + SUBJECTS.reduce((sum, [column]) => sum + Number(item[column] || 0), 0));
-  const correctRateMap: Record<string, Record<number, number>> = {};
-  const correlMap: Record<string, Record<number, number | null>> = {};
+  const correctRateMap: Record<string, Record<string, number>> = {};
+  const correlMap: Record<string, Record<string, number | null>> = {};
 
   const subjectNames = new Set<string>();
   allRows.forEach((row) => Object.keys(row.question_details || {}).forEach((subject) => subjectNames.add(subject)));
@@ -83,10 +84,10 @@ function buildQuestionStats(allRows: Record<string, any>[]) {
   subjectNames.forEach((subject) => {
     correctRateMap[subject] = {};
     correlMap[subject] = {};
-    const questionNumbers = new Set<number>();
+    const questionNumbers = new Set<string>();
     allRows.forEach((row) => {
       (row.question_details?.[subject] || []).forEach((question: Record<string, unknown>) => {
-        questionNumbers.add(Number(question.questionNumber));
+        questionNumbers.add(String(question.questionNumber));
       });
     });
 
@@ -96,7 +97,7 @@ function buildQuestionStats(allRows: Record<string, any>[]) {
       const pairs: { x: number; y: number }[] = [];
 
       allRows.forEach((row, index) => {
-        const question = (row.question_details?.[subject] || []).find((q: Record<string, unknown>) => Number(q.questionNumber) === questionNumber);
+        const question = (row.question_details?.[subject] || []).find((q: Record<string, unknown>) => String(q.questionNumber) === questionNumber);
         if (!question) return;
         totalCount += 1;
         const correct = isCorrect(question.userAnswer, question.correctAnswer);
@@ -118,7 +119,7 @@ function buildComputed(
   row: Record<string, any>,
   allRows: Record<string, any>[],
   exposeAnswers: boolean,
-  questionStats: { correctRateMap: Record<string, Record<number, number>>; correlMap: Record<string, Record<number, number | null>> }
+  questionStats: { correctRateMap: Record<string, Record<string, number>>; correlMap: Record<string, Record<string, number | null>> }
 ) {
   const subjectScores = SUBJECTS.map(([column]) => Number(row[column] || 0));
   const allTotals = allRows.map((item) => Number(item.required_score || 0) + SUBJECTS.reduce((sum, [column]) => sum + Number(item[column] || 0), 0));
@@ -130,7 +131,7 @@ function buildComputed(
   Object.entries(source).forEach(([subject, questions]) => {
     if (!Array.isArray(questions)) return;
     questionDetails[subject] = questions.map((question: Record<string, unknown>) => {
-      const questionNumber = Number(question.questionNumber);
+      const questionNumber = String(question.questionNumber);
       const enriched = {
         ...question,
         correctRate: questionStats.correctRateMap[subject]?.[questionNumber] ?? null,
