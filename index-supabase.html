@@ -456,6 +456,45 @@
                 .slice(0, limit);
         }
 
+        function calculateHighRateWrongQuestions(allExams, studentId, sourceMapping) {
+            const questions = [];
+            const subjectCounts = {};
+
+            (allExams || []).forEach(exam => {
+                const examResults = generateExamResults(exam?.students || []);
+                const studentResult = examResults.find(result => result.studentId === studentId);
+                if (!studentResult) return;
+
+                Object.entries(studentResult.questionDetails || {}).forEach(([subjectName, subjectQuestions]) => {
+                    subjectQuestions.forEach(question => {
+                        if (isAnswerCorrect(question.userAnswer, question.correctAnswer)) return;
+                        if ((question.correctRate ?? 0) < 50) return;
+
+                        const source = question.source || '出典未設定';
+                        questions.push({
+                            examName: exam.examName,
+                            subjectName,
+                            questionNumber: question.questionNumber,
+                            correctRate: question.correctRate,
+                            source,
+                            displaySource: convertSourceToName(source, subjectName, sourceMapping),
+                            userAnswer: formatAnswer(question.userAnswer),
+                            correctAnswer: formatAnswer(question.correctAnswer)
+                        });
+                        subjectCounts[subjectName] = (subjectCounts[subjectName] || 0) + 1;
+                    });
+                });
+            });
+
+            return {
+                questions,
+                subjectTop5: Object.entries(subjectCounts)
+                    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                    .slice(0, 5)
+                    .map(([subjectName, count]) => ({ subjectName, count }))
+            };
+        }
+
         // 出典番号を項目名に変換する関数
         function convertSourceToName(source, subjectName, sourceMapping) {
             if (!sourceMapping || !source) return source;
@@ -476,6 +515,7 @@
         function TeacherReviewSummary({ currentExam, allExams, studentId, sourceMapping }) {
             const currentExamItems = calculateTopReviewItems(currentExam, studentId, sourceMapping);
             const weakAreas = calculateTopWeakAreas(allExams, studentId, sourceMapping);
+            const highRateWrong = calculateHighRateWrongQuestions(allExams, studentId, sourceMapping);
 
             const renderItems = (items, emptyMessage) => {
                 if (items.length === 0) {
@@ -505,6 +545,26 @@
                     <div style={{ background: '#fbe9e7', padding: '15px', borderRadius: '8px', border: '1px solid #ffab91' }}>
                         <h3 style={{ margin: '0 0 10px 0', color: '#bf360c' }}>通算の苦手領域 TOP5</h3>
                         {renderItems(weakAreas, 'これまでの試験で間違えた項目はありません。')}
+                    </div>
+                    <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', border: '1px solid #90caf9' }}>
+                        <h3 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>正答率50%以上の誤答 科目TOP5</h3>
+                        {highRateWrong.subjectTop5.length === 0 ? (
+                            <p style={{ margin: 0, color: '#666' }}>該当する誤答はありません。</p>
+                        ) : (
+                            <ol style={{ margin: 0, paddingLeft: '26px' }}>
+                                {highRateWrong.subjectTop5.map(item => (
+                                    <li key={item.subjectName} style={{ padding: '7px 0', borderBottom: '1px solid #bbdefb' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
+                                            <strong>{item.subjectName}</strong>
+                                            <strong style={{ whiteSpace: 'nowrap', color: '#1565c0' }}>{item.count}問</strong>
+                                        </div>
+                                    </li>
+                                ))}
+                            </ol>
+                        )}
+                        <p style={{ margin: '10px 0 0 0', fontSize: '12px', color: '#666' }}>
+                            各回の正答率50%以上で、選択中の学生が誤答した問題を全試験から集計
+                        </p>
                     </div>
                 </div>
             );
@@ -3081,6 +3141,58 @@
             );
         }
 
+        function HighRateWrongQuestions({ analysis, hideCorrectAnswer = false, title = '正答率50%以上で誤答した問題' }) {
+            const [isExpanded, setIsExpanded] = React.useState(true);
+            const questions = analysis?.questions || [];
+
+            return (
+                <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#e3f2fd', borderRadius: '4px', border: '1px solid #90caf9' }}>
+                    <div
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginBottom: isExpanded ? '15px' : '0' }}
+                    >
+                        <h3 style={{ margin: 0, color: '#1565c0', flex: 1 }}>{title}</h3>
+                        <span style={{ fontSize: '20px', color: '#1565c0' }}>{isExpanded ? '▼' : '▶'}</span>
+                    </div>
+
+                    {isExpanded && (
+                        questions.length === 0 ? (
+                            <p style={{ margin: 0, color: '#555' }}>該当する誤答はありません。</p>
+                        ) : (
+                            <div style={{ overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', fontSize: '13px' }}>
+                                    <thead>
+                                        <tr style={{ background: '#1976d2', color: 'white' }}>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>試験回</th>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>科目</th>
+                                            <th style={{ padding: '8px', textAlign: 'center' }}>問題番号</th>
+                                            <th style={{ padding: '8px', textAlign: 'left' }}>領域</th>
+                                            <th style={{ padding: '8px', textAlign: 'center' }}>正答率</th>
+                                            <th style={{ padding: '8px', textAlign: 'center' }}>本人の解答</th>
+                                            {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center' }}>正答</th>}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {questions.map((question, index) => (
+                                            <tr key={`${question.examName}-${question.subjectName}-${question.questionNumber}-${index}`} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
+                                                <td style={{ padding: '8px' }}>{question.examName}</td>
+                                                <td style={{ padding: '8px' }}>{question.subjectName}</td>
+                                                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{question.questionNumber}</td>
+                                                <td style={{ padding: '8px' }}>{question.displaySource}</td>
+                                                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#2e7d32' }}>{question.correctRate}%</td>
+                                                <td style={{ padding: '8px', textAlign: 'center', color: '#c62828', fontWeight: 'bold' }}>{question.userAnswer || '-'}</td>
+                                                {!hideCorrectAnswer && <td style={{ padding: '8px', textAlign: 'center' }}>{question.correctAnswer || '-'}</td>}
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        )
+                    )}
+                </div>
+            );
+        }
+
         // 結果表示コンポーネント
         function ExamResultView({ user, onLogout, onOpenUpload, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
             // 試験データが無い場合の処理
@@ -3161,6 +3273,9 @@
             // 学生の場合のみ苦手領域を計算（全試験累積）
             const weakAreas = !user.isTeacher && user.studentId && allExams && allExams.length > 0 
                 ? calculateWeakAreas(allExams, user.studentId) 
+                : null;
+            const highRateWrongAnalysis = allExams && allExams.length > 0
+                ? calculateHighRateWrongQuestions(allExams, user.isTeacher ? selectedStudentId : user.studentId, sourceMapping)
                 : null;
             const teacherReviewSummary = user.isTeacher && result && allExams && allExams.length > 0
                 ? <TeacherReviewSummary currentExam={currentExam} allExams={allExams} studentId={selectedStudentId} sourceMapping={sourceMapping} />
@@ -3385,6 +3500,13 @@
                                 <p style={{ margin: '5px 0' }}><strong>氏名:</strong> {result.studentName}</p>
                             </div>
                             {teacherReviewSummary}
+                            {highRateWrongAnalysis && (
+                                <HighRateWrongQuestions
+                                    analysis={highRateWrongAnalysis}
+                                    hideCorrectAnswer={hideCorrectAnswer}
+                                    title={user.isTeacher ? '正答率50%以上で誤答した問題一覧（選択中の学生）' : '正答率50%以上で誤答した問題一覧'}
+                                />
+                            )}
                             <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
                                 <h3 style={{ margin: '0 0 10px 0' }}>総合成績</h3>
                                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' }}>
