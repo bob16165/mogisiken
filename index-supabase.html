@@ -17,6 +17,102 @@
             -webkit-font-smoothing: antialiased;
             background: #fafafa;
         }
+
+        @media (max-width: 600px) {
+            .login-screen {
+                min-height: 100dvh !important;
+                padding: 72px 16px 24px;
+            }
+
+            .login-card {
+                padding: 28px 20px !important;
+                border-radius: 10px !important;
+            }
+
+            .login-title {
+                margin-bottom: 24px !important;
+                font-size: 21px !important;
+                line-height: 1.45;
+            }
+
+            .login-config-actions {
+                top: 12px !important;
+                right: 12px !important;
+            }
+
+            .login-config-actions button {
+                padding: 8px 12px !important;
+                font-size: 12px !important;
+            }
+        }
+
+        @media (max-width: 600px) and (orientation: portrait) {
+            .result-header {
+                padding: 14px 12px !important;
+            }
+
+            .result-header-top {
+                align-items: flex-start !important;
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .result-header-title {
+                font-size: 20px !important;
+                line-height: 1.4;
+            }
+
+            .result-header-actions {
+                width: 100%;
+                flex-wrap: wrap;
+                gap: 8px !important;
+            }
+
+            .result-header-actions > select,
+            .result-header-actions button {
+                flex: 1 1 140px;
+                min-height: 42px;
+            }
+
+            .result-header-actions > div {
+                flex: 1 1 100%;
+            }
+
+            .result-header-actions > div button {
+                width: 100%;
+            }
+
+            .result-content {
+                padding: 12px !important;
+            }
+
+            .result-content > h2 {
+                font-size: 22px !important;
+                margin-bottom: 14px !important;
+            }
+
+            .result-content > div {
+                margin-bottom: 14px !important;
+            }
+
+            .result-summary-grid,
+            .result-stat-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 10px !important;
+            }
+
+            .result-summary-grid > div,
+            .result-stat-grid > div {
+                line-height: 1.5;
+            }
+
+            .result-content table {
+                display: block;
+                overflow-x: auto;
+                white-space: nowrap;
+                -webkit-overflow-scrolling: touch;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1902,9 +1998,9 @@
             };
 
             return (
-                <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
-                    <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)', width: '100%', maxWidth: '400px' }}>
-                        <h1 style={{ textAlign: 'center', marginBottom: '30px', color: '#333', fontSize: '24px' }}>模擬試験結果閲覧システム</h1>
+                <div className="login-screen" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+                    <div className="login-card" style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)', width: '100%', maxWidth: '400px' }}>
+                        <h1 className="login-title" style={{ textAlign: 'center', marginBottom: '30px', color: '#333', fontSize: '24px' }}>模擬試験結果閲覧システム</h1>
                         <form onSubmit={handleSubmit}>
                             <div style={{ marginBottom: '20px' }}>
                                 <label style={{ display: 'block', marginBottom: '8px', color: '#555', fontWeight: '500' }}>ログインID（割り振られたID）</label>
@@ -3392,15 +3488,15 @@
 
             return (
                 <div style={{ minHeight: '100vh', background: '#fafafa' }}>
-                    <div style={{ background: '#1976d2', color: 'white', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                    <div className="result-header" style={{ background: '#1976d2', color: 'white', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
                         <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: user.isTeacher ? '15px' : '0' }}>
+                            <div className="result-header-top" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: user.isTeacher ? '15px' : '0' }}>
                                 <div>
-                                    <h1 style={{ margin: 0 }}>模擬試験結果閲覧システム</h1>
+                                    <h1 className="result-header-title" style={{ margin: 0 }}>模擬試験結果閲覧システム</h1>
                                     {user.isTeacher && <p style={{ margin: '5px 0 0 0', fontSize: '14px', opacity: 0.9 }}>教員モード: {user.name}</p>}
                                     {currentExam && <p style={{ margin: '5px 0 0 0', fontSize: '14px', opacity: 0.9 }}>📋 {currentExam.examName}</p>}
                                 </div>
-                                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <div className="result-header-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                                     {user.role === 'admin' && (
                                         <select value={selectedSchoolId || ''} onChange={(e) => onSchoolChange(e.target.value)}
                                             style={{ padding: '10px 15px', fontSize: '14px', borderRadius: '6px', border: 'none', fontWeight: '600' }}>
@@ -3562,7 +3658,7 @@
                             <AllStudentsView allResults={allResults} onSelectStudent={handleSelectStudent} />
                         </div>
                     ) : (
-                        <div id="detail-print-area" style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+                        <div id="detail-print-area" className="result-content" style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
                             <h2 style={{ textAlign: 'center', color: '#333', marginBottom: '20px' }}>試験結果</h2>
                             <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
                                 <h3 style={{ margin: '0 0 10px 0' }}>学生情報</h3>
@@ -3579,7 +3675,7 @@
                             )}
                             <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
                                 <h3 style={{ margin: '0 0 10px 0' }}>総合成績</h3>
-                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' }}>
+                                <div className="result-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' }}>
                                     <div><strong>総合点:</strong> {result.totalScore}/{result.totalMaxScore}</div>
                                     <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>
                                     <div><strong>一般合計:</strong> {result.generalScore}/{result.generalMaxScore}</div>
@@ -3598,7 +3694,7 @@
                                             stdDeviation={result.totalStats.scoreRateStdDev} 
                                             label="" 
                                         />
-                                        <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', fontSize: '13px' }}>
+                                        <div className="result-stat-grid" style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', fontSize: '13px' }}>
                                             <div><strong>得点率:</strong> {result.totalStats.scoreRate}%</div>
                                             <div><strong>順位:</strong> {result.totalStats.rank}位</div>
                                             <div><strong>偏差値:</strong> {result.totalStats.deviation}</div>
@@ -3616,7 +3712,7 @@
                                             stdDeviation={result.fourSubjectsStats.scoreRateStdDev} 
                                             label="" 
                                         />
-                                        <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', fontSize: '13px' }}>
+                                        <div className="result-stat-grid" style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', fontSize: '13px' }}>
                                             <div><strong>得点率:</strong> {result.fourSubjectsStats.scoreRate}%</div>
                                             <div><strong>順位:</strong> {result.fourSubjectsStats.rank}位</div>
                                             <div><strong>偏差値:</strong> {result.fourSubjectsStats.deviation}</div>
@@ -4352,7 +4448,7 @@
             if (!loggedInUser) {
                 return (
                     <div>
-                        <div style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000, display: 'flex', gap: '10px' }}>
+                        <div className="login-config-actions" style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000, display: 'flex', gap: '10px' }}>
                             <button onClick={handleSupabaseConfigClick} style={{
                                 padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                 background: '#1565c0', color: 'white', border: 'none',
