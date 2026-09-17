@@ -3440,6 +3440,18 @@
                                             padding: '10px 20px', fontSize: '14px', color: '#1976d2', background: 'white',
                                             border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
                                         }}>ログアウト</button>
+                                        {user.isTeacher && (
+                                            <>
+                                                <div style={{ marginTop: '8px', fontSize: '12px', color: 'rgba(255,255,255,0.9)' }}>
+                                                    お問い合わせはコチラから
+                                                </div>
+                                                <a href="mailto:hssa0529@icloud.com?subject=%E6%A8%A1%E6%93%AC%E8%A9%A6%E9%A8%93%E7%B5%90%E6%9E%9C%E9%96%B2%E8%A6%A7%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0%E3%81%AE%E3%81%8A%E5%95%8F%E3%81%84%E5%90%88%E3%82%8F%E3%81%9B" style={{
+                                                    marginTop: '5px', padding: '7px 12px', fontSize: '12px', color: 'white',
+                                                    background: '#1565c0', border: '1px solid rgba(255,255,255,0.7)',
+                                                    borderRadius: '5px', cursor: 'pointer', fontWeight: '600', textDecoration: 'none'
+                                                }}>メールで問い合わせる</a>
+                                            </>
+                                        )}
                                         {!user.isTeacher && (
                                             <div style={{
                                                 marginTop: '5px',
