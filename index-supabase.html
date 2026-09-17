@@ -459,11 +459,21 @@
         function calculateHighRateWrongQuestions(allExams, studentId, sourceMapping) {
             const questions = [];
             const subjectCounts = {};
+            const examGroups = {};
 
             (allExams || []).forEach(exam => {
                 const examResults = generateExamResults(exam?.students || []);
                 const studentResult = examResults.find(result => result.studentId === studentId);
                 if (!studentResult) return;
+                const examKey = exam.id || exam.examName;
+                if (!examGroups[examKey]) {
+                    examGroups[examKey] = {
+                        examName: exam.examName,
+                        questions: [],
+                        subjectCounts: {},
+                        subjectSourceCounts: {}
+                    };
+                }
 
                 Object.entries(studentResult.questionDetails || {}).forEach(([subjectName, subjectQuestions]) => {
                     subjectQuestions.forEach(question => {
@@ -471,7 +481,7 @@
                         if ((question.correctRate ?? 0) < 50) return;
 
                         const source = question.source || '出典未設定';
-                        questions.push({
+                        const item = {
                             examName: exam.examName,
                             subjectName,
                             questionNumber: question.questionNumber,
@@ -480,8 +490,16 @@
                             displaySource: convertSourceToName(source, subjectName, sourceMapping),
                             userAnswer: formatAnswer(question.userAnswer),
                             correctAnswer: formatAnswer(question.correctAnswer)
-                        });
+                        };
+                        questions.push(item);
+                        examGroups[examKey].questions.push(item);
                         subjectCounts[subjectName] = (subjectCounts[subjectName] || 0) + 1;
+                        examGroups[examKey].subjectCounts[subjectName] = (examGroups[examKey].subjectCounts[subjectName] || 0) + 1;
+                        if (!examGroups[examKey].subjectSourceCounts[subjectName]) {
+                            examGroups[examKey].subjectSourceCounts[subjectName] = {};
+                        }
+                        examGroups[examKey].subjectSourceCounts[subjectName][source] =
+                            (examGroups[examKey].subjectSourceCounts[subjectName][source] || 0) + 1;
                     });
                 });
             });
@@ -492,6 +510,14 @@
                     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
                     .slice(0, 5)
                     .map(([subjectName, count]) => ({ subjectName, count }))
+                ,
+                examGroups: Object.values(examGroups).map(group => ({
+                    ...group,
+                    subjectTop5: Object.entries(group.subjectCounts)
+                        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                        .slice(0, 5)
+                        .map(([subjectName, count]) => ({ subjectName, count }))
+                }))
             };
         }
 
@@ -546,25 +572,22 @@
                         <h3 style={{ margin: '0 0 10px 0', color: '#bf360c' }}>通算の苦手領域 TOP5</h3>
                         {renderItems(weakAreas, 'これまでの試験で間違えた項目はありません。')}
                     </div>
-                    <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', border: '1px solid #90caf9' }}>
-                        <h3 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>正答率50%以上の誤答 科目TOP5</h3>
-                        {highRateWrong.subjectTop5.length === 0 ? (
+                    <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', border: '1px solid #90caf9', gridColumn: '1 / -1' }}>
+                        <h3 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>各試験回：正答率50%以上の誤答 科目TOP5</h3>
+                        {highRateWrong.examGroups.length === 0 ? (
                             <p style={{ margin: 0, color: '#666' }}>該当する誤答はありません。</p>
                         ) : (
-                            <ol style={{ margin: 0, paddingLeft: '26px' }}>
-                                {highRateWrong.subjectTop5.map(item => (
-                                    <li key={item.subjectName} style={{ padding: '7px 0', borderBottom: '1px solid #bbdefb' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
-                                            <strong>{item.subjectName}</strong>
-                                            <strong style={{ whiteSpace: 'nowrap', color: '#1565c0' }}>{item.count}問</strong>
-                                        </div>
-                                    </li>
+                            <div style={{ display: 'grid', gap: '12px' }}>
+                                {highRateWrong.examGroups.map(group => (
+                                    <HighRateWrongQuestions
+                                        key={group.examName}
+                                        analysis={group}
+                                        title={`${group.examName}：正答率50%以上の誤答 科目TOP5`}
+                                        compact
+                                    />
                                 ))}
-                            </ol>
+                            </div>
                         )}
-                        <p style={{ margin: '10px 0 0 0', fontSize: '12px', color: '#666' }}>
-                            各回の正答率50%以上で、選択中の学生が誤答した問題を全試験から集計
-                        </p>
                     </div>
                 </div>
             );
@@ -3141,51 +3164,86 @@
             );
         }
 
-        function HighRateWrongQuestions({ analysis, hideCorrectAnswer = false, title = '正答率50%以上で誤答した問題' }) {
+        function HighRateWrongQuestions({ analysis, hideCorrectAnswer = false, title = '正答率50%以上で誤答した問題', compact = false }) {
             const [isExpanded, setIsExpanded] = React.useState(true);
-            const questions = analysis?.questions || [];
+            const [selectedSubject, setSelectedSubject] = React.useState(analysis?.subjectTop5?.[0]?.subjectName || '');
+            const [showQuestions, setShowQuestions] = React.useState(false);
+            const questions = (analysis?.questions || []).filter(question => question.subjectName === selectedSubject);
+            const subjectNamesForChart = Object.keys((analysis?.questions || []).reduce((result, question) => {
+                result[question.subjectName] = true;
+                return result;
+            }, {}));
+            const selectedSubjectQuestions = questions.reduce((result, question) => {
+                const source = question.displaySource || '領域未設定';
+                result[source] = (result[source] || 0) + 1;
+                return result;
+            }, {});
+            const chartItems = Object.entries(selectedSubjectQuestions)
+                .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+            const maxCount = Math.max(...chartItems.map(([, count]) => count), 1);
+
+            React.useEffect(() => {
+                if (!subjectNamesForChart.includes(selectedSubject)) {
+                    setSelectedSubject(subjectNamesForChart[0] || '');
+                }
+            }, [analysis, selectedSubject, subjectNamesForChart.join('|')]);
 
             return (
-                <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#e3f2fd', borderRadius: '4px', border: '1px solid #90caf9' }}>
+                <div style={{ marginTop: '12px', padding: compact ? '12px' : '15px', backgroundColor: '#f8fbff', borderRadius: '6px', border: '1px solid #bbdefb' }}>
                     <div
                         onClick={() => setIsExpanded(!isExpanded)}
                         style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginBottom: isExpanded ? '15px' : '0' }}
                     >
-                        <h3 style={{ margin: 0, color: '#1565c0', flex: 1 }}>{title}</h3>
+                        <h3 style={{ margin: 0, color: '#1565c0', flex: 1, fontSize: compact ? '15px' : '18px' }}>{title}</h3>
                         <span style={{ fontSize: '20px', color: '#1565c0' }}>{isExpanded ? '▼' : '▶'}</span>
                     </div>
 
                     {isExpanded && (
-                        questions.length === 0 ? (
+                        subjectNamesForChart.length === 0 ? (
                             <p style={{ margin: 0, color: '#555' }}>該当する誤答はありません。</p>
                         ) : (
-                            <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', fontSize: '13px' }}>
-                                    <thead>
-                                        <tr style={{ background: '#1976d2', color: 'white' }}>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>試験回</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>科目</th>
-                                            <th style={{ padding: '8px', textAlign: 'center' }}>問題番号</th>
-                                            <th style={{ padding: '8px', textAlign: 'left' }}>領域</th>
-                                            <th style={{ padding: '8px', textAlign: 'center' }}>正答率</th>
-                                            <th style={{ padding: '8px', textAlign: 'center' }}>本人の解答</th>
-                                            {!hideCorrectAnswer && <th style={{ padding: '8px', textAlign: 'center' }}>正答</th>}
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {questions.map((question, index) => (
-                                            <tr key={`${question.examName}-${question.subjectName}-${question.questionNumber}-${index}`} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
-                                                <td style={{ padding: '8px' }}>{question.examName}</td>
-                                                <td style={{ padding: '8px' }}>{question.subjectName}</td>
-                                                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>{question.questionNumber}</td>
-                                                <td style={{ padding: '8px' }}>{question.displaySource}</td>
-                                                <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold', color: '#2e7d32' }}>{question.correctRate}%</td>
-                                                <td style={{ padding: '8px', textAlign: 'center', color: '#c62828', fontWeight: 'bold' }}>{question.userAnswer || '-'}</td>
-                                                {!hideCorrectAnswer && <td style={{ padding: '8px', textAlign: 'center' }}>{question.correctAnswer || '-'}</td>}
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                            <div>
+                                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                                    {(analysis?.subjectTop5 || []).map((item, index) => (
+                                        <button key={item.subjectName} type="button" onClick={() => setSelectedSubject(item.subjectName)} style={{
+                                            padding: '6px 9px', border: selectedSubject === item.subjectName ? '2px solid #1565c0' : '1px solid #90caf9',
+                                            borderRadius: '5px', background: selectedSubject === item.subjectName ? '#e3f2fd' : 'white', color: '#1565c0', cursor: 'pointer', fontSize: '12px', fontWeight: '600'
+                                        }}>
+                                            {index + 1}. {item.subjectName}（{item.count}問）
+                                        </button>
+                                    ))}
+                                </div>
+                                <label style={{ display: 'block', marginBottom: '8px', color: '#334155', fontWeight: '600', fontSize: '13px' }}>
+                                    科目を選択
+                                    <select value={selectedSubject} onChange={(event) => setSelectedSubject(event.target.value)} style={{ marginLeft: '10px', padding: '6px 10px', border: '1px solid #90caf9', borderRadius: '4px', background: 'white' }}>
+                                        {subjectNamesForChart.map(subjectName => <option key={subjectName} value={subjectName}>{subjectName}</option>)}
+                                    </select>
+                                </label>
+                                <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', minHeight: compact ? '170px' : '220px', padding: '15px 10px 0', overflowX: 'auto', background: 'white', border: '1px solid #e3f2fd', borderRadius: '4px' }}>
+                                    {chartItems.map(([source, count]) => (
+                                        <div key={source} title={`${source}: ${count}問`} style={{ minWidth: compact ? '54px' : '68px', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end' }}>
+                                            <strong style={{ color: '#1565c0', fontSize: '12px', marginBottom: '4px' }}>{count}</strong>
+                                            <div style={{ width: compact ? '28px' : '38px', height: `${Math.max(10, (count / maxCount) * 75)}%`, minHeight: '12px', background: 'linear-gradient(180deg, #42a5f5, #1565c0)', borderRadius: '4px 4px 0 0' }} />
+                                            <div style={{ marginTop: '7px', fontSize: '11px', color: '#334155', writingMode: 'vertical-rl', textOrientation: 'mixed', height: compact ? '62px' : '78px', overflow: 'hidden' }}>{source}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div style={{ marginTop: '8px', fontSize: '12px', color: '#64748b' }}>
+                                    {selectedSubject}：正答率50%以上で本人が誤答した問題を領域別に集計（合計 {questions.length}問）
+                                </div>
+                                <button type="button" onClick={() => setShowQuestions(!showQuestions)} style={{ marginTop: '10px', padding: '6px 10px', border: '1px solid #90caf9', borderRadius: '4px', background: 'white', color: '#1565c0', cursor: 'pointer', fontSize: '12px' }}>
+                                    {showQuestions ? '該当問題詳細を閉じる' : '該当問題詳細を表示'}
+                                </button>
+                                {showQuestions && <div style={{ overflowX: 'auto', marginTop: '10px' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', fontSize: '12px' }}>
+                                        <thead><tr style={{ background: '#1976d2', color: 'white' }}>
+                                            <th style={{ padding: '7px', textAlign: 'left' }}>試験回</th><th style={{ padding: '7px', textAlign: 'center' }}>問題</th><th style={{ padding: '7px', textAlign: 'left' }}>領域</th><th style={{ padding: '7px', textAlign: 'center' }}>正答率</th><th style={{ padding: '7px', textAlign: 'center' }}>本人解答</th>{!hideCorrectAnswer && <th style={{ padding: '7px', textAlign: 'center' }}>正答</th>}
+                                        </tr></thead>
+                                        <tbody>{questions.map((question, index) => <tr key={`${question.examName}-${question.questionNumber}-${index}`} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
+                                            <td style={{ padding: '7px' }}>{question.examName}</td><td style={{ padding: '7px', textAlign: 'center', fontWeight: 'bold' }}>{question.questionNumber}</td><td style={{ padding: '7px' }}>{question.displaySource}</td><td style={{ padding: '7px', textAlign: 'center', color: '#2e7d32', fontWeight: 'bold' }}>{question.correctRate}%</td><td style={{ padding: '7px', textAlign: 'center', color: '#c62828', fontWeight: 'bold' }}>{question.userAnswer || '-'}</td>{!hideCorrectAnswer && <td style={{ padding: '7px', textAlign: 'center' }}>{question.correctAnswer || '-'}</td>}
+                                        </tr>)}</tbody>
+                                    </table>
+                                </div>}
                             </div>
                         )
                     )}
@@ -3500,11 +3558,11 @@
                                 <p style={{ margin: '5px 0' }}><strong>氏名:</strong> {result.studentName}</p>
                             </div>
                             {teacherReviewSummary}
-                            {highRateWrongAnalysis && (
+                            {!user.isTeacher && highRateWrongAnalysis && (
                                 <HighRateWrongQuestions
                                     analysis={highRateWrongAnalysis}
                                     hideCorrectAnswer={hideCorrectAnswer}
-                                    title={user.isTeacher ? '正答率50%以上で誤答した問題一覧（選択中の学生）' : '正答率50%以上で誤答した問題一覧'}
+                                    title="正答率50%以上で誤答した問題一覧"
                                 />
                             )}
                             <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
