@@ -862,7 +862,7 @@
                         }))
                         .filter(area => !remedialOnly
                             || (area.averageDiscrimination !== null
-                                && area.averageDiscrimination >= 0.3))
+                                && area.averageDiscrimination >= 0.2))
                         .sort((a, b) => prioritizeDiscrimination
                             ? (b.averageDiscrimination ?? -1) - (a.averageDiscrimination ?? -1)
                                 || (a.averageCorrectRate ?? 101) - (b.averageCorrectRate ?? 101)
@@ -1010,7 +1010,7 @@
                         </div>
                         <div style={{ background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '1px solid #ffcc80' }}>
                             <h3 style={{ margin: '0 0 12px 0', color: '#e65100' }}>低学力者の補習向け</h3>
-                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#6d4c41' }}>下位30%を対象に、識別係数0.3以上の領域</p>
+                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#6d4c41' }}>下位30%を対象に、平均識別係数0.2以上の領域</p>
                             {renderAreas(analysis.remedialAreas, '補習対象に該当する問題領域がありません。', true, true)}
                         </div>
                     </div>
