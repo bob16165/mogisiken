@@ -861,9 +861,7 @@
                                 : null
                         }))
                         .filter(area => !remedialOnly
-                            || (area.averageCorrectRate !== null
-                                && area.averageCorrectRate < 70
-                                && area.averageDiscrimination !== null
+                            || (area.averageDiscrimination !== null
                                 && area.averageDiscrimination >= 0.3))
                         .sort((a, b) => prioritizeDiscrimination
                             ? (b.averageDiscrimination ?? -1) - (a.averageDiscrimination ?? -1)
@@ -871,7 +869,7 @@
                             : b.incorrectCount - a.incorrectCount
                                 || (a.averageCorrectRate ?? 101) - (b.averageCorrectRate ?? 101))
                         .slice(0, 3)
-                })).filter(item => item.areas.length > 0);
+                })).filter(item => !remedialOnly || item.areas.length > 0 || subjects.includes(item.subjectName));
             };
 
             const summarizeDiscriminationQuestions = (results) => {
@@ -932,36 +930,40 @@
         function TeacherExamReview({ allResults, sourceMapping }) {
             const analysis = buildTeacherReviewAnalysis(allResults, sourceMapping);
 
-            const renderAreas = (areaGroups, emptyMessage, showDiscrimination = false) => {
+            const renderAreas = (areaGroups, emptyMessage, showDiscrimination = false, showEmptySubjects = false) => {
                 if (areaGroups.length === 0) return <p style={{ margin: 0, color: '#666' }}>{emptyMessage}</p>;
                 return areaGroups.map(group => (
                     <div key={group.subjectName} style={{ marginBottom: '14px' }}>
                         <h4 style={{ margin: '0 0 6px 0', color: '#263238' }}>{group.subjectName}</h4>
-                        <ol style={{ margin: 0, paddingLeft: '24px' }}>
-                            {group.areas.map(area => (
-                                <li key={`${group.subjectName}-${area.source}`} style={{ padding: '4px 0', color: '#37474f' }}>
-                                    <strong>{area.displaySource}</strong>
-                                    <span style={{ marginLeft: '8px', fontSize: '12px', color: '#546e7a' }}>
-                                        出題数 {area.questionCount}問
-                                    </span>
-                                    {!showDiscrimination && (
-                                        <span style={{ marginLeft: '8px', fontSize: '12px', color: '#c62828' }}>
-                                            誤答 {area.incorrectCount}問
-                                        </span>
-                                    )}
-                                    {showDiscrimination && area.averageDiscrimination !== null && (
-                                        <span style={{ marginLeft: '8px', fontSize: '12px', color: '#6a1b9a', fontWeight: '600' }}>
-                                            平均識別係数 r={area.averageDiscrimination.toFixed(3)}
-                                        </span>
-                                    )}
-                                    {area.averageCorrectRate !== null && (
+                        {group.areas.length === 0 && showEmptySubjects ? (
+                            <p style={{ margin: 0, paddingLeft: '24px', fontSize: '12px', color: '#777' }}>{emptyMessage}</p>
+                        ) : (
+                            <ol style={{ margin: 0, paddingLeft: '24px' }}>
+                                {group.areas.map(area => (
+                                    <li key={`${group.subjectName}-${area.source}`} style={{ padding: '4px 0', color: '#37474f' }}>
+                                        <strong>{area.displaySource}</strong>
                                         <span style={{ marginLeft: '8px', fontSize: '12px', color: '#546e7a' }}>
-                                            平均正答率 {area.averageCorrectRate}%
+                                            出題数 {area.questionCount}問
                                         </span>
-                                    )}
-                                </li>
-                            ))}
-                        </ol>
+                                        {!showDiscrimination && (
+                                            <span style={{ marginLeft: '8px', fontSize: '12px', color: '#c62828' }}>
+                                                誤答 {area.incorrectCount}問
+                                            </span>
+                                        )}
+                                        {showDiscrimination && area.averageDiscrimination !== null && (
+                                            <span style={{ marginLeft: '8px', fontSize: '12px', color: '#6a1b9a', fontWeight: '600' }}>
+                                                平均識別係数 r={area.averageDiscrimination.toFixed(3)}
+                                            </span>
+                                        )}
+                                        {area.averageCorrectRate !== null && (
+                                            <span style={{ marginLeft: '8px', fontSize: '12px', color: '#546e7a' }}>
+                                                平均正答率 {area.averageCorrectRate}%
+                                            </span>
+                                        )}
+                                    </li>
+                                ))}
+                            </ol>
+                        )}
                     </div>
                 ));
             };
@@ -1008,8 +1010,8 @@
                         </div>
                         <div style={{ background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '1px solid #ffcc80' }}>
                             <h3 style={{ margin: '0 0 12px 0', color: '#e65100' }}>低学力者の補習向け</h3>
-                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#6d4c41' }}>下位30%の平均正答率70%未満かつ識別係数0.3以上の領域</p>
-                            {renderAreas(analysis.remedialAreas, '補習対象に該当する問題領域がありません。', true)}
+                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#6d4c41' }}>下位30%を対象に、識別係数0.3以上の領域</p>
+                            {renderAreas(analysis.remedialAreas, '補習対象に該当する問題領域がありません。', true, true)}
                         </div>
                     </div>
                     <div style={{ marginTop: '15px', background: '#f3e5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ce93d8' }}>
