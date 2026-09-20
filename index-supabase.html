@@ -800,8 +800,195 @@
             );
         }
 
+        function buildTeacherReviewAnalysis(allResults, sourceMapping) {
+            const subjects = ['必修', ...subjectNames];
+            const sortedResults = [...allResults].sort((a, b) => b.totalScore - a.totalScore);
+            const lowAchievementCount = Math.max(1, Math.ceil(sortedResults.length * 0.3));
+
+            const summarizeGroup = (results) => {
+                const areasBySubject = {};
+                subjects.forEach(subjectName => { areasBySubject[subjectName] = {}; });
+
+                results.forEach(result => {
+                    Object.entries(result.questionDetails || {}).forEach(([subjectName, questions]) => {
+                        if (!areasBySubject[subjectName]) areasBySubject[subjectName] = {};
+                        questions.forEach(question => {
+                            const source = question.source || '出典未設定';
+                            if (!areasBySubject[subjectName][source]) {
+                                areasBySubject[subjectName][source] = {
+                                    source,
+                                    displaySource: convertSourceToName(source, subjectName, sourceMapping) || '領域未設定',
+                                    questionCount: 0,
+                                    incorrectCount: 0,
+                                    correctRateTotal: 0,
+                                    correctRateCount: 0
+                                };
+                            }
+                            const area = areasBySubject[subjectName][source];
+                            area.questionCount++;
+                            if (!isAnswerCorrect(question.userAnswer, question.correctAnswer)) area.incorrectCount++;
+                            if (typeof question.correctRate === 'number') {
+                                area.correctRateTotal += question.correctRate;
+                                area.correctRateCount++;
+                            }
+                        });
+                    });
+                });
+
+                return subjects.map(subjectName => ({
+                    subjectName,
+                    areas: Object.values(areasBySubject[subjectName] || {})
+                        .map(area => ({
+                            ...area,
+                            averageCorrectRate: area.correctRateCount > 0
+                                ? Math.round(area.correctRateTotal / area.correctRateCount)
+                                : null
+                        }))
+                        .sort((a, b) => b.incorrectCount - a.incorrectCount || (a.averageCorrectRate ?? 101) - (b.averageCorrectRate ?? 101))
+                        .slice(0, 3)
+                })).filter(item => item.areas.length > 0);
+            };
+
+            const summarizeDiscriminationQuestions = (results) => {
+                const questionsBySubject = {};
+                subjects.forEach(subjectName => { questionsBySubject[subjectName] = {}; });
+
+                results.forEach(result => {
+                    Object.entries(result.questionDetails || {}).forEach(([subjectName, questions]) => {
+                        if (!questionsBySubject[subjectName]) questionsBySubject[subjectName] = {};
+                        questions.forEach(question => {
+                            if (typeof question.correlWithTotal !== 'number' || question.correlWithTotal < 0.3) return;
+                            const source = question.source || '出典未設定';
+                            const key = `${source}\u0000${question.questionNumber}`;
+                            if (!questionsBySubject[subjectName][key]) {
+                                questionsBySubject[subjectName][key] = {
+                                    source,
+                                    displaySource: convertSourceToName(source, subjectName, sourceMapping) || '領域未設定',
+                                    questionNumber: question.questionNumber,
+                                    correlWithTotal: question.correlWithTotal,
+                                    studentCount: 0,
+                                    incorrectCount: 0
+                                };
+                            }
+                            const item = questionsBySubject[subjectName][key];
+                            item.studentCount++;
+                            if (!isAnswerCorrect(question.userAnswer, question.correctAnswer)) item.incorrectCount++;
+                        });
+                    });
+                });
+
+                return subjects.map(subjectName => ({
+                    subjectName,
+                    questions: Object.values(questionsBySubject[subjectName] || {})
+                        .sort((a, b) => b.correlWithTotal - a.correlWithTotal || b.incorrectCount - a.incorrectCount)
+                })).filter(item => item.questions.length > 0);
+            };
+
+            const averageScore = allResults.length > 0
+                ? Math.round(allResults.reduce((sum, result) => sum + result.totalScore, 0) / allResults.length * 10) / 10
+                : 0;
+            const averageRate = allResults.length > 0
+                ? Math.round(allResults.reduce((sum, result) => sum + (result.totalStats?.scoreRate || 0), 0) / allResults.length * 10) / 10
+                : 0;
+
+            return {
+                averageScore,
+                averageRate,
+                highestScore: sortedResults[0]?.totalScore || 0,
+                lowestScore: sortedResults[sortedResults.length - 1]?.totalScore || 0,
+                lowAchievementCount,
+                lectureAreas: summarizeGroup(allResults),
+                remedialAreas: summarizeGroup(sortedResults.slice(-lowAchievementCount)),
+                remedialDiscriminationQuestions: summarizeDiscriminationQuestions(sortedResults.slice(-lowAchievementCount))
+            };
+        }
+
+        function TeacherExamReview({ allResults, sourceMapping }) {
+            const analysis = buildTeacherReviewAnalysis(allResults, sourceMapping);
+
+            const renderAreas = (areaGroups, emptyMessage) => {
+                if (areaGroups.length === 0) return <p style={{ margin: 0, color: '#666' }}>{emptyMessage}</p>;
+                return areaGroups.map(group => (
+                    <div key={group.subjectName} style={{ marginBottom: '14px' }}>
+                        <h4 style={{ margin: '0 0 6px 0', color: '#263238' }}>{group.subjectName}</h4>
+                        <ol style={{ margin: 0, paddingLeft: '24px' }}>
+                            {group.areas.map(area => (
+                                <li key={`${group.subjectName}-${area.source}`} style={{ padding: '4px 0', color: '#37474f' }}>
+                                    <strong>{area.displaySource}</strong>
+                                    <span style={{ marginLeft: '8px', fontSize: '12px', color: '#c62828' }}>
+                                        誤答 {area.incorrectCount}問 / 対象 {area.questionCount}問
+                                    </span>
+                                    {area.averageCorrectRate !== null && (
+                                        <span style={{ marginLeft: '8px', fontSize: '12px', color: '#546e7a' }}>
+                                            平均正答率 {area.averageCorrectRate}%
+                                        </span>
+                                    )}
+                                </li>
+                            ))}
+                        </ol>
+                    </div>
+                ));
+            };
+
+            const renderDiscriminationQuestions = (subjectGroups) => {
+                if (subjectGroups.length === 0) return <p style={{ margin: 0, color: '#666' }}>識別係数0.3以上の問題はありません。</p>;
+                return subjectGroups.map(group => (
+                    <div key={group.subjectName} style={{ marginBottom: '14px' }}>
+                        <h4 style={{ margin: '0 0 6px 0', color: '#263238' }}>{group.subjectName}</h4>
+                        <ol style={{ margin: 0, paddingLeft: '24px' }}>
+                            {group.questions.map(question => (
+                                <li key={`${group.subjectName}-${question.questionNumber}-${question.source}`} style={{ padding: '4px 0', color: '#37474f' }}>
+                                    <strong>問題 {question.questionNumber}</strong>
+                                    <span style={{ marginLeft: '8px' }}>{question.displaySource}</span>
+                                    <span style={{ marginLeft: '8px', fontSize: '12px', color: '#6a1b9a', fontWeight: '600' }}>
+                                        識別係数 r={question.correlWithTotal.toFixed(3)}
+                                    </span>
+                                    <span style={{ marginLeft: '8px', fontSize: '12px', color: '#c62828' }}>
+                                        下位学生の誤答 {question.incorrectCount}/{question.studentCount}
+                                    </span>
+                                </li>
+                            ))}
+                        </ol>
+                    </div>
+                ));
+            };
+
+            return (
+                <section style={{ marginTop: '30px', paddingTop: '24px', borderTop: '3px solid #1976d2' }}>
+                    <h2 style={{ margin: '0 0 15px 0', color: '#263238' }}>受験者全体の総評・復習ポイント</h2>
+                    <div style={{ background: '#e8f5e9', padding: '15px', borderRadius: '8px', marginBottom: '15px' }}>
+                        <h3 style={{ margin: '0 0 8px 0', color: '#2e7d32' }}>総評</h3>
+                        <p style={{ margin: 0, lineHeight: 1.7 }}>
+                            受験者{allResults.length}名の平均は{analysis.averageScore}点（得点率{analysis.averageRate}%）でした。
+                            最高点は{analysis.highestScore}点、最低点は{analysis.lowestScore}点です。
+                            下位{analysis.lowAchievementCount}名を低学力者向け補習の分析対象としています。
+                        </p>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '15px' }}>
+                        <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', border: '1px solid #90caf9' }}>
+                            <h3 style={{ margin: '0 0 12px 0', color: '#1565c0' }}>全体の講義向け</h3>
+                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#546e7a' }}>全受験者の誤答が多い問題領域（科目ごと）</p>
+                            {renderAreas(analysis.lectureAreas, '集計できる問題領域がありません。')}
+                        </div>
+                        <div style={{ background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '1px solid #ffcc80' }}>
+                            <h3 style={{ margin: '0 0 12px 0', color: '#e65100' }}>低学力者の補習向け</h3>
+                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#6d4c41' }}>総合点下位30%（最低1名）の誤答が多い問題領域</p>
+                            {renderAreas(analysis.remedialAreas, '集計できる問題領域がありません。')}
+                        </div>
+                    </div>
+                    <div style={{ marginTop: '15px', background: '#f3e5f5', padding: '15px', borderRadius: '8px', border: '1px solid #ce93d8' }}>
+                        <h3 style={{ margin: '0 0 12px 0', color: '#6a1b9a' }}>低学力者向け：識別係数0.3以上の問題</h3>
+                        <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#6a1b9a' }}>
+                            総合点との相関が0.3以上で、下位学生が受験した問題を表示しています。数値が高い問題ほど総合点との関連が強い問題です。
+                        </p>
+                        {renderDiscriminationQuestions(analysis.remedialDiscriminationQuestions)}
+                    </div>
+                </section>
+            );
+        }
+
         // 全学生一覧コンポーネント
-        function AllStudentsView({ allResults, onSelectStudent }) {
+        function AllStudentsView({ allResults, onSelectStudent, sourceMapping }) {
             const sortedResults = [...allResults].sort((a, b) => b.totalScore - a.totalScore);
 
             return (
@@ -850,6 +1037,7 @@
                             </tbody>
                         </table>
                     </div>
+                    <TeacherExamReview allResults={allResults} sourceMapping={sourceMapping} />
                 </div>
             );
         }
@@ -3655,7 +3843,7 @@
                     </div>
                     {user.isTeacher && viewMode === 'list' ? (
                         <div id="list-print-area">
-                            <AllStudentsView allResults={allResults} onSelectStudent={handleSelectStudent} />
+                            <AllStudentsView allResults={allResults} onSelectStudent={handleSelectStudent} sourceMapping={sourceMapping} />
                         </div>
                     ) : (
                         <div id="detail-print-area" className="result-content" style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
