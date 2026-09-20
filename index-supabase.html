@@ -819,18 +819,16 @@
                                     source,
                                     displaySource: convertSourceToName(source, subjectName, sourceMapping) || '領域未設定',
                                     questionNumbers: new Set(),
-                                    correctRateTotal: 0,
-                                    correctRateCount: 0,
+                                    correctCount: 0,
+                                    responseCount: 0,
                                     discriminationTotal: 0,
                                     discriminationCount: 0
                                 };
                             }
                             const area = areasBySubject[subjectName][source];
                             area.questionNumbers.add(String(question.questionNumber));
-                            if (typeof question.correctRate === 'number') {
-                                area.correctRateTotal += question.correctRate;
-                                area.correctRateCount++;
-                            }
+                            area.responseCount++;
+                            if (isAnswerCorrect(question.userAnswer, question.correctAnswer)) area.correctCount++;
                             if (typeof question.correlWithTotal === 'number') {
                                 area.discriminationTotal += question.correlWithTotal;
                                 area.discriminationCount++;
@@ -846,15 +844,15 @@
                             source: area.source,
                             displaySource: area.displaySource,
                             questionCount: area.questionNumbers.size,
-                            averageCorrectRate: area.correctRateCount > 0
-                                ? Math.round(area.correctRateTotal / area.correctRateCount)
+                            averageCorrectRate: area.responseCount > 0
+                                ? Math.round(area.correctCount / area.responseCount * 100)
                                 : null,
                             averageDiscrimination: area.discriminationCount > 0
                                 ? Math.round(area.discriminationTotal / area.discriminationCount * 1000) / 1000
                                 : null
                         }))
-                        .sort((a, b) => (a.averageCorrectRate ?? 101) - (b.averageCorrectRate ?? 101)
-                            || (prioritizeDiscrimination ? (b.averageDiscrimination ?? -1) - (a.averageDiscrimination ?? -1) : b.questionCount - a.questionCount))
+                        .sort((a, b) => (b.averageDiscrimination ?? -1) - (a.averageDiscrimination ?? -1)
+                            || (prioritizeDiscrimination ? (a.averageCorrectRate ?? 101) - (b.averageCorrectRate ?? 101) : b.questionCount - a.questionCount))
                         .slice(0, 3)
                 })).filter(item => item.areas.length > 0);
             };
