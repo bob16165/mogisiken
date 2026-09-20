@@ -804,6 +804,9 @@
             const subjects = ['必修', ...subjectNames];
             const sortedResults = [...allResults].sort((a, b) => b.totalScore - a.totalScore);
             const lowAchievementCount = Math.max(1, Math.ceil(sortedResults.length * 0.3));
+            const lectureStartIndex = Math.floor(sortedResults.length * 0.3);
+            const lectureEndIndex = Math.max(lectureStartIndex + 1, Math.ceil(sortedResults.length * 0.6));
+            const lectureResults = sortedResults.slice(lectureStartIndex, lectureEndIndex);
 
             const summarizeGroup = (results, prioritizeDiscrimination = false, remedialOnly = false) => {
                 const areasBySubject = {};
@@ -910,7 +913,8 @@
                 highestScore: sortedResults[0]?.totalScore || 0,
                 lowestScore: sortedResults[sortedResults.length - 1]?.totalScore || 0,
                 lowAchievementCount,
-                lectureAreas: summarizeGroup(allResults),
+                lectureStudentCount: lectureResults.length,
+                lectureAreas: summarizeGroup(lectureResults),
                 remedialAreas: summarizeGroup(sortedResults.slice(-lowAchievementCount), true, true),
                 remedialDiscriminationQuestions: summarizeDiscriminationQuestions(sortedResults.slice(-lowAchievementCount))
             };
@@ -985,7 +989,7 @@
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '15px' }}>
                         <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', border: '1px solid #90caf9' }}>
                             <h3 style={{ margin: '0 0 12px 0', color: '#1565c0' }}>全体の講義向け</h3>
-                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#546e7a' }}>全受験者の誤答が多い問題領域（科目ごと）</p>
+                            <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#546e7a' }}>総合点の下位40〜70パーセンタイル（{analysis.lectureStudentCount}名）を対象</p>
                             {renderAreas(analysis.lectureAreas, '集計できる問題領域がありません。')}
                         </div>
                         <div style={{ background: '#fff3e0', padding: '15px', borderRadius: '8px', border: '1px solid #ffcc80' }}>
