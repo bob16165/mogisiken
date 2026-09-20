@@ -818,15 +818,13 @@
                                 areasBySubject[subjectName][source] = {
                                     source,
                                     displaySource: convertSourceToName(source, subjectName, sourceMapping) || '領域未設定',
-                                    questionCount: 0,
-                                    incorrectCount: 0,
+                                    questionNumbers: new Set(),
                                     correctRateTotal: 0,
                                     correctRateCount: 0
                                 };
                             }
                             const area = areasBySubject[subjectName][source];
-                            area.questionCount++;
-                            if (!isAnswerCorrect(question.userAnswer, question.correctAnswer)) area.incorrectCount++;
+                            area.questionNumbers.add(String(question.questionNumber));
                             if (typeof question.correctRate === 'number') {
                                 area.correctRateTotal += question.correctRate;
                                 area.correctRateCount++;
@@ -839,12 +837,14 @@
                     subjectName,
                     areas: Object.values(areasBySubject[subjectName] || {})
                         .map(area => ({
-                            ...area,
+                            source: area.source,
+                            displaySource: area.displaySource,
+                            questionCount: area.questionNumbers.size,
                             averageCorrectRate: area.correctRateCount > 0
                                 ? Math.round(area.correctRateTotal / area.correctRateCount)
                                 : null
                         }))
-                        .sort((a, b) => b.incorrectCount - a.incorrectCount || (a.averageCorrectRate ?? 101) - (b.averageCorrectRate ?? 101))
+                        .sort((a, b) => (a.averageCorrectRate ?? 101) - (b.averageCorrectRate ?? 101) || b.questionCount - a.questionCount)
                         .slice(0, 3)
                 })).filter(item => item.areas.length > 0);
             };
@@ -915,8 +915,8 @@
                             {group.areas.map(area => (
                                 <li key={`${group.subjectName}-${area.source}`} style={{ padding: '4px 0', color: '#37474f' }}>
                                     <strong>{area.displaySource}</strong>
-                                    <span style={{ marginLeft: '8px', fontSize: '12px', color: '#c62828' }}>
-                                        誤答 {area.incorrectCount}問 / 対象 {area.questionCount}問
+                                    <span style={{ marginLeft: '8px', fontSize: '12px', color: '#546e7a' }}>
+                                        出題数 {area.questionCount}問
                                     </span>
                                     {area.averageCorrectRate !== null && (
                                         <span style={{ marginLeft: '8px', fontSize: '12px', color: '#546e7a' }}>
