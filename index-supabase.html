@@ -1027,23 +1027,64 @@
 
         // 全学生一覧コンポーネント
         function AllStudentsView({ allResults, onSelectStudent, sourceMapping }) {
-            const sortedResults = [...allResults].sort((a, b) => b.totalScore - a.totalScore);
+            const [sortConfig, setSortConfig] = useState({ key: 'totalScore', direction: 'desc' });
+
+            const getSortValue = (result, key) => {
+                if (key.startsWith('subject:')) {
+                    return result.subjects[key.slice('subject:'.length)]?.score || 0;
+                }
+                return result[key];
+            };
+
+            const handleSort = (key) => {
+                setSortConfig(current => ({
+                    key,
+                    direction: current.key === key && current.direction === 'desc' ? 'asc' : 'desc'
+                }));
+            };
+
+            const sortedResults = [...allResults].sort((a, b) => {
+                const aValue = getSortValue(a, sortConfig.key);
+                const bValue = getSortValue(b, sortConfig.key);
+                const comparison = sortConfig.key === 'studentId'
+                    ? String(aValue || '').localeCompare(String(bValue || ''), 'ja', { numeric: true })
+                    : (Number(aValue) || 0) - (Number(bValue) || 0);
+
+                if (comparison !== 0) {
+                    return sortConfig.direction === 'desc' ? -comparison : comparison;
+                }
+                return String(a.studentId || '').localeCompare(String(b.studentId || ''), 'ja', { numeric: true });
+            });
+
+            const sortIndicator = (key) => {
+                if (sortConfig.key !== key) return '';
+                return sortConfig.direction === 'desc' ? ' ▼' : ' ▲';
+            };
+
+            const sortableHeaderStyle = {
+                padding: '12px',
+                border: 'none',
+                background: 'transparent',
+                color: 'white',
+                font: 'inherit',
+                cursor: 'pointer'
+            };
 
             return (
                 <div style={{ padding: '20px', maxWidth: '1400px', margin: '0 auto' }}>
-                    <h2 style={{ marginBottom: '20px', color: '#333' }}>全学生成績一覧（総合点順）</h2>
+                    <h2 style={{ marginBottom: '20px', color: '#333' }}>全学生成績一覧（{sortConfig.key === 'studentId' ? '学籍番号' : sortConfig.key === 'fourSubjectsScore' ? '4教科' : sortConfig.key === 'requiredScore' ? '必修' : sortConfig.key.startsWith('subject:') ? sortConfig.key.slice('subject:'.length) : '総合点'}順）</h2>
                     <div style={{ overflowX: 'auto' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '13px' }}>
                             <thead>
                                 <tr style={{ background: '#1976d2', color: 'white' }}>
                                     <th style={{ padding: '12px', textAlign: 'center' }}>順位</th>
-                                    <th style={{ padding: '12px', textAlign: 'left' }}>学籍番号</th>
+                                    <th style={{ padding: 0, textAlign: 'left' }}><button onClick={() => handleSort('studentId')} style={sortableHeaderStyle}>学籍番号{sortIndicator('studentId')}</button></th>
                                     <th style={{ padding: '12px', textAlign: 'left' }}>氏名</th>
-                                    <th style={{ padding: '12px', textAlign: 'center' }}>総合点</th>
-                                    <th style={{ padding: '12px', textAlign: 'center' }}>4教科</th>
-                                    <th style={{ padding: '12px', textAlign: 'center' }}>必修</th>
+                                    <th style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort('totalScore')} style={sortableHeaderStyle}>総合点{sortIndicator('totalScore')}</button></th>
+                                    <th style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort('fourSubjectsScore')} style={sortableHeaderStyle}>4教科{sortIndicator('fourSubjectsScore')}</button></th>
+                                    <th style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort('requiredScore')} style={sortableHeaderStyle}>必修{sortIndicator('requiredScore')}</button></th>
                                     {subjectNames.map(name => (
-                                        <th key={name} style={{ padding: '12px', textAlign: 'center' }}>{name}</th>
+                                        <th key={name} style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort(`subject:${name}`)} style={sortableHeaderStyle}>{name}{sortIndicator(`subject:${name}`)}</button></th>
                                     ))}
                                     <th style={{ padding: '12px', textAlign: 'center' }}>操作</th>
                                 </tr>
