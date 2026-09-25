@@ -278,6 +278,16 @@
             };
         }
 
+        function getFourSubjectsScoreColor(stats, defaultColor = '#4CAF50') {
+            if (!stats || stats.averageScoreRate === undefined || stats.scoreRateStdDev === undefined) {
+                return defaultColor;
+            }
+            const dRate = stats.averageScoreRate - stats.scoreRateStdDev;
+            if (stats.scoreRate < dRate) return '#F44336';
+            if (stats.scoreRate < stats.averageScoreRate) return '#FF9800';
+            return defaultColor;
+        }
+
         function generateExamResults(dataSource) {
             const studentScores = dataSource || rawStudentScores;
             if (studentScores.length > 0 && studentScores.every(student => student.computed)) {
@@ -1096,7 +1106,7 @@
                                         <td style={{ padding: '10px' }}>{result.studentId}</td>
                                         <td style={{ padding: '10px' }}>{result.studentName}</td>
                                         <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: '#1976d2' }}>{result.totalScore}</td>
-                                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: '#4CAF50' }}>{result.fourSubjectsScore}</td>
+                                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: getFourSubjectsScoreColor(result.fourSubjectsStats) }}>{result.fourSubjectsScore}</td>
                                         <td style={{ padding: '10px', textAlign: 'center' }}>{result.requiredScore}</td>
                                         {subjectNames.map(subjectName => (
                                             <td key={subjectName} style={{ padding: '10px', textAlign: 'center' }}>
@@ -3946,7 +3956,7 @@
                                     <div><strong>総合点:</strong> {result.totalScore}/{result.totalMaxScore}</div>
                                     <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>
                                     <div><strong>一般合計:</strong> {result.generalScore}/{result.generalMaxScore}</div>
-                                    <div><strong>4教科合計:</strong> {result.fourSubjectsScore}/{result.fourSubjectsMaxScore}</div>
+                                    <div><strong>4教科合計:</strong> <span style={{ color: getFourSubjectsScoreColor(result.fourSubjectsStats), fontWeight: 'bold' }}>{result.fourSubjectsScore}/{result.fourSubjectsMaxScore}</span></div>
                                 </div>
                                 <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
                                     ※ 4教科: 解剖学、生理学、一般臨床、柔整理論
@@ -3980,7 +3990,7 @@
                                             label="" 
                                         />
                                         <div className="result-stat-grid" style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', fontSize: '13px' }}>
-                                            <div><strong>得点率:</strong> {result.fourSubjectsStats.scoreRate}%</div>
+                                            <div><strong>得点率:</strong> <span style={{ color: getFourSubjectsScoreColor(result.fourSubjectsStats), fontWeight: 'bold' }}>{result.fourSubjectsStats.scoreRate}%</span></div>
                                             <div><strong>順位:</strong> {result.fourSubjectsStats.rank}位</div>
                                             <div><strong>偏差値:</strong> {result.fourSubjectsStats.deviation}</div>
                                             <div><strong>Ave.:</strong> {result.fourSubjectsStats.averageScoreRate}%</div>
