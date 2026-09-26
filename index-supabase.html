@@ -2107,6 +2107,236 @@
             return title;
         }
 
+        function buildPdfResultCover(result, examName, studentCount) {
+            const cover = createPdfSectionBase();
+            cover.appendChild(createTitle('個人試験結果'));
+
+            const examLabel = document.createElement('div');
+            examLabel.textContent = examName || '試験名未設定';
+            examLabel.style.marginBottom = '18px';
+            examLabel.style.fontSize = '14px';
+            examLabel.style.color = '#475569';
+            cover.appendChild(examLabel);
+
+            const studentInfo = document.createElement('div');
+            studentInfo.style.display = 'grid';
+            studentInfo.style.gridTemplateColumns = '1fr 1fr';
+            studentInfo.style.gap = '8px 20px';
+            studentInfo.style.marginBottom = '18px';
+            studentInfo.style.padding = '12px 14px';
+            studentInfo.style.background = '#f1f5f9';
+            studentInfo.style.borderLeft = '4px solid #1976d2';
+            [
+                ['学籍番号', result.studentId || '-'],
+                ['氏名', result.studentName || '-']
+            ].forEach(([label, value]) => {
+                const item = document.createElement('div');
+                item.style.fontSize = '13px';
+                const caption = document.createElement('span');
+                caption.textContent = `${label}: `;
+                caption.style.color = '#64748b';
+                const detail = document.createElement('strong');
+                detail.textContent = String(value);
+                item.append(caption, detail);
+                studentInfo.appendChild(item);
+            });
+            cover.appendChild(studentInfo);
+
+            const totals = document.createElement('div');
+            totals.style.display = 'grid';
+            totals.style.gridTemplateColumns = 'repeat(4, 1fr)';
+            totals.style.gap = '8px';
+            totals.style.marginBottom = '20px';
+            [
+                ['総合得点', `${result.totalScore}/${result.totalMaxScore}`],
+                ['得点率', `${result.totalStats?.scoreRate ?? 0}%`],
+                ['順位', `${result.totalStats?.rank ?? '-'}位 / ${studentCount}名`],
+                ['クラス平均', `${result.totalStats?.averageScoreRate ?? 0}%`]
+            ].forEach(([label, value]) => {
+                const item = document.createElement('div');
+                item.style.padding = '10px 8px';
+                item.style.background = '#eaf3fb';
+                item.style.borderTop = '2px solid #1976d2';
+                item.style.textAlign = 'center';
+                const caption = document.createElement('div');
+                caption.textContent = label;
+                caption.style.marginBottom = '4px';
+                caption.style.fontSize = '10px';
+                caption.style.color = '#475569';
+                const metric = document.createElement('strong');
+                metric.textContent = value;
+                metric.style.fontSize = '15px';
+                item.append(caption, metric);
+                totals.appendChild(item);
+            });
+            cover.appendChild(totals);
+
+            const subjectTitle = document.createElement('h3');
+            subjectTitle.textContent = '科目別成績';
+            subjectTitle.style.margin = '0 0 8px 0';
+            subjectTitle.style.fontSize = '14px';
+            subjectTitle.style.color = '#334155';
+            cover.appendChild(subjectTitle);
+
+            const table = document.createElement('table');
+            table.style.width = '100%';
+            table.style.borderCollapse = 'collapse';
+            table.style.fontSize = '11px';
+            const header = document.createElement('tr');
+            ['科目', '得点', '得点率', '順位'].forEach((text, index) => {
+                const cell = document.createElement('th');
+                cell.textContent = text;
+                cell.style.padding = '6px 8px';
+                cell.style.background = '#1976d2';
+                cell.style.color = '#fff';
+                cell.style.textAlign = index === 0 ? 'left' : 'center';
+                header.appendChild(cell);
+            });
+            const head = document.createElement('thead');
+            head.appendChild(header);
+            table.appendChild(head);
+
+            const body = document.createElement('tbody');
+            const subjectRows = [];
+            if (result.requiredMaxScore > 0) subjectRows.push(['必修', result.required]);
+            subjectNames.forEach(subjectName => {
+                if (result.subjects?.[subjectName]) subjectRows.push([subjectName, result.subjects[subjectName]]);
+            });
+            subjectRows.forEach(([subjectName, stats], index) => {
+                const row = document.createElement('tr');
+                [subjectName, `${stats.score}/${stats.maxScore}`, `${stats.scoreRate}%`, `${stats.rank}位`].forEach((text, cellIndex) => {
+                    const cell = document.createElement('td');
+                    cell.textContent = text;
+                    cell.style.padding = '5px 8px';
+                    cell.style.borderBottom = '1px solid #dbe3ec';
+                    cell.style.textAlign = cellIndex === 0 ? 'left' : 'center';
+                    if (index % 2 === 1) cell.style.background = '#f8fafc';
+                    row.appendChild(cell);
+                });
+                body.appendChild(row);
+            });
+            table.appendChild(body);
+            cover.appendChild(table);
+            return cover;
+        }
+
+        function buildPdfHighRateWrongSection(result, examName, sourceMapping) {
+            const section = createPdfSectionBase();
+            section.appendChild(createTitle('正答率50%以上で誤答した問題 TOP5'));
+
+            const examLabel = document.createElement('div');
+            examLabel.textContent = `${examName || '試験名未設定'} / 本人が誤答した問題のうち、正答率50%以上`;
+            examLabel.style.marginBottom = '12px';
+            examLabel.style.fontSize = '12px';
+            examLabel.style.color = '#475569';
+            section.appendChild(examLabel);
+
+            const subjectGroups = Object.entries(result.questionDetails || {})
+                .map(([subjectName, questions]) => ({
+                    subjectName,
+                    questions: questions.filter(question =>
+                        !isAnswerCorrect(question.userAnswer, question.correctAnswer) && Number(question.correctRate) >= 50
+                    )
+                }))
+                .filter(group => group.questions.length > 0)
+                .sort((a, b) => b.questions.length - a.questions.length || a.subjectName.localeCompare(b.subjectName))
+                .slice(0, 5);
+
+            const rankList = document.createElement('div');
+            rankList.style.display = 'grid';
+            rankList.style.gridTemplateColumns = 'repeat(5, 1fr)';
+            rankList.style.gap = '6px';
+            rankList.style.marginBottom = '12px';
+            subjectGroups.forEach((group, index) => {
+                const item = document.createElement('div');
+                item.style.padding = '7px 6px';
+                item.style.background = index === 0 ? '#fff1e6' : '#f1f5f9';
+                item.style.borderTop = `2px solid ${index === 0 ? '#e76f00' : '#64748b'}`;
+                item.style.textAlign = 'center';
+                const subject = document.createElement('div');
+                subject.textContent = `${index + 1}. ${group.subjectName}`;
+                subject.style.fontSize = '10px';
+                subject.style.fontWeight = '700';
+                const count = document.createElement('strong');
+                count.textContent = `${group.questions.length}問`;
+                count.style.fontSize = '13px';
+                item.append(subject, count);
+                rankList.appendChild(item);
+            });
+            if (subjectGroups.length > 0) section.appendChild(rankList);
+
+            const allWrongQuestions = subjectGroups.flatMap(group =>
+                group.questions
+                    .sort((a, b) => Number(b.correctRate) - Number(a.correctRate) || String(a.questionNumber).localeCompare(String(b.questionNumber), 'ja', { numeric: true }))
+                    .map(question => ({ ...question, subjectName: group.subjectName }))
+            );
+            const summary = document.createElement('div');
+            summary.textContent = `TOP5科目の該当問題: ${allWrongQuestions.length}問`;
+            summary.style.margin = '0 0 6px 0';
+            summary.style.fontSize = '10px';
+            summary.style.fontWeight = '700';
+            summary.style.color = '#334155';
+            section.appendChild(summary);
+
+            if (allWrongQuestions.length === 0) {
+                const empty = document.createElement('div');
+                empty.textContent = '正答率50%以上で誤答した問題はありません。';
+                empty.style.padding = '12px';
+                empty.style.background = '#f1f5f9';
+                empty.style.fontSize = '12px';
+                section.appendChild(empty);
+                return section;
+            }
+
+            const table = document.createElement('table');
+            table.style.width = '100%';
+            table.style.borderCollapse = 'collapse';
+            table.style.fontSize = '9px';
+            const head = document.createElement('thead');
+            const header = document.createElement('tr');
+            ['科目', '問題', '正答率', '出典', '本人解答', '正答'].forEach((text, index) => {
+                const cell = document.createElement('th');
+                cell.textContent = text;
+                cell.style.padding = '5px 4px';
+                cell.style.background = '#334155';
+                cell.style.color = '#fff';
+                cell.style.textAlign = index === 3 ? 'left' : 'center';
+                header.appendChild(cell);
+            });
+            head.appendChild(header);
+            table.appendChild(head);
+
+            const body = document.createElement('tbody');
+            allWrongQuestions.forEach((question, index) => {
+                const row = document.createElement('tr');
+                const cells = [
+                    question.subjectName,
+                    question.questionNumber,
+                    `${question.correctRate}%`,
+                    convertSourceToName(question.source, question.subjectName, sourceMapping) || '出典未設定',
+                    formatAnswer(question.userAnswer) || '-',
+                    formatAnswer(question.correctAnswer) || '-'
+                ];
+                cells.forEach((text, cellIndex) => {
+                    const cell = document.createElement('td');
+                    cell.textContent = text;
+                    cell.style.padding = '4px';
+                    cell.style.borderBottom = '1px solid #dbe3ec';
+                    cell.style.textAlign = cellIndex === 3 ? 'left' : 'center';
+                    if (index % 2 === 1) cell.style.background = '#f8fafc';
+                    if (cellIndex === 2) {
+                        cell.style.fontWeight = '700';
+                        cell.style.color = Number(question.correctRate) >= 70 ? '#c2410c' : '#a16207';
+                    }
+                    row.appendChild(cell);
+                });
+                body.appendChild(row);
+            });
+            table.appendChild(body);
+            section.appendChild(table);
+            return section;
+        }
+
         function createQuestionsTable(questions, subjectName, sourceMapping, hideCorrectAnswer) {
             const table = document.createElement('table');
             table.style.width = '100%';
@@ -3792,25 +4022,19 @@
                 printRoot.style.width = '794px';
                 printRoot.style.background = '#fff';
 
-                const sections = buildSubjectQuestionSections(target, sourceMapping, hideCorrectAnswer);
+                const cover = buildPdfResultCover(target, currentExam?.examName, allResults.length);
+                const sections = [
+                    buildPdfHighRateWrongSection(target, currentExam?.examName, sourceMapping),
+                    ...buildSubjectQuestionSections(target, sourceMapping, hideCorrectAnswer)
+                ];
+                printRoot.appendChild(cover);
                 sections.forEach(section => printRoot.appendChild(section));
                 document.body.appendChild(printRoot);
 
-                const coverEl = document.getElementById('detail-print-area');
-                const runExport = () => {
-                    downloadPdfWithCoverAndSections(coverEl, sections, `個別結果_${studentSafeId}_${safeExamName}.pdf`)
-                        .finally(() => {
-                            document.body.removeChild(printRoot);
-                        });
-                };
-
-                if (viewMode !== 'detail') {
-                    setViewMode('detail');
-                    setTimeout(runExport, 400);
-                    return;
-                }
-
-                runExport();
+                downloadPdfWithCoverAndSections(cover, sections, `個別結果_${studentSafeId}_${safeExamName}.pdf`)
+                    .finally(() => {
+                        document.body.removeChild(printRoot);
+                    });
             };
 
             return (
