@@ -195,7 +195,10 @@ function buildComputed(
     fourSubjectsMaxScore: FOUR_SUBJECTS.every((subject) => questionCounts[subject] > 0)
       ? FOUR_SUBJECTS.reduce((sum, subject) => sum + questionCounts[subject], 0)
       : 0,
-    required: stats(Number(row.required_score || 0), questionCounts['必修'], allRequired),
+    required: {
+      ...stats(Number(row.required_score || 0), questionCounts['必修'], allRequired),
+      correlWithTotal: computePearsonCorrel(allRequired, allTotals)
+    },
     subjects: {},
     totalStats: stats(totalScore, totalMaxScore, allTotals),
     questionDetails
@@ -209,7 +212,10 @@ function buildComputed(
   SUBJECTS.forEach(([column, name]) => {
     if (questionCounts[name] === 0) return;
     const values = allRows.map((item) => Number(item[column] || 0));
-    result.subjects[name] = stats(Number(row[column] || 0), questionCounts[name], values);
+    result.subjects[name] = {
+      ...stats(Number(row[column] || 0), questionCounts[name], values),
+      correlWithTotal: computePearsonCorrel(values, allTotals)
+    };
   });
 
   return result;

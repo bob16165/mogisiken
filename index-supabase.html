@@ -394,26 +394,37 @@
                     : null;
 
                 const requiredMaxScore = questionCounts['必修'];
-                const requiredStats = calculateSubjectStats(student.required || 0, requiredMaxScore, allRequiredScores);
-                requiredStats.correlWithTotal = subjectCorrelWithTotal['必修'];
+                const requiredStats = student.computed?.required
+                    ? { ...student.computed.required, correlWithTotal: student.computed.required.correlWithTotal }
+                    : calculateSubjectStats(student.required || 0, requiredMaxScore, allRequiredScores);
+                if (!student.computed?.required) requiredStats.correlWithTotal = subjectCorrelWithTotal['必修'];
                 const subjects = {};
                 configuredGeneralSubjects.forEach(subjectName => {
-                    subjects[subjectName] = calculateSubjectStats(student[subjectName] || 0, questionCounts[subjectName], allSubjectScores[subjectName] || []);
-                    subjects[subjectName].correlWithTotal = subjectCorrelWithTotal[subjectName];
+                    subjects[subjectName] = student.computed?.subjects?.[subjectName]
+                        ? { ...student.computed.subjects[subjectName] }
+                        : calculateSubjectStats(student[subjectName] || 0, questionCounts[subjectName], allSubjectScores[subjectName] || []);
+                    if (!student.computed?.subjects?.[subjectName]) {
+                        subjects[subjectName].correlWithTotal = subjectCorrelWithTotal[subjectName];
+                    }
                 });
                 
                 // 総合点の統計を計算
-                const totalStats = calculateSubjectStats(totalScore, totalMaxScore, allTotalScores);
+                const totalStats = student.computed?.totalStats || calculateSubjectStats(totalScore, totalMaxScore, allTotalScores);
                 
                 // 問題詳細に正答率・CORREL値を追加
                 const questionDetailsWithRate = {};
-                const sourceQuestionDetails = student.questionDetails || student.computed?.questionDetails || {};
+                const hasComputedQuestionDetails = !!student.computed?.questionDetails;
+                const sourceQuestionDetails = student.computed?.questionDetails || student.questionDetails || {};
                 if (sourceQuestionDetails) {
                     Object.keys(sourceQuestionDetails).forEach(subjectName => {
                         questionDetailsWithRate[subjectName] = sourceQuestionDetails[subjectName].map(q => ({
                             ...q,
-                            correctRate: calculateQuestionCorrectRate(q.questionNumber, subjectName),
-                            correlWithTotal: questionCorrelWithTotal[subjectName]?.[q.questionNumber] ?? null
+                            correctRate: hasComputedQuestionDetails
+                                ? q.correctRate
+                                : calculateQuestionCorrectRate(q.questionNumber, subjectName),
+                            correlWithTotal: hasComputedQuestionDetails
+                                ? q.correlWithTotal
+                                : questionCorrelWithTotal[subjectName]?.[q.questionNumber] ?? null
                         }));
                     });
                 }
@@ -426,7 +437,7 @@
                     requiredMaxScore,
                     generalScore, generalMaxScore,
                     fourSubjectsScore, fourSubjectsMaxScore,
-                    fourSubjectsStats,
+                    fourSubjectsStats: student.computed?.fourSubjectsStats ?? fourSubjectsStats,
                     configuredSubjects,
                     required: requiredStats,
                     subjects,
