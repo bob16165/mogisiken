@@ -190,11 +190,6 @@
             },
         ];
 
-        const maxScores = {
-            required: 50, 解剖学: 30, 生理学: 25, 運動学: 10, 病理学: 13,
-            衛生学: 12, リハビリ医学: 11, 一般臨床: 22, 外科学: 11, 整形外科: 11, 柔整理論: 55,
-        };
-
         const subjectNames = ['解剖学', '生理学', '運動学', '病理学', '衛生学', 'リハビリ医学', '一般臨床', '外科学', '整形外科', '柔整理論'];
 
         const defaultQuestionLayout = [
@@ -220,8 +215,18 @@
                     end: Number(item.end),
                     subject: item.subject
                 }))
-                .filter(item => subjectNames.includes(item.subject) || item.subject === '必修')
-                .filter(item => Number.isInteger(item.start) && Number.isInteger(item.end) && item.start > 0 && item.end >= item.start);
+                .filter(item => item.subject === '__none__' || ((subjectNames.includes(item.subject) || item.subject === '必修')
+                    && Number.isInteger(item.start) && Number.isInteger(item.end) && item.start > 0 && item.end >= item.start));
+        }
+
+        function getQuestionCounts(questionLayout) {
+            const counts = Object.fromEntries(['必修', ...subjectNames].map(subject => [subject, 0]));
+            (questionLayout || []).forEach(range => {
+                if (Object.prototype.hasOwnProperty.call(counts, range.subject)) {
+                    counts[range.subject] += range.end - range.start + 1;
+                }
+            });
+            return counts;
         }
 
         // 計算関数
@@ -288,11 +293,11 @@
             return defaultColor;
         }
 
-        function generateExamResults(dataSource) {
+        function generateExamResults(dataSource, questionLayout = defaultQuestionLayout) {
             const studentScores = dataSource || rawStudentScores;
-            if (studentScores.length > 0 && studentScores.every(student => student.computed)) {
-                return studentScores.map(student => student.computed);
-            }
+            const questionCounts = getQuestionCounts(questionLayout);
+            const configuredSubjects = Object.keys(questionCounts).filter(subject => questionCounts[subject] > 0);
+            const configuredGeneralSubjects = subjectNames.filter(subject => questionCounts[subject] > 0);
             const allRequiredScores = studentScores.map(s => s.required);
             const allSubjectScores = {};
             
@@ -326,8 +331,7 @@
             // ---- CORREL計算（全学生分を事前計算） ----
             // 総合点（全学生）
             const allTotalScores = studentScores.map(s => {
-                const sSubjectScores = subjectNames.map(name => s[name]);
-                return s.required + sSubjectScores.reduce((sum, sc) => sum + sc, 0);
+                return configuredSubjects.reduce((sum, name) => sum + (name === '必修' ? (s.required || 0) : (s[name] || 0)), 0);
             });
 
             // 科目別CORREL：各科目得点 vs 総合点
@@ -367,28 +371,34 @@
             // ---- CORREL計算ここまで ----
 
             return studentScores.map(student => {
-                const subjectScores = subjectNames.map(name => student[name]);
-                const totalScore = student.required + subjectScores.reduce((sum, s) => sum + s, 0);
-                const totalMaxScore = 250; // 必修50点 + 一般200点
-                const generalScore = subjectScores.reduce((sum, s) => sum + s, 0);
-                const generalMaxScore = 200; // 一般10科目合計
+                const totalScore = configuredSubjects.reduce((sum, name) => sum + (name === '必修' ? (student.required || 0) : (student[name] || 0)), 0);
+                const totalMaxScore = configuredSubjects.reduce((sum, name) => sum + questionCounts[name], 0);
+                const generalScore = configuredGeneralSubjects.reduce((sum, name) => sum + (student[name] || 0), 0);
+                const generalMaxScore = configuredGeneralSubjects.reduce((sum, name) => sum + questionCounts[name], 0);
                 
                 // 4教科合計（解剖学、生理学、一般臨床、柔整理論）
                 const fourSubjectsScore = (student['解剖学'] || 0) + (student['生理学'] || 0) + 
                                          (student['一般臨床'] || 0) + (student['柔整理論'] || 0);
-                const fourSubjectsMaxScore = 132; // 解剖学30 + 生理学25 + 一般臨床22 + 柔整理論55
+                const fourSubjectNames = ['解剖学', '生理学', '一般臨床', '柔整理論'];
+                const hasAllFourSubjects = fourSubjectNames.every(name => questionCounts[name] > 0);
+                const fourSubjectsMaxScore = hasAllFourSubjects
+                    ? fourSubjectNames.reduce((sum, name) => sum + questionCounts[name], 0)
+                    : 0;
                 
                 // 4教科合計の統計を計算
-                const allFourSubjectsScores = studentScores.map(s => 
-                    (s['解剖学'] || 0) + (s['生理学'] || 0) + (s['一般臨床'] || 0) + (s['柔整理論'] || 0)
+                const allFourSubjectsScores = studentScores.map(s =>
+                    fourSubjectNames.reduce((sum, name) => sum + (s[name] || 0), 0)
                 );
-                const fourSubjectsStats = calculateSubjectStats(fourSubjectsScore, fourSubjectsMaxScore, allFourSubjectsScores);
+                const fourSubjectsStats = hasAllFourSubjects
+                    ? calculateSubjectStats(fourSubjectsScore, fourSubjectsMaxScore, allFourSubjectsScores)
+                    : null;
 
-                const requiredStats = calculateSubjectStats(student.required, maxScores.required, allRequiredScores);
+                const requiredMaxScore = questionCounts['必修'];
+                const requiredStats = calculateSubjectStats(student.required || 0, requiredMaxScore, allRequiredScores);
                 requiredStats.correlWithTotal = subjectCorrelWithTotal['必修'];
                 const subjects = {};
-                subjectNames.forEach(subjectName => {
-                    subjects[subjectName] = calculateSubjectStats(student[subjectName], maxScores[subjectName], allSubjectScores[subjectName] || []);
+                configuredGeneralSubjects.forEach(subjectName => {
+                    subjects[subjectName] = calculateSubjectStats(student[subjectName] || 0, questionCounts[subjectName], allSubjectScores[subjectName] || []);
                     subjects[subjectName].correlWithTotal = subjectCorrelWithTotal[subjectName];
                 });
                 
@@ -397,9 +407,10 @@
                 
                 // 問題詳細に正答率・CORREL値を追加
                 const questionDetailsWithRate = {};
-                if (student.questionDetails) {
-                    Object.keys(student.questionDetails).forEach(subjectName => {
-                        questionDetailsWithRate[subjectName] = student.questionDetails[subjectName].map(q => ({
+                const sourceQuestionDetails = student.questionDetails || student.computed?.questionDetails || {};
+                if (sourceQuestionDetails) {
+                    Object.keys(sourceQuestionDetails).forEach(subjectName => {
+                        questionDetailsWithRate[subjectName] = sourceQuestionDetails[subjectName].map(q => ({
                             ...q,
                             correctRate: calculateQuestionCorrectRate(q.questionNumber, subjectName),
                             correlWithTotal: questionCorrelWithTotal[subjectName]?.[q.questionNumber] ?? null
@@ -412,10 +423,11 @@
                     studentName: student.studentName,
                     totalScore, totalMaxScore,
                     requiredScore: student.required,
-                    requiredMaxScore: maxScores.required,
+                    requiredMaxScore,
                     generalScore, generalMaxScore,
                     fourSubjectsScore, fourSubjectsMaxScore,
                     fourSubjectsStats,
+                    configuredSubjects,
                     required: requiredStats,
                     subjects,
                     totalStats,
@@ -568,7 +580,7 @@
             const examGroups = {};
 
             (allExams || []).forEach(exam => {
-                const examResults = generateExamResults(exam?.students || []);
+                const examResults = generateExamResults(exam?.students || [], exam?.questionLayout);
                 const studentResult = examResults.find(result => result.studentId === studentId);
                 if (!studentResult) return;
                 const examKey = exam.id || exam.examName;
@@ -1038,6 +1050,9 @@
         // 全学生一覧コンポーネント
         function AllStudentsView({ allResults, onSelectStudent, sourceMapping }) {
             const [sortConfig, setSortConfig] = useState({ key: 'totalScore', direction: 'desc' });
+            const visibleSubjects = allResults[0]?.configuredSubjects?.filter(name => subjectNames.includes(name)) || subjectNames;
+            const showRequired = allResults[0]?.configuredSubjects?.includes('必修') ?? true;
+            const showFourSubjects = !!allResults[0]?.fourSubjectsStats;
 
             const getSortValue = (result, key) => {
                 if (key.startsWith('subject:')) {
@@ -1091,9 +1106,9 @@
                                     <th style={{ padding: 0, textAlign: 'left' }}><button onClick={() => handleSort('studentId')} style={sortableHeaderStyle}>学籍番号{sortIndicator('studentId')}</button></th>
                                     <th style={{ padding: '12px', textAlign: 'left' }}>氏名</th>
                                     <th style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort('totalScore')} style={sortableHeaderStyle}>総合点{sortIndicator('totalScore')}</button></th>
-                                    <th style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort('fourSubjectsScore')} style={sortableHeaderStyle}>4教科{sortIndicator('fourSubjectsScore')}</button></th>
-                                    <th style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort('requiredScore')} style={sortableHeaderStyle}>必修{sortIndicator('requiredScore')}</button></th>
-                                    {subjectNames.map(name => (
+                                    {showFourSubjects && <th style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort('fourSubjectsScore')} style={sortableHeaderStyle}>4教科{sortIndicator('fourSubjectsScore')}</button></th>}
+                                    {showRequired && <th style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort('requiredScore')} style={sortableHeaderStyle}>必修{sortIndicator('requiredScore')}</button></th>}
+                                    {visibleSubjects.map(name => (
                                         <th key={name} style={{ padding: 0, textAlign: 'center' }}><button onClick={() => handleSort(`subject:${name}`)} style={sortableHeaderStyle}>{name}{sortIndicator(`subject:${name}`)}</button></th>
                                     ))}
                                     <th style={{ padding: '12px', textAlign: 'center' }}>操作</th>
@@ -1106,9 +1121,9 @@
                                         <td style={{ padding: '10px' }}>{result.studentId}</td>
                                         <td style={{ padding: '10px' }}>{result.studentName}</td>
                                         <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: '#1976d2' }}>{result.totalScore}</td>
-                                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: getFourSubjectsScoreColor(result.fourSubjectsStats) }}>{result.fourSubjectsScore}</td>
-                                        <td style={{ padding: '10px', textAlign: 'center' }}>{result.requiredScore}</td>
-                                        {subjectNames.map(subjectName => (
+                                        {showFourSubjects && <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: getFourSubjectsScoreColor(result.fourSubjectsStats) }}>{result.fourSubjectsScore}</td>}
+                                        {showRequired && <td style={{ padding: '10px', textAlign: 'center' }}>{result.requiredScore}</td>}
+                                        {visibleSubjects.map(subjectName => (
                                             <td key={subjectName} style={{ padding: '10px', textAlign: 'center' }}>
                                                 {result.subjects[subjectName]?.score || 0}
                                             </td>
@@ -1145,7 +1160,7 @@
             const [isLoading, setIsLoading] = useState(false);
             const [showMasterUpload, setShowMasterUpload] = useState(false);
             const [masterUpdateMode, setMasterUpdateMode] = useState('add'); // 'add' or 'replace'
-            const [questionLayout, setQuestionLayout] = useState(() => defaultQuestionLayout.map(item => ({ ...item })));
+            const [questionLayout, setQuestionLayout] = useState(() => [{ section: '前半', start: '', end: '', subject: '' }]);
 
             const handleDelete = async (index) => {
                 const exam = existingExams[index];
@@ -1505,11 +1520,12 @@
                         activeQuestionLayout.forEach(range => {
                             const answers = range.section === '後半' ? finalBackAnswers : finalFrontAnswers;
                             const prefix = range.section === '後半' ? 'B' : 'Q';
-                            answersBySubject[range.subject] = {
+                            if (!answersBySubject[range.subject]) answersBySubject[range.subject] = [];
+                            answersBySubject[range.subject].push({
                                 answers: answers.slice(range.start - 1, range.end),
                                 startQ: range.start,
                                 prefix
-                            };
+                            });
                         });
                         
                         // 問題詳細を生成
@@ -1552,29 +1568,23 @@
                             return isNaN(num) ? null : num;
                         };
                         
-                        Object.entries(answersBySubject).forEach(([subject, data]) => {
+                        Object.entries(answersBySubject).forEach(([subject, ranges]) => {
                             const details = [];
                             let correctCount = 0;
-                            
-                            data.answers.forEach((userAns, idx) => {
-                                // 空チェック（配列の場合も考慮）
+
+                            ranges.forEach(data => data.answers.forEach((userAns, idx) => {
                                 if (!userAns || (typeof userAns === 'string' && !userAns.trim())) return;
-                                
+
                                 const qNum = data.prefix + (data.startQ + idx);
                                 const userAnswer = parseUserAnswer(userAns);
                                 const correctAnswer = correctAnswersMap[qNum] || null;
                                 const source = sourcesMap[qNum] || '出典不明';
-                                
+
                                 if (correctAnswer !== null && userAnswer !== null) {
-                                    details.push({
-                                        questionNumber: qNum,
-                                        userAnswer: userAnswer,
-                                        correctAnswer: correctAnswer,
-                                        source: source
-                                    });
+                                    details.push({ questionNumber: qNum, userAnswer, correctAnswer, source });
                                     if (isAnswerCorrect(userAnswer, correctAnswer)) correctCount++;
                                 }
-                            });
+                            }));
                             
                             if (details.length > 0) {
                                 questionDetails[subject] = details;
@@ -1600,10 +1610,19 @@
                         });
                     });
                     
-                    onUpload({ examName: examName.trim(), students, questionLayout: activeQuestionLayout, hideCorrectAnswer, isPublished: false });
+                    onUpload({
+                        examName: examName.trim(),
+                        students,
+                        questionLayout: activeQuestionLayout.length > 0
+                            ? activeQuestionLayout
+                            : [{ section: '前半', start: 0, end: 0, subject: '__none__' }],
+                        hideCorrectAnswer,
+                        isPublished: false
+                    });
                     setIsLoading(false);
                     setExamName('');
                     setHideCorrectAnswer(false);
+                    setQuestionLayout([{ section: '前半', start: '', end: '', subject: '' }]);
                     setFrontHalfFile(null);
                     setBackHalfFile(null);
                     setAnswersFile(null);
@@ -1784,10 +1803,16 @@
                                             この試験だけに適用されます。学校ごとに異なる構成も設定できます。
                                         </div>
                                     </div>
-                                    <button type="button" onClick={() => setQuestionLayout(defaultQuestionLayout.map(item => ({ ...item })))}
-                                        style={{ padding: '6px 10px', fontSize: '12px', background: 'white', color: '#1565c0', border: '1px solid #90caf9', borderRadius: '4px', cursor: 'pointer' }}>
-                                        初期値に戻す
-                                    </button>
+                                    <div style={{ display: 'flex', gap: '6px' }}>
+                                        <button type="button" onClick={() => setQuestionLayout(prev => [...prev, { section: '前半', start: '', end: '', subject: '' }])}
+                                            style={{ padding: '6px 10px', fontSize: '12px', background: 'white', color: '#1565c0', border: '1px solid #90caf9', borderRadius: '4px', cursor: 'pointer' }}>
+                                            範囲を追加
+                                        </button>
+                                        <button type="button" onClick={() => setQuestionLayout(defaultQuestionLayout.map(item => ({ ...item })))}
+                                            style={{ padding: '6px 10px', fontSize: '12px', background: 'white', color: '#1565c0', border: '1px solid #90caf9', borderRadius: '4px', cursor: 'pointer' }}>
+                                            初期値に戻す
+                                        </button>
+                                    </div>
                                 </div>
                                 <div style={{ overflowX: 'auto' }}>
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px', background: 'white' }}>
@@ -1797,6 +1822,7 @@
                                                 <th style={{ padding: '7px', textAlign: 'left' }}>開始</th>
                                                 <th style={{ padding: '7px', textAlign: 'left' }}>終了</th>
                                                 <th style={{ padding: '7px', textAlign: 'left' }}>科目</th>
+                                                <th style={{ padding: '7px', textAlign: 'center' }}>削除</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1820,9 +1846,14 @@
                                                     <td style={{ padding: '5px' }}>
                                                         <select value={range.subject} onChange={(e) => setQuestionLayout(prev => prev.map((item, itemIndex) => itemIndex === index ? { ...item, subject: e.target.value } : item))}
                                                             style={{ padding: '6px', minWidth: '130px' }}>
+                                                            <option value="">科目を選択</option>
                                                             <option value="必修">必修</option>
                                                             {subjectNames.map(subjectName => <option key={subjectName} value={subjectName}>{subjectName}</option>)}
                                                         </select>
+                                                    </td>
+                                                    <td style={{ padding: '5px', textAlign: 'center' }}>
+                                                        <button type="button" onClick={() => setQuestionLayout(prev => prev.filter((_, itemIndex) => itemIndex !== index))}
+                                                            aria-label="範囲を削除" style={{ padding: '5px 9px', border: '1px solid #ef9a9a', borderRadius: '4px', background: 'white', color: '#c62828', cursor: 'pointer' }}>削除</button>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -1973,15 +2004,22 @@
 
         function buildListCsv(allResults) {
             const sortedResults = [...allResults].sort((a, b) => b.totalScore - a.totalScore);
-            const header = ['順位', '学籍番号', '氏名', '総合点', '4教科', '必修', ...subjectNames];
+            const configuredSubjects = sortedResults[0]?.configuredSubjects || ['必修', ...subjectNames];
+            const visibleSubjects = configuredSubjects.filter(subject => subjectNames.includes(subject));
+            const includeFourSubjects = !!sortedResults[0]?.fourSubjectsStats;
+            const includeRequired = configuredSubjects.includes('必修');
+            const header = ['順位', '学籍番号', '氏名', '総合点'];
+            if (includeFourSubjects) header.push('4教科');
+            if (includeRequired) header.push('必修');
+            header.push(...visibleSubjects);
             const rows = sortedResults.map((result, index) => [
                 index + 1,
                 result.studentId,
                 result.studentName,
                 result.totalScore,
-                result.fourSubjectsScore,
-                result.requiredScore,
-                ...subjectNames.map(subjectName => result.subjects[subjectName]?.score || 0)
+                ...(includeFourSubjects ? [result.fourSubjectsScore] : []),
+                ...(includeRequired ? [result.requiredScore] : []),
+                ...visibleSubjects.map(subjectName => result.subjects[subjectName]?.score || 0)
             ]);
             return buildCsv([header, ...rows]);
         }
@@ -2389,7 +2427,7 @@
             (allExams || []).forEach(exam => {
                 if (!exam || !exam.students || exam.students.length === 0) return;
 
-                const examResults = generateExamResults(exam.students);
+                const examResults = generateExamResults(exam.students, exam.questionLayout);
                 const studentResult = examResults.find(item => item.studentId === studentId);
                 if (!studentResult) return;
 
@@ -3668,7 +3706,7 @@
             }
 
             const dataSource = currentExam.students;
-            const allResults = generateExamResults(dataSource);
+            const allResults = generateExamResults(dataSource, currentExam.questionLayout);
             const [selectedStudentId, setSelectedStudentId] = useState(user.isTeacher ? (allResults[0]?.studentId || '') : user.studentId);
             const [viewMode, setViewMode] = useState('detail');
             const [expandedSubject, setExpandedSubject] = useState(null);
@@ -3952,15 +3990,15 @@
                             )}
                             <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
                                 <h3 style={{ margin: '0 0 10px 0' }}>総合成績</h3>
-                                <div className="result-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '15px' }}>
+                                <div className="result-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
                                     <div><strong>総合点:</strong> {result.totalScore}/{result.totalMaxScore}</div>
-                                    <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>
-                                    <div><strong>一般合計:</strong> {result.generalScore}/{result.generalMaxScore}</div>
-                                    <div><strong>4教科合計:</strong> <span style={{ color: getFourSubjectsScoreColor(result.fourSubjectsStats), fontWeight: 'bold' }}>{result.fourSubjectsScore}/{result.fourSubjectsMaxScore}</span></div>
+                                    {result.requiredMaxScore > 0 && <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>}
+                                    {result.generalMaxScore > 0 && <div><strong>一般合計:</strong> {result.generalScore}/{result.generalMaxScore}</div>}
+                                    {result.fourSubjectsStats && <div><strong>4教科合計:</strong> <span style={{ color: getFourSubjectsScoreColor(result.fourSubjectsStats), fontWeight: 'bold' }}>{result.fourSubjectsScore}/{result.fourSubjectsMaxScore}</span></div>}
                                 </div>
-                                <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
+                                {result.fourSubjectsStats && <div style={{ marginTop: '8px', fontSize: '12px', color: '#666' }}>
                                     ※ 4教科: 解剖学、生理学、一般臨床、柔整理論
-                                </div>
+                                </div>}
                                 
                                 {result.totalStats && (
                                     <div style={{ marginTop: '20px' }}>
@@ -4038,15 +4076,14 @@
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {/* 必修行 */}
-                                        <tr style={{ background: '#fff3e0', cursor: 'pointer' }} onClick={() => setExpandedSubject(expandedSubject === '必修' ? null : '必修')}>
+                                        {result.requiredMaxScore > 0 && <tr style={{ background: '#fff3e0', cursor: 'pointer' }} onClick={() => setExpandedSubject(expandedSubject === '必修' ? null : '必修')}>
                                             <td style={{ padding: '12px', fontWeight: 'bold' }}>必修</td>
                                             <td style={{ padding: '12px' }}>{result.required.score}/{result.required.maxScore}</td>
                                             <td style={{ padding: '12px' }}>{result.required.scoreRate}%</td>
                                             <td style={{ padding: '12px' }}>{result.required.rank}位</td>
                                             <td style={{ padding: '12px' }}>{result.required.deviation}</td>
-                                        </tr>
-                                        {expandedSubject === '必修' && (
+                                        </tr>}
+                                        {result.requiredMaxScore > 0 && expandedSubject === '必修' && (
                                             <tr>
                                                 <td colSpan="5" style={{ padding: '20px', background: '#fffaf0' }}>
                                                     <div style={{ marginBottom: '15px' }}>

@@ -14,7 +14,40 @@ const SUBJECTS = [
   ['judo_therapy_score', '柔整理論', 55]
 ] as const;
 
-const MAX_SCORES = Object.fromEntries(SUBJECTS.map(([, name, max]) => [name, max]));
+const DEFAULT_QUESTION_LAYOUT = [
+  { section: '前半', start: 1, end: 50, subject: '必修' },
+  { section: '前半', start: 51, end: 80, subject: '解剖学' },
+  { section: '前半', start: 81, end: 105, subject: '生理学' },
+  { section: '前半', start: 106, end: 115, subject: '運動学' },
+  { section: '前半', start: 116, end: 128, subject: '病理学' },
+  { section: '後半', start: 1, end: 12, subject: '衛生学' },
+  { section: '後半', start: 13, end: 23, subject: 'リハビリ医学' },
+  { section: '後半', start: 24, end: 45, subject: '一般臨床' },
+  { section: '後半', start: 46, end: 56, subject: '外科学' },
+  { section: '後半', start: 57, end: 67, subject: '整形外科' },
+  { section: '後半', start: 68, end: 122, subject: '柔整理論' }
+];
+const FOUR_SUBJECTS = ['解剖学', '生理学', '一般臨床', '柔整理論'];
+
+function getQuestionCounts(questionLayout: unknown) {
+  const subjectNames = ['必修', ...SUBJECTS.map(([, name]) => name)];
+  const counts: Record<string, number> = Object.fromEntries(subjectNames.map((name) => [name, 0]));
+  const layout = Array.isArray(questionLayout) && questionLayout.length > 0 ? questionLayout : DEFAULT_QUESTION_LAYOUT;
+  layout.forEach((item: any) => {
+    const start = Number(item?.start);
+    const end = Number(item?.end);
+    if (Object.prototype.hasOwnProperty.call(counts, item?.subject) && Number.isInteger(start) && Number.isInteger(end) && start > 0 && end >= start) {
+      counts[item.subject] += end - start + 1;
+    }
+  });
+  return counts;
+}
+
+function scoreForSubject(row: Record<string, any>, subject: string) {
+  if (subject === '必修') return Number(row.required_score || 0);
+  const column = SUBJECTS.find(([, name]) => name === subject)?.[0];
+  return column ? Number(row[column] || 0) : 0;
+}
 
 function isCorrect(userAnswer: unknown, correctAnswer: unknown) {
   if (Array.isArray(userAnswer) && Array.isArray(correctAnswer)) {
@@ -73,8 +106,10 @@ function computePearsonCorrel(xArr: number[], yArr: number[]) {
 
 // 正答率・相関係数はクラス全体（allRows）に対する統計のため、試験単位で一度だけ計算する
 // questionNumberはCSVの列名(例: "Q1")が文字列のまま入っているため、Number変換せず文字列キーで突き合わせる
-function buildQuestionStats(allRows: Record<string, any>[]) {
-  const allTotals = allRows.map((item) => Number(item.required_score || 0) + SUBJECTS.reduce((sum, [column]) => sum + Number(item[column] || 0), 0));
+function buildQuestionStats(allRows: Record<string, any>[], questionLayout: unknown) {
+  const questionCounts = getQuestionCounts(questionLayout);
+  const configuredSubjects = Object.keys(questionCounts).filter((subject) => questionCounts[subject] > 0);
+  const allTotals = allRows.map((item) => configuredSubjects.reduce((sum, subject) => sum + scoreForSubject(item, subject), 0));
   const correctRateMap: Record<string, Record<string, number>> = {};
   const correlMap: Record<string, Record<string, number | null>> = {};
 
@@ -119,11 +154,17 @@ function buildComputed(
   row: Record<string, any>,
   allRows: Record<string, any>[],
   exposeAnswers: boolean,
-  questionStats: { correctRateMap: Record<string, Record<string, number>>; correlMap: Record<string, Record<string, number | null>> }
+  questionStats: { correctRateMap: Record<string, Record<string, number>>; correlMap: Record<string, Record<string, number | null>> },
+  questionLayout: unknown
 ) {
-  const subjectScores = SUBJECTS.map(([column]) => Number(row[column] || 0));
-  const allTotals = allRows.map((item) => Number(item.required_score || 0) + SUBJECTS.reduce((sum, [column]) => sum + Number(item[column] || 0), 0));
-  const totalScore = Number(row.required_score || 0) + subjectScores.reduce((sum, value) => sum + value, 0);
+  const questionCounts = getQuestionCounts(questionLayout);
+  const configuredSubjects = Object.keys(questionCounts).filter((subject) => questionCounts[subject] > 0);
+  const configuredGeneralSubjects = SUBJECTS.map(([, name]) => name).filter((subject) => questionCounts[subject] > 0);
+  const allTotals = allRows.map((item) => configuredSubjects.reduce((sum, subject) => sum + scoreForSubject(item, subject), 0));
+  const totalScore = configuredSubjects.reduce((sum, subject) => sum + scoreForSubject(row, subject), 0);
+  const totalMaxScore = configuredSubjects.reduce((sum, subject) => sum + questionCounts[subject], 0);
+  const generalScore = configuredGeneralSubjects.reduce((sum, subject) => sum + scoreForSubject(row, subject), 0);
+  const generalMaxScore = configuredGeneralSubjects.reduce((sum, subject) => sum + questionCounts[subject], 0);
   const allRequired = allRows.map((item) => Number(item.required_score || 0));
   const questionDetails: Record<string, unknown[]> = {};
   const source = row.question_details || {};
@@ -145,25 +186,30 @@ function buildComputed(
     studentId: row.student_id,
     studentName: row.student_name,
     totalScore,
-    totalMaxScore: 250,
+    totalMaxScore,
     requiredScore: Number(row.required_score || 0),
-    requiredMaxScore: 50,
-    generalScore: subjectScores.reduce((sum, value) => sum + value, 0),
-    generalMaxScore: 200,
+    requiredMaxScore: questionCounts['必修'],
+    generalScore,
+    generalMaxScore,
     fourSubjectsScore: Number(row.anatomy_score || 0) + Number(row.physiology_score || 0) + Number(row.general_clinical_score || 0) + Number(row.judo_therapy_score || 0),
-    fourSubjectsMaxScore: 132,
-    required: stats(Number(row.required_score || 0), 50, allRequired),
+    fourSubjectsMaxScore: FOUR_SUBJECTS.every((subject) => questionCounts[subject] > 0)
+      ? FOUR_SUBJECTS.reduce((sum, subject) => sum + questionCounts[subject], 0)
+      : 0,
+    required: stats(Number(row.required_score || 0), questionCounts['必修'], allRequired),
     subjects: {},
-    totalStats: stats(totalScore, 250, allTotals),
+    totalStats: stats(totalScore, totalMaxScore, allTotals),
     questionDetails
   };
 
-  const fourScores = allRows.map((item) => Number(item.anatomy_score || 0) + Number(item.physiology_score || 0) + Number(item.general_clinical_score || 0) + Number(item.judo_therapy_score || 0));
-  result.fourSubjectsStats = stats(result.fourSubjectsScore, 132, fourScores);
+  const fourScores = allRows.map((item) => FOUR_SUBJECTS.reduce((sum, subject) => sum + scoreForSubject(item, subject), 0));
+  result.fourSubjectsStats = FOUR_SUBJECTS.every((subject) => questionCounts[subject] > 0)
+    ? stats(result.fourSubjectsScore, result.fourSubjectsMaxScore, fourScores)
+    : null;
 
-  SUBJECTS.forEach(([column, name, max]) => {
+  SUBJECTS.forEach(([column, name]) => {
+    if (questionCounts[name] === 0) return;
     const values = allRows.map((item) => Number(item[column] || 0));
-    result.subjects[name] = stats(Number(row[column] || 0), max, values);
+    result.subjects[name] = stats(Number(row[column] || 0), questionCounts[name], values);
   });
 
   return result;
@@ -219,7 +265,7 @@ Deno.serve(async (request) => {
         : allRows;
       // 正答を隠すのは卒業判定試験(hide_correct_answer)だけ。通常試験は学生にも正答を返す
       const exposeAnswers = operator.role !== 'student' || !exam.hide_correct_answer;
-      const questionStats = buildQuestionStats(allRows);
+      const questionStats = buildQuestionStats(allRows, exam.question_layout);
       return {
         id: exam.id,
         school_id: exam.school_id,
@@ -234,7 +280,7 @@ Deno.serve(async (request) => {
             subject,
             Array.isArray(questions) ? questions.map((question) => sanitizeQuestion(question as Record<string, unknown>, exposeAnswers)) : []
           ])),
-          computed: buildComputed(row, allRows, exposeAnswers, questionStats)
+          computed: buildComputed(row, allRows, exposeAnswers, questionStats, exam.question_layout)
         }))
       };
     });
