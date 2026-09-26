@@ -215,8 +215,8 @@
                     end: Number(item.end),
                     subject: item.subject
                 }))
-                .filter(item => item.subject === '__none__' || ((subjectNames.includes(item.subject) || item.subject === '必修')
-                    && Number.isInteger(item.start) && Number.isInteger(item.end) && item.start > 0 && item.end >= item.start));
+                .filter(item => (subjectNames.includes(item.subject) || item.subject === '必修')
+                    && Number.isInteger(item.start) && Number.isInteger(item.end) && item.start > 0 && item.end >= item.start);
         }
 
         function getQuestionCounts(questionLayout) {
@@ -1286,7 +1286,10 @@
                 setError('');
 
                 try {
-                    const activeQuestionLayout = normalizeQuestionLayout(questionLayout);
+                    const configuredQuestionLayout = normalizeQuestionLayout(questionLayout);
+                    const activeQuestionLayout = configuredQuestionLayout.length > 0
+                        ? configuredQuestionLayout
+                        : defaultQuestionLayout;
                     // Shift-JISエンコーディングに対応
                     const readFileAsText = async (file) => {
                         const arrayBuffer = await file.arrayBuffer();
@@ -1613,9 +1616,7 @@
                     onUpload({
                         examName: examName.trim(),
                         students,
-                        questionLayout: activeQuestionLayout.length > 0
-                            ? activeQuestionLayout
-                            : [{ section: '前半', start: 0, end: 0, subject: '__none__' }],
+                        questionLayout: activeQuestionLayout,
                         hideCorrectAnswer,
                         isPublished: false
                     });
