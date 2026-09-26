@@ -2107,7 +2107,82 @@
             return title;
         }
 
-        function buildPdfResultCover(result, examName, studentCount) {
+        function buildPdfScoreItem(subjectName, stats) {
+            const item = document.createElement('div');
+            item.style.padding = '5px 2px 8px';
+            item.style.borderBottom = '1px solid #dbe3ec';
+
+            const header = document.createElement('div');
+            header.style.display = 'flex';
+            header.style.justifyContent = 'space-between';
+            header.style.alignItems = 'baseline';
+            header.style.gap = '8px';
+            const title = document.createElement('strong');
+            title.textContent = subjectName;
+            title.style.fontSize = '11px';
+            const value = document.createElement('span');
+            value.textContent = `${stats.score}/${stats.maxScore}  ${stats.scoreRate}%  ${stats.rank}位`;
+            value.style.fontSize = '10px';
+            value.style.fontWeight = '700';
+            value.style.color = '#334155';
+            header.append(title, value);
+            item.appendChild(header);
+
+            const average = Number(stats.averageScoreRate) || 0;
+            const deviation = Number(stats.scoreRateStdDev) || 0;
+            const displayPercent = value => Math.max(0, Math.min(100, Number(value) || 0));
+            const graph = document.createElement('div');
+            graph.style.position = 'relative';
+            graph.style.height = '15px';
+            graph.style.margin = '5px 0 3px';
+            graph.style.overflow = 'hidden';
+            graph.style.borderRadius = '2px';
+            graph.style.background = '#e0e0e0';
+
+            const scoreBar = document.createElement('div');
+            scoreBar.style.position = 'absolute';
+            scoreBar.style.inset = '0 auto 0 0';
+            scoreBar.style.width = `${displayPercent(stats.scoreRate)}%`;
+            scoreBar.style.background = 'linear-gradient(90deg, #2196f3, #64b5f6)';
+            graph.appendChild(scoreBar);
+
+            [
+                { position: Math.max(0, average - deviation), color: '#ff9800' },
+                { position: average, color: '#4caf50' },
+                { position: Math.min(100, average + deviation), color: '#f44336' }
+            ].forEach(marker => {
+                const line = document.createElement('div');
+                line.style.position = 'absolute';
+                line.style.top = '0';
+                line.style.bottom = '0';
+                line.style.left = `${displayPercent(marker.position)}%`;
+                line.style.width = '2px';
+                line.style.background = marker.color;
+                graph.appendChild(line);
+            });
+            item.appendChild(graph);
+
+            const legend = document.createElement('div');
+            legend.style.display = 'flex';
+            legend.style.justifyContent = 'space-between';
+            legend.style.gap = '4px';
+            legend.style.fontSize = '8px';
+            legend.style.color = '#475569';
+            [
+                [`D: ${displayPercent(average - deviation).toFixed(1)}%`, '#ff9800'],
+                [`Ave.: ${displayPercent(average).toFixed(1)}%`, '#4caf50'],
+                [`A: ${displayPercent(average + deviation).toFixed(1)}%`, '#f44336']
+            ].forEach(([text, color]) => {
+                const label = document.createElement('span');
+                label.textContent = text;
+                label.style.color = color;
+                legend.appendChild(label);
+            });
+            item.appendChild(legend);
+            return item;
+        }
+
+        function buildPdfResultCover(result, examName, studentCount, reviewItems = []) {
             const cover = createPdfSectionBase();
             cover.appendChild(createTitle('個人試験結果'));
 
@@ -2144,17 +2219,20 @@
 
             const totals = document.createElement('div');
             totals.style.display = 'grid';
-            totals.style.gridTemplateColumns = 'repeat(4, 1fr)';
+            totals.style.gridTemplateColumns = 'repeat(5, 1fr)';
             totals.style.gap = '8px';
-            totals.style.marginBottom = '20px';
+            totals.style.marginBottom = '14px';
             [
                 ['総合得点', `${result.totalScore}/${result.totalMaxScore}`],
                 ['得点率', `${result.totalStats?.scoreRate ?? 0}%`],
                 ['順位', `${result.totalStats?.rank ?? '-'}位 / ${studentCount}名`],
-                ['クラス平均', `${result.totalStats?.averageScoreRate ?? 0}%`]
+                ['クラス平均', `${result.totalStats?.averageScoreRate ?? 0}%`],
+                ['4教科合計', result.fourSubjectsStats
+                    ? `${result.fourSubjectsScore}/${result.fourSubjectsMaxScore} (${result.fourSubjectsStats.scoreRate}%)`
+                    : '対象外']
             ].forEach(([label, value]) => {
                 const item = document.createElement('div');
-                item.style.padding = '10px 8px';
+                item.style.padding = '8px 5px';
                 item.style.background = '#eaf3fb';
                 item.style.borderTop = '2px solid #1976d2';
                 item.style.textAlign = 'center';
@@ -2165,58 +2243,72 @@
                 caption.style.color = '#475569';
                 const metric = document.createElement('strong');
                 metric.textContent = value;
-                metric.style.fontSize = '15px';
+                metric.style.fontSize = '11px';
                 item.append(caption, metric);
                 totals.appendChild(item);
             });
             cover.appendChild(totals);
 
+            const reviewTitle = document.createElement('h3');
+            reviewTitle.textContent = '今回の復習項目 TOP5';
+            reviewTitle.style.margin = '0 0 5px 0';
+            reviewTitle.style.fontSize = '12px';
+            reviewTitle.style.color = '#334155';
+            cover.appendChild(reviewTitle);
+
+            const reviewList = document.createElement('div');
+            reviewList.style.display = 'grid';
+            reviewList.style.gridTemplateColumns = '1fr 1fr';
+            reviewList.style.gap = '3px 14px';
+            reviewList.style.marginBottom = '12px';
+            if (reviewItems.length === 0) {
+                const empty = document.createElement('div');
+                empty.textContent = '今回の試験で間違えた復習項目はありません。';
+                empty.style.gridColumn = '1 / -1';
+                empty.style.fontSize = '10px';
+                empty.style.color = '#64748b';
+                reviewList.appendChild(empty);
+            } else {
+                reviewItems.slice(0, 5).forEach((reviewItem, index) => {
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.justifyContent = 'space-between';
+                    row.style.gap = '6px';
+                    row.style.padding = '4px 6px';
+                    row.style.background = index === 0 ? '#fff1e6' : '#f8fafc';
+                    row.style.fontSize = '9px';
+                    const label = document.createElement('span');
+                    label.textContent = `${index + 1}. ${reviewItem.subjectName} / ${reviewItem.displaySource || reviewItem.source}`;
+                    const count = document.createElement('strong');
+                    count.textContent = `${reviewItem.count}問`;
+                    count.style.whiteSpace = 'nowrap';
+                    row.append(label, count);
+                    reviewList.appendChild(row);
+                });
+            }
+            cover.appendChild(reviewList);
+
             const subjectTitle = document.createElement('h3');
-            subjectTitle.textContent = '科目別成績';
-            subjectTitle.style.margin = '0 0 8px 0';
-            subjectTitle.style.fontSize = '14px';
+            subjectTitle.textContent = '得点率';
+            subjectTitle.style.margin = '0 0 4px 0';
+            subjectTitle.style.fontSize = '12px';
             subjectTitle.style.color = '#334155';
             cover.appendChild(subjectTitle);
 
-            const table = document.createElement('table');
-            table.style.width = '100%';
-            table.style.borderCollapse = 'collapse';
-            table.style.fontSize = '11px';
-            const header = document.createElement('tr');
-            ['科目', '得点', '得点率', '順位'].forEach((text, index) => {
-                const cell = document.createElement('th');
-                cell.textContent = text;
-                cell.style.padding = '6px 8px';
-                cell.style.background = '#1976d2';
-                cell.style.color = '#fff';
-                cell.style.textAlign = index === 0 ? 'left' : 'center';
-                header.appendChild(cell);
-            });
-            const head = document.createElement('thead');
-            head.appendChild(header);
-            table.appendChild(head);
-
-            const body = document.createElement('tbody');
-            const subjectRows = [];
-            if (result.requiredMaxScore > 0) subjectRows.push(['必修', result.required]);
+            const scoreGrid = document.createElement('div');
+            scoreGrid.style.display = 'grid';
+            scoreGrid.style.gridTemplateColumns = '1fr 1fr';
+            scoreGrid.style.columnGap = '20px';
+            const scoreItems = [];
+            if (result.requiredMaxScore > 0 && result.required) scoreItems.push(['必修', result.required]);
             subjectNames.forEach(subjectName => {
-                if (result.subjects?.[subjectName]) subjectRows.push([subjectName, result.subjects[subjectName]]);
+                if (result.subjects?.[subjectName]) scoreItems.push([subjectName, result.subjects[subjectName]]);
             });
-            subjectRows.forEach(([subjectName, stats], index) => {
-                const row = document.createElement('tr');
-                [subjectName, `${stats.score}/${stats.maxScore}`, `${stats.scoreRate}%`, `${stats.rank}位`].forEach((text, cellIndex) => {
-                    const cell = document.createElement('td');
-                    cell.textContent = text;
-                    cell.style.padding = '5px 8px';
-                    cell.style.borderBottom = '1px solid #dbe3ec';
-                    cell.style.textAlign = cellIndex === 0 ? 'left' : 'center';
-                    if (index % 2 === 1) cell.style.background = '#f8fafc';
-                    row.appendChild(cell);
-                });
-                body.appendChild(row);
+            if (result.fourSubjectsStats) scoreItems.push(['4教科合計', result.fourSubjectsStats]);
+            scoreItems.forEach(([subjectName, stats]) => {
+                scoreGrid.appendChild(buildPdfScoreItem(subjectName, stats));
             });
-            table.appendChild(body);
-            cover.appendChild(table);
+            cover.appendChild(scoreGrid);
             return cover;
         }
 
@@ -4022,7 +4114,8 @@
                 printRoot.style.width = '794px';
                 printRoot.style.background = '#fff';
 
-                const cover = buildPdfResultCover(target, currentExam?.examName, allResults.length);
+                const reviewItems = calculateTopReviewItems(currentExam, target.studentId, sourceMapping);
+                const cover = buildPdfResultCover(target, currentExam?.examName, allResults.length, reviewItems);
                 const sections = [
                     buildPdfHighRateWrongSection(target, currentExam?.examName, sourceMapping),
                     ...buildSubjectQuestionSections(target, sourceMapping, hideCorrectAnswer)
