@@ -512,17 +512,17 @@
                     
                     const questions = student.questionDetails[subjectName];
                     questions.forEach(q => {
-                        // 間違えた問題のみカウント
-                        const isCorrect = Array.isArray(q.userAnswer) && Array.isArray(q.correctAnswer)
-                            ? q.userAnswer.length === q.correctAnswer.length &&
-                              q.userAnswer.every((val, idx) => val === q.correctAnswer[idx])
-                            : q.userAnswer === q.correctAnswer;
-                        
-                        if (!isCorrect && q.source) {
+                        if (q.source) {
                             if (!weakAreas[subjectName][q.source]) {
-                                weakAreas[subjectName][q.source] = 0;
+                                weakAreas[subjectName][q.source] = { incorrectCount: 0, questionCount: 0 };
                             }
-                            weakAreas[subjectName][q.source]++;
+                            weakAreas[subjectName][q.source].questionCount++;
+
+                            const isCorrect = Array.isArray(q.userAnswer) && Array.isArray(q.correctAnswer)
+                                ? q.userAnswer.length === q.correctAnswer.length &&
+                                  q.userAnswer.every((val, idx) => val === q.correctAnswer[idx])
+                                : q.userAnswer === q.correctAnswer;
+                            if (!isCorrect) weakAreas[subjectName][q.source].incorrectCount++;
                         }
                     });
                 });
@@ -3832,16 +3832,22 @@
         // 苦手領域コンポーネント
         function WeakAreas({ weakAreas, sourceMapping }) {
             const [isExpanded, setIsExpanded] = React.useState(true);
+            const subjectOrder = ['必修', '解剖学', '生理学', '運動学', '病理学', '衛生学', 'リハビリ医学', '一般臨床', '外科学', '整形外科', '柔整理論'];
             
             // 科目ごとに出典を間違い回数でソート
             const sortedWeakAreas = {};
             Object.keys(weakAreas).forEach(subject => {
                 const sources = Object.entries(weakAreas[subject])
-                    .sort((a, b) => b[1] - a[1]); // 間違い回数の降順
+                    .filter(([, stats]) => stats.incorrectCount > 0)
+                    .sort((a, b) => b[1].incorrectCount - a[1].incorrectCount); // 間違い回数の降順
                 if (sources.length > 0) {
                     sortedWeakAreas[subject] = sources;
                 }
             });
+            const sortedSubjects = [
+                ...subjectOrder.filter(subject => sortedWeakAreas[subject]),
+                ...Object.keys(sortedWeakAreas).filter(subject => !subjectOrder.includes(subject))
+            ];
             
             const hasWeakAreas = Object.keys(sortedWeakAreas).length > 0;
             
@@ -3866,7 +3872,7 @@
                     
                     {isExpanded && (
                         <div>
-                            {Object.keys(sortedWeakAreas).map(subject => (
+                            {sortedSubjects.map(subject => (
                                 <div key={subject} style={{ marginBottom: '15px' }}>
                                     <h4 style={{ margin: '0 0 8px 0', color: '#f57c00', borderBottom: '2px solid #ffb74d', paddingBottom: '4px' }}>
                                         {subject}
@@ -3875,11 +3881,12 @@
                                         <thead>
                                             <tr style={{ backgroundColor: '#ffe0b2' }}>
                                                 <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ffb74d' }}>出典</th>
-                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '100px' }}>間違い回数</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d' }}>間違い回数</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '90px' }}>誤答率</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {sortedWeakAreas[subject].map(([source, count]) => {
+                                            {sortedWeakAreas[subject].map(([source, stats]) => {
                                                 const displaySource = convertSourceToName(source, subject, sourceMapping);
                                                 return (
                                                     <tr key={source}>
@@ -3889,9 +3896,12 @@
                                                             border: '1px solid #ffb74d', 
                                                             textAlign: 'center',
                                                             fontWeight: 'bold',
-                                                            color: count >= 3 ? '#c62828' : count >= 2 ? '#f57c00' : '#555'
+                                                            color: stats.incorrectCount >= 3 ? '#c62828' : stats.incorrectCount >= 2 ? '#f57c00' : '#555'
                                                         }}>
-                                                            {count}回
+                                                            {stats.incorrectCount}回/{stats.questionCount}問
+                                                        </td>
+                                                        <td style={{ padding: '8px', border: '1px solid #ffb74d', textAlign: 'center' }}>
+                                                            {Math.round((stats.incorrectCount / stats.questionCount) * 100)}%
                                                         </td>
                                                     </tr>
                                                 );
