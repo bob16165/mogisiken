@@ -495,14 +495,20 @@
             );
         }
 
-        // 苦手領域を計算する関数（全試験の累積）
+        // 全試験累積と直近3回分の苦手領域を計算する関数
         function calculateWeakAreas(allExams, studentId) {
             const weakAreas = {};
+            const examsWithStudent = allExams
+                .map(exam => ({ exam, student: exam.students.find(s => s.studentId === studentId) }))
+                .filter(({ student }) => !!student);
+            const recentExams = examsWithStudent.slice(-3);
+            const recentExamSet = new Set(recentExams.map(({ exam }) => exam));
             
             // 全試験から該当学生のデータを取得
             allExams.forEach(exam => {
                 const student = exam.students.find(s => s.studentId === studentId);
                 if (!student || !student.questionDetails) return;
+                const isRecentExam = recentExamSet.has(exam);
                 
                 // 各科目の問題詳細を確認
                 Object.keys(student.questionDetails).forEach(subjectName => {
@@ -512,23 +518,32 @@
                     
                     const questions = student.questionDetails[subjectName];
                     questions.forEach(q => {
-                        if (q.source) {
+                        if (q.source && q.correctAnswer !== undefined) {
                             if (!weakAreas[subjectName][q.source]) {
-                                weakAreas[subjectName][q.source] = { incorrectCount: 0, questionCount: 0 };
+                                weakAreas[subjectName][q.source] = {
+                                    incorrectCount: 0,
+                                    questionCount: 0,
+                                    recentIncorrectCount: 0,
+                                    recentQuestionCount: 0
+                                };
                             }
                             weakAreas[subjectName][q.source].questionCount++;
+                            if (isRecentExam) weakAreas[subjectName][q.source].recentQuestionCount++;
 
                             const isCorrect = Array.isArray(q.userAnswer) && Array.isArray(q.correctAnswer)
                                 ? q.userAnswer.length === q.correctAnswer.length &&
                                   q.userAnswer.every((val, idx) => val === q.correctAnswer[idx])
                                 : q.userAnswer === q.correctAnswer;
-                            if (!isCorrect) weakAreas[subjectName][q.source].incorrectCount++;
+                            if (!isCorrect) {
+                                weakAreas[subjectName][q.source].incorrectCount++;
+                                if (isRecentExam) weakAreas[subjectName][q.source].recentIncorrectCount++;
+                            }
                         }
                     });
                 });
             });
             
-            return weakAreas;
+            return { areas: weakAreas, recentExamCount: recentExams.length };
         }
 
         function calculateTopReviewItems(exam, studentId, sourceMapping, limit = 5) {
@@ -3841,7 +3856,7 @@
         }
 
         // 苦手領域コンポーネント
-        function WeakAreas({ weakAreas, sourceMapping }) {
+        function WeakAreas({ weakAreas, sourceMapping, recentExamCount }) {
             const [isExpanded, setIsExpanded] = React.useState(false);
             const subjectOrder = ['必修', '解剖学', '生理学', '運動学', '病理学', '衛生学', 'リハビリ医学', '一般臨床', '外科学', '整形外科', '柔整理論'];
             
@@ -3868,7 +3883,7 @@
                         onClick={() => setIsExpanded(!isExpanded)}
                         style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginBottom: isExpanded ? '15px' : '0' }}
                     >
-                        <h3 style={{ margin: 0, color: hasWeakAreas ? '#e65100' : '#2e7d32', flex: 1 }}>📚 苦手領域分析（全試験累積）</h3>
+                        <h3 style={{ margin: 0, color: hasWeakAreas ? '#e65100' : '#2e7d32', flex: 1 }}>📚 苦手領域分析（全試験累積 / 直近{recentExamCount}回）</h3>
                         <span style={{ fontSize: '20px', color: hasWeakAreas ? '#e65100' : '#2e7d32' }}>{isExpanded ? '▼' : '▶'}</span>
                     </div>
                     
@@ -3879,12 +3894,15 @@
                                     <h4 style={{ margin: '0 0 8px 0', color: '#f57c00', borderBottom: '2px solid #ffb74d', paddingBottom: '4px' }}>
                                         {subject}
                                     </h4>
-                                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                    <div style={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', minWidth: '620px', borderCollapse: 'collapse' }}>
                                         <thead>
                                             <tr style={{ backgroundColor: '#ffe0b2' }}>
                                                 <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ffb74d' }}>出典</th>
-                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d' }}>間違い回数</th>
-                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '90px' }}>誤答率</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d' }}>全累積 間違い回数</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '90px' }}>全累積 誤答率</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d' }}>直近{recentExamCount}回 間違い回数</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '90px' }}>直近{recentExamCount}回 誤答率</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -3905,15 +3923,24 @@
                                                         <td style={{ padding: '8px', border: '1px solid #ffb74d', textAlign: 'center' }}>
                                                             {Math.round((stats.incorrectCount / stats.questionCount) * 100)}%
                                                         </td>
+                                                        <td style={{ padding: '8px', border: '1px solid #ffb74d', textAlign: 'center', fontWeight: 'bold' }}>
+                                                            {stats.recentIncorrectCount}回/{stats.recentQuestionCount}問
+                                                        </td>
+                                                        <td style={{ padding: '8px', border: '1px solid #ffb74d', textAlign: 'center' }}>
+                                                            {stats.recentQuestionCount > 0
+                                                                ? `${Math.round((stats.recentIncorrectCount / stats.recentQuestionCount) * 100)}%`
+                                                                : '—'}
+                                                        </td>
                                                     </tr>
                                                 );
                                             })}
                                         </tbody>
                                     </table>
+                                    </div>
                                 </div>
                             ))}
                             <p style={{ marginTop: '10px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
-                                ※ これまでにアップロードされた全試験の累積データです
+                                ※ 正答データが利用できる問題のみを集計しています。全試験累積と直近{recentExamCount}回分を表示しています。
                             </p>
                         </div> : <p style={{ margin: 0, color: '#555' }}>間違えた問題はありません！</p>
                     )}
@@ -4100,7 +4127,7 @@
             }
             
             // 学生の場合のみ苦手領域を計算（全試験累積）
-            const weakAreas = !user.isTeacher && user.studentId && allExams && allExams.length > 0 
+            const weakAreaData = !user.isTeacher && user.studentId && allExams && allExams.length > 0
                 ? calculateWeakAreas(allExams, user.studentId) 
                 : null;
             const highRateWrongAnalysis = allExams && allExams.length > 0
@@ -4557,7 +4584,7 @@
                                 <StudyGuidanceAI guidance={aiGuidance} hideCorrectAnswer={hideCorrectAnswer} />
                             )}
 
-                            {!user.isTeacher && weakAreas && <WeakAreas weakAreas={weakAreas} sourceMapping={sourceMapping} />}
+                            {!user.isTeacher && weakAreaData && <WeakAreas weakAreas={weakAreaData.areas} sourceMapping={sourceMapping} recentExamCount={weakAreaData.recentExamCount} />}
 
                             {!user.isTeacher && highRateWrongAnalysis && (
                                 <HighRateWrongQuestions
