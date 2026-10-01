@@ -4062,7 +4062,7 @@
             const dataSource = currentExam.students;
             const allResults = generateExamResults(dataSource, currentExam.questionLayout);
             const [selectedStudentId, setSelectedStudentId] = useState(user.isTeacher ? (allResults[0]?.studentId || '') : user.studentId);
-            const [viewMode, setViewMode] = useState('detail');
+            const [viewMode, setViewMode] = useState(user.isTeacher ? 'list' : 'detail');
             const [expandedSubject, setExpandedSubject] = useState(null);
             const [showAllQuestions, setShowAllQuestions] = useState(false);
             const [downloadMode, setDownloadMode] = useState('list');
