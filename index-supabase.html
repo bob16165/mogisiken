@@ -35,15 +35,6 @@
                 line-height: 1.45;
             }
 
-            .login-config-actions {
-                top: 12px !important;
-                right: 12px !important;
-            }
-
-            .login-config-actions button {
-                padding: 8px 12px !important;
-                font-size: 12px !important;
-            }
         }
 
         @media (max-width: 600px) and (orientation: portrait) {
@@ -1140,7 +1131,7 @@
         }
 
         // CSVアップロードコンポーネント
-        function CSVUpload({ onUpload, onLogout, existingExams, studentMaster, studentCounts, onStudentMasterUpload, onSourceMappingUpdate, onDeleteExam, isAdmin, schools, selectedSchoolId, onSchoolChange }) {
+        function CSVUpload({ onUpload, onLogout, onOpenSupabaseConfig, existingExams, studentMaster, studentCounts, onStudentMasterUpload, onSourceMappingUpdate, onDeleteExam, isAdmin, schools, selectedSchoolId, onSchoolChange }) {
             const [examName, setExamName] = useState('');
             const [frontHalfFile, setFrontHalfFile] = useState(null);
             const [backHalfFile, setBackHalfFile] = useState(null);
@@ -1633,6 +1624,10 @@
                     <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)', width: '100%', maxWidth: '600px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
                             <h1 style={{ margin: 0, color: '#333', fontSize: '24px' }}>CSVデータアップロード</h1>
+                            {isAdmin && <button onClick={onOpenSupabaseConfig} style={{
+                                padding: '8px 12px', background: '#1565c0', color: 'white',
+                                border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px'
+                            }}>Supabase接続設定</button>}
                             <button onClick={onLogout} style={{
                                 padding: '8px 16px', background: '#f44336', color: 'white',
                                 border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '14px'
@@ -2615,7 +2610,7 @@
                     const errorMessage = String(err?.message || '');
                     
                     if (errorMessage.includes('Failed to fetch')) {
-                        setError('Supabaseに接続できません。右上の「Supabase接続設定」で実際のProject URLとanon keyを設定してください。');
+                        setError('Supabaseに接続できません。管理者ログイン後に「Supabase接続設定」からProject URLとanon keyを確認してください。');
                     } else if (errorMessage.includes('Invalid login credentials')) {
                         setError(`ログインに失敗しました。以下を確認してください：\n1. IDが正確に入力されているか\n2. パスワードが正確に入力されているか\n3. Supabase Authにユーザーが登録されているか\n\n開発者ツール（F12）のコンソールで詳細を確認できます。`);
                     } else if (errorMessage.includes('利用者プロフィール')) {
@@ -4017,7 +4012,7 @@
         }
 
         // 結果表示コンポーネント
-        function ExamResultView({ user, onLogout, onOpenUpload, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
+        function ExamResultView({ user, onLogout, onOpenUpload, onOpenSupabaseConfig, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
                 return (
@@ -4034,6 +4029,10 @@
                                             {schools.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}
                                         </select>
                                     )}
+                                    {user.role === 'admin' && <button onClick={onOpenSupabaseConfig} style={{
+                                        padding: '10px 12px', fontSize: '13px', background: '#1565c0', color: 'white',
+                                        border: 'none', borderRadius: '5px', cursor: 'pointer'
+                                    }}>Supabase接続設定</button>}
                                     {user.isTeacher && <button onClick={onOpenUpload} style={{
                                         padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                         background: '#2e7d32', color: 'white', border: 'none',
@@ -4169,6 +4168,10 @@
                                             {schools.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}
                                         </select>
                                     )}
+                                    {user.role === 'admin' && <button onClick={onOpenSupabaseConfig} style={{
+                                        padding: '10px 12px', fontSize: '13px', background: 'white', color: '#1565c0',
+                                        border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: '600'
+                                    }}>Supabase接続設定</button>}
                                     {allExams && allExams.length > 0 && (
                                         <>
                                             <select value={selectedExamIndex} onChange={(e) => onExamChange(parseInt(e.target.value))}
@@ -4594,6 +4597,28 @@
                             )}
                         </div>
                     )}
+                </div>
+            );
+        }
+
+        function SupabaseConfigDialog({ isOpen, url, anonKey, onUrlChange, onKeyChange, onClose, onSave }) {
+            if (!isOpen) return null;
+
+            return (
+                <div role="dialog" aria-modal="true" aria-labelledby="supabase-config-title" style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+                    <div style={{ width: '100%', maxWidth: '520px', background: 'white', borderRadius: '10px', padding: '24px', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}>
+                        <h2 id="supabase-config-title" style={{ margin: '0 0 18px 0', color: '#333' }}>Supabase接続設定</h2>
+                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600' }}>Project URL</label>
+                        <input value={url} onChange={(e) => onUrlChange(e.target.value)} placeholder="https://xxxx.supabase.co"
+                            style={{ width: '100%', padding: '10px', marginBottom: '14px', border: '1px solid #bbb', borderRadius: '5px' }} />
+                        <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600' }}>anon key</label>
+                        <input type="password" value={anonKey} onChange={(e) => onKeyChange(e.target.value)} placeholder="Supabase anon key"
+                            style={{ width: '100%', padding: '10px', marginBottom: '18px', border: '1px solid #bbb', borderRadius: '5px' }} />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                            <button onClick={onClose} style={{ padding: '9px 16px', background: '#eee', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>キャンセル</button>
+                            <button onClick={onSave} style={{ padding: '9px 16px', background: '#1565c0', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>保存して再読み込み</button>
+                        </div>
+                    </div>
                 </div>
             );
         }
@@ -5077,22 +5102,6 @@
                 }} />;
             }
 
-            if (showUpload) {
-                const uploadExams = loggedInUser.role === 'admin'
-                    ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
-                    : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId);
-                return <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} existingExams={uploadExams} studentMaster={studentMaster} studentCounts={studentCounts} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={handleSourceMappingUpdate} onDeleteExam={handleDeleteExam} isAdmin={loggedInUser.role === 'admin'} schools={schools} selectedSchoolId={selectedSchoolId} onSchoolChange={(schoolId) => setSelectedSchoolId(schoolId)} />;
-            }
-
-            // CSVアップロードボタンの認証処理
-            const handleCSVUploadClick = () => {
-                if (loggedInUser?.isTeacher) {
-                    setShowUpload(true);
-                } else {
-                    alert('教員権限が必要です');
-                }
-            };
-
             const handleSupabaseConfigClick = () => {
                 setShowSupabaseConfig(true);
             };
@@ -5121,38 +5130,39 @@
                 }
             };
 
+            const supabaseConfigDialog = loggedInUser?.role === 'admin' && (
+                <SupabaseConfigDialog
+                    isOpen={showSupabaseConfig}
+                    url={supabaseUrlInput}
+                    anonKey={supabaseKeyInput}
+                    onUrlChange={setSupabaseUrlInput}
+                    onKeyChange={setSupabaseKeyInput}
+                    onClose={() => setShowSupabaseConfig(false)}
+                    onSave={handleSupabaseConfigSave}
+                />
+            );
+
+            if (showUpload) {
+                const uploadExams = loggedInUser.role === 'admin'
+                    ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
+                    : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId);
+                return <>
+                    <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} onOpenSupabaseConfig={handleSupabaseConfigClick} existingExams={uploadExams} studentMaster={studentMaster} studentCounts={studentCounts} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={handleSourceMappingUpdate} onDeleteExam={handleDeleteExam} isAdmin={loggedInUser.role === 'admin'} schools={schools} selectedSchoolId={selectedSchoolId} onSchoolChange={(schoolId) => setSelectedSchoolId(schoolId)} />
+                    {supabaseConfigDialog}
+                </>;
+            }
+
+            // CSVアップロードボタンの認証処理
+            const handleCSVUploadClick = () => {
+                if (loggedInUser?.isTeacher) {
+                    setShowUpload(true);
+                } else {
+                    alert('教員権限が必要です');
+                }
+            };
+
             if (!loggedInUser) {
-                return (
-                    <div>
-                        <div className="login-config-actions" style={{ position: 'fixed', top: '20px', right: '20px', zIndex: 1000, display: 'flex', gap: '10px' }}>
-                            <button onClick={handleSupabaseConfigClick} style={{
-                                padding: '10px 20px', fontSize: '14px', fontWeight: '600',
-                                background: '#1565c0', color: 'white', border: 'none',
-                                borderRadius: '6px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
-                            }}>
-                                Supabase接続設定
-                            </button>
-                        </div>
-                        {showSupabaseConfig && (
-                            <div style={{ position: 'fixed', inset: 0, zIndex: 2000, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-                                <div style={{ width: '100%', maxWidth: '520px', background: 'white', borderRadius: '10px', padding: '24px', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}>
-                                    <h2 style={{ margin: '0 0 18px 0', color: '#333' }}>Supabase接続設定</h2>
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600' }}>Project URL</label>
-                                    <input value={supabaseUrlInput} onChange={(e) => setSupabaseUrlInput(e.target.value)} placeholder="https://xxxx.supabase.co"
-                                        style={{ width: '100%', padding: '10px', marginBottom: '14px', border: '1px solid #bbb', borderRadius: '5px' }} />
-                                    <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: '600' }}>anon key</label>
-                                    <input type="password" value={supabaseKeyInput} onChange={(e) => setSupabaseKeyInput(e.target.value)} placeholder="Supabase anon key"
-                                        style={{ width: '100%', padding: '10px', marginBottom: '18px', border: '1px solid #bbb', borderRadius: '5px' }} />
-                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                                        <button onClick={() => setShowSupabaseConfig(false)} style={{ padding: '9px 16px', background: '#eee', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>キャンセル</button>
-                                        <button onClick={handleSupabaseConfigSave} style={{ padding: '9px 16px', background: '#1565c0', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>保存して再読み込み</button>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-                        <LoginForm onLogin={setLoggedInUser} />
-                    </div>
-                );
+                return <LoginForm onLogin={setLoggedInUser} />;
             }
 
             const schoolExams = loggedInUser.role === 'admin'
@@ -5162,27 +5172,31 @@
             const currentExam = visibleExams[selectedExamIndex] || null;
 
             return (
-                <ExamResultView 
-                    user={loggedInUser} 
-                    onLogout={async () => {
-                        await supabase.auth.signOut();
-                        setLoggedInUser(null);
-                    }}
-                    onOpenUpload={handleCSVUploadClick}
-                    currentExam={currentExam}
-                    allExams={visibleExams}
-                    selectedExamIndex={selectedExamIndex}
-                    onExamChange={setSelectedExamIndex}
-                    onDeleteExam={handleDeleteExam}
-                    onPublishToggle={handlePublishToggle}
-                    sourceMapping={sourceMapping}
-                    schools={schools}
-                    selectedSchoolId={selectedSchoolId}
-                    onSchoolChange={(schoolId) => {
-                        setSelectedSchoolId(schoolId);
-                        setSelectedExamIndex(0);
-                    }}
-                />
+                <>
+                    <ExamResultView
+                        user={loggedInUser}
+                        onLogout={async () => {
+                            await supabase.auth.signOut();
+                            setLoggedInUser(null);
+                        }}
+                        onOpenUpload={handleCSVUploadClick}
+                        onOpenSupabaseConfig={handleSupabaseConfigClick}
+                        currentExam={currentExam}
+                        allExams={visibleExams}
+                        selectedExamIndex={selectedExamIndex}
+                        onExamChange={setSelectedExamIndex}
+                        onDeleteExam={handleDeleteExam}
+                        onPublishToggle={handlePublishToggle}
+                        sourceMapping={sourceMapping}
+                        schools={schools}
+                        selectedSchoolId={selectedSchoolId}
+                        onSchoolChange={(schoolId) => {
+                            setSelectedSchoolId(schoolId);
+                            setSelectedExamIndex(0);
+                        }}
+                    />
+                    {supabaseConfigDialog}
+                </>
             );
         }
 
