@@ -3012,7 +3012,7 @@
         }
 
         function StudyGuidanceAI({ guidance, hideCorrectAnswer }) {
-            const [isExpanded, setIsExpanded] = React.useState(true);
+            const [isExpanded, setIsExpanded] = React.useState(false);
 
             if (!guidance) return null;
 
@@ -3390,6 +3390,7 @@
             const generatedTasks = React.useMemo(() => buildWeeklyStudyTasks(guidance), [guidance]);
             const [remoteTasksEnabled, setRemoteTasksEnabled] = React.useState(true);
             const [remoteNotice, setRemoteNotice] = React.useState('');
+            const [isExpanded, setIsExpanded] = React.useState(false);
             const guidanceSignature = React.useMemo(() => {
                 const action = (guidance?.actionPlan || []).map(item => `${item.subjectName}:${item.latestScoreRate}:${item.sourceText}:${item.subjectCorrel ?? ''}`).join('|');
                 return `${guidance?.analyzedExamCount || 0}::${guidance?.totalTrend || 0}::${action}`;
@@ -3551,7 +3552,11 @@
                     boxShadow: '0 4px 14px rgba(2,132,199,0.12)',
                     padding: '14px'
                 }}>
-                    <h3 style={{ margin: '0 0 8px 0', fontSize: '17px', color: '#0f172a' }}>週間課題トラッカー</h3>
+                    <button type="button" aria-expanded={isExpanded} onClick={() => setIsExpanded(!isExpanded)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: 0, border: 'none', background: 'transparent', color: '#0f172a', cursor: 'pointer', textAlign: 'left' }}>
+                        <span style={{ margin: '0 0 8px 0', fontSize: '17px', fontWeight: '700' }}>週間課題トラッカー</span>
+                        <span aria-hidden="true">{isExpanded ? '▼' : '▶'}</span>
+                    </button>
+                    {isExpanded && <>
                     {remoteNotice && (
                         <div style={{ marginBottom: '10px', fontSize: '12px', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '8px' }}>
                             {remoteNotice}
@@ -3598,6 +3603,7 @@
                             );
                         })}
                     </div>
+                    </>}
                 </div>
             );
         }
@@ -3611,6 +3617,7 @@
             const [isResponding, setIsResponding] = React.useState(false);
             const [statusText, setStatusText] = React.useState('ローカル推論で応答中');
             const [chatStorageEnabled, setChatStorageEnabled] = React.useState(true);
+            const [isExpanded, setIsExpanded] = React.useState(false);
             const loadedRef = React.useRef(false);
 
             const quickPrompts = [
@@ -3737,15 +3744,18 @@
                     boxShadow: '0 6px 16px rgba(15,23,42,0.08)',
                     overflow: 'hidden'
                 }}>
-                    <div style={{ padding: '14px 16px', background: '#0f766e', color: 'white' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-                            <h3 style={{ margin: 0, fontSize: '18px' }}>対話型AI 学習コーチ（ローカル推論）</h3>
+                    <button type="button" aria-expanded={isExpanded} onClick={() => setIsExpanded(!isExpanded)} style={{ width: '100%', padding: '14px 16px', border: 'none', background: '#0f766e', color: 'white', cursor: 'pointer', textAlign: 'left' }}>
+                        <span style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
+                            <strong style={{ fontSize: '18px' }}>対話型AI 学習コーチ（ローカル推論）</strong>
+                            <span aria-hidden="true">{isExpanded ? '▼' : '▶'}</span>
+                        </span>
+                    </button>
+                    {isExpanded && <>
+                        <div style={{ padding: '0 16px 10px', background: '#0f766e', color: 'white' }}>
+                            <p style={{ margin: 0, fontSize: '12px', opacity: 0.9 }}>
+                                {statusText} / 会話履歴はサーバーに保存されます
+                            </p>
                         </div>
-                        <p style={{ margin: '4px 0 0 0', fontSize: '12px', opacity: 0.9 }}>
-                            {statusText} / 会話履歴はサーバーに保存されます
-                        </p>
-                    </div>
-
                     <div style={{ padding: '12px 14px', borderBottom: '1px solid #edf2f7', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         {quickPrompts.map(prompt => (
                             <button
@@ -3825,13 +3835,14 @@
                             送信
                         </button>
                     </div>
+                    </>}
                 </div>
             );
         }
 
         // 苦手領域コンポーネント
         function WeakAreas({ weakAreas, sourceMapping }) {
-            const [isExpanded, setIsExpanded] = React.useState(true);
+            const [isExpanded, setIsExpanded] = React.useState(false);
             const subjectOrder = ['必修', '解剖学', '生理学', '運動学', '病理学', '衛生学', 'リハビリ医学', '一般臨床', '外科学', '整形外科', '柔整理論'];
             
             // 科目ごとに出典を間違い回数でソート
@@ -3851,27 +3862,18 @@
             
             const hasWeakAreas = Object.keys(sortedWeakAreas).length > 0;
             
-            if (!hasWeakAreas) {
-                return (
-                    <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#e8f5e9', borderRadius: '4px' }}>
-                        <h3 style={{ margin: '0 0 10px 0', color: '#2e7d32' }}>🎉 苦手領域分析（全試験累積）</h3>
-                        <p style={{ margin: 0, color: '#555' }}>間違えた問題はありません！</p>
-                    </div>
-                );
-            }
-            
             return (
-                <div style={{ marginTop: '20px', padding: '15px', backgroundColor: '#fff3e0', borderRadius: '4px', border: '1px solid #ffb74d' }}>
+                <div style={{ marginTop: '0', marginBottom: '20px', padding: '15px', backgroundColor: hasWeakAreas ? '#fff3e0' : '#e8f5e9', borderRadius: '4px', border: hasWeakAreas ? '1px solid #ffb74d' : '1px solid #a5d6a7' }}>
                     <div 
                         onClick={() => setIsExpanded(!isExpanded)}
                         style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginBottom: isExpanded ? '15px' : '0' }}
                     >
-                        <h3 style={{ margin: 0, color: '#e65100', flex: 1 }}>📚 苦手領域分析（全試験累積）</h3>
-                        <span style={{ fontSize: '20px', color: '#e65100' }}>{isExpanded ? '▼' : '▶'}</span>
+                        <h3 style={{ margin: 0, color: hasWeakAreas ? '#e65100' : '#2e7d32', flex: 1 }}>📚 苦手領域分析（全試験累積）</h3>
+                        <span style={{ fontSize: '20px', color: hasWeakAreas ? '#e65100' : '#2e7d32' }}>{isExpanded ? '▼' : '▶'}</span>
                     </div>
                     
                     {isExpanded && (
-                        <div>
+                        hasWeakAreas ? <div>
                             {sortedSubjects.map(subject => (
                                 <div key={subject} style={{ marginBottom: '15px' }}>
                                     <h4 style={{ margin: '0 0 8px 0', color: '#f57c00', borderBottom: '2px solid #ffb74d', paddingBottom: '4px' }}>
@@ -3913,14 +3915,28 @@
                             <p style={{ marginTop: '10px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
                                 ※ これまでにアップロードされた全試験の累積データです
                             </p>
-                        </div>
+                        </div> : <p style={{ margin: 0, color: '#555' }}>間違えた問題はありません！</p>
                     )}
                 </div>
             );
         }
 
+        function CollapsibleResultSection({ title, children }) {
+            const [isExpanded, setIsExpanded] = React.useState(false);
+
+            return (
+                <section style={{ marginBottom: '20px', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white', overflow: 'hidden' }}>
+                    <button type="button" aria-expanded={isExpanded} onClick={() => setIsExpanded(!isExpanded)} style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 16px', border: 'none', background: '#f8fafc', color: '#1f2937', cursor: 'pointer', textAlign: 'left', fontSize: '17px', fontWeight: '700' }}>
+                        <span>{title}</span>
+                        <span aria-hidden="true">{isExpanded ? '▼' : '▶'}</span>
+                    </button>
+                    {isExpanded && <div style={{ padding: '12px' }}>{children}</div>}
+                </section>
+            );
+        }
+
         function HighRateWrongQuestions({ analysis, hideCorrectAnswer = false, title = '正答率50%以上で誤答した問題', compact = false }) {
-            const [isExpanded, setIsExpanded] = React.useState(true);
+            const [isExpanded, setIsExpanded] = React.useState(false);
             const [selectedSubject, setSelectedSubject] = React.useState(analysis?.subjectTop5?.[0]?.subjectName || '');
             const [showQuestions, setShowQuestions] = React.useState(false);
             const questions = (analysis?.questions || []).filter(question => question.subjectName === selectedSubject);
@@ -4320,15 +4336,8 @@
                                 <p style={{ margin: '5px 0' }}><strong>氏名:</strong> {result.studentName}</p>
                             </div>
                             {teacherReviewSummary}
-                            {!user.isTeacher && highRateWrongAnalysis && (
-                                <HighRateWrongQuestions
-                                    analysis={highRateWrongAnalysis}
-                                    hideCorrectAnswer={hideCorrectAnswer}
-                                    title="正答率50%以上で誤答した問題一覧"
-                                />
-                            )}
-                            <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
-                                <h3 style={{ margin: '0 0 10px 0' }}>総合成績</h3>
+                            <CollapsibleResultSection title="総合成績">
+                            <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '0' }}>
                                 <div className="result-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
                                     <div><strong>総合点:</strong> {result.totalScore}/{result.totalMaxScore}</div>
                                     {result.requiredMaxScore > 0 && <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>}
@@ -4375,35 +4384,10 @@
                                     </div>
                                 )}
                             </div>
+                            </CollapsibleResultSection>
 
-                            {!user.isTeacher && aiGuidance && (
-                                <StudyGuidanceAI guidance={aiGuidance} hideCorrectAnswer={hideCorrectAnswer} />
-                            )}
-
-                            {!user.isTeacher && aiGuidance && result && (
-                                <StudyChatAssistant
-                                    guidance={aiGuidance}
-                                    result={result}
-                                    hideCorrectAnswer={hideCorrectAnswer}
-                                    studentId={user.studentId}
-                                    schoolId={user.schoolId}
-                                    examId={currentExam?.id || null}
-                                    onTaskAdded={() => setTaskSyncToken(prev => prev + 1)}
-                                />
-                            )}
-
-                            {!user.isTeacher && aiGuidance && result && (
-                                <WeeklyPlanTracker
-                                    guidance={aiGuidance}
-                                    studentId={user.studentId}
-                                    schoolId={user.schoolId}
-                                    examId={currentExam?.id || null}
-                                    syncToken={taskSyncToken}
-                                />
-                            )}
-
+                            <CollapsibleResultSection title="科目別成績">
                             <div style={{ marginBottom: '20px' }}>
-                                <h3>科目別成績</h3>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px', background: 'white' }}>
                                     <thead>
                                         <tr style={{ background: '#1976d2', color: 'white' }}>
@@ -4566,9 +4550,44 @@
                                     </div>
                                 )}
                                 
-                                {/* 学生の場合は苦手領域を表示 */}
-                                {!user.isTeacher && weakAreas && <WeakAreas weakAreas={weakAreas} sourceMapping={sourceMapping} />}
                             </div>
+                            </CollapsibleResultSection>
+
+                            {!user.isTeacher && aiGuidance && (
+                                <StudyGuidanceAI guidance={aiGuidance} hideCorrectAnswer={hideCorrectAnswer} />
+                            )}
+
+                            {!user.isTeacher && weakAreas && <WeakAreas weakAreas={weakAreas} sourceMapping={sourceMapping} />}
+
+                            {!user.isTeacher && highRateWrongAnalysis && (
+                                <HighRateWrongQuestions
+                                    analysis={highRateWrongAnalysis}
+                                    hideCorrectAnswer={hideCorrectAnswer}
+                                    title="正答率50%以上で誤答した問題一覧"
+                                />
+                            )}
+
+                            {!user.isTeacher && aiGuidance && result && (
+                                <StudyChatAssistant
+                                    guidance={aiGuidance}
+                                    result={result}
+                                    hideCorrectAnswer={hideCorrectAnswer}
+                                    studentId={user.studentId}
+                                    schoolId={user.schoolId}
+                                    examId={currentExam?.id || null}
+                                    onTaskAdded={() => setTaskSyncToken(prev => prev + 1)}
+                                />
+                            )}
+
+                            {!user.isTeacher && aiGuidance && result && (
+                                <WeeklyPlanTracker
+                                    guidance={aiGuidance}
+                                    studentId={user.studentId}
+                                    schoolId={user.schoolId}
+                                    examId={currentExam?.id || null}
+                                    syncToken={taskSyncToken}
+                                />
+                            )}
                         </div>
                     )}
                 </div>
