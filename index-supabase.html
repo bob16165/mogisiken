@@ -572,34 +572,6 @@
                 .slice(0, limit);
         }
 
-        function calculateTopWeakAreas(allExams, studentId, sourceMapping, limit = 5) {
-            const itemCounts = {};
-
-            allExams.forEach(exam => {
-                const student = exam.students?.find(s => s.studentId === studentId);
-                Object.entries(student?.questionDetails || {}).forEach(([subjectName, questions]) => {
-                    questions.forEach(q => {
-                        if (!isAnswerCorrect(q.userAnswer, q.correctAnswer) && q.source) {
-                            const key = `${subjectName}\u0000${q.source}`;
-                            if (!itemCounts[key]) {
-                                itemCounts[key] = {
-                                    subjectName,
-                                    source: q.source,
-                                    displaySource: convertSourceToName(q.source, subjectName, sourceMapping),
-                                    count: 0
-                                };
-                            }
-                            itemCounts[key].count++;
-                        }
-                    });
-                });
-            });
-
-            return Object.values(itemCounts)
-                .sort((a, b) => b.count - a.count || a.subjectName.localeCompare(b.subjectName))
-                .slice(0, limit);
-        }
-
         function calculateHighRateWrongQuestions(allExams, studentId, sourceMapping) {
             const questions = [];
             const subjectCounts = {};
@@ -684,7 +656,6 @@
 
         function TeacherReviewSummary({ currentExam, allExams, studentId, sourceMapping }) {
             const currentExamItems = calculateTopReviewItems(currentExam, studentId, sourceMapping);
-            const weakAreas = calculateTopWeakAreas(allExams, studentId, sourceMapping);
             const highRateWrong = calculateHighRateWrongQuestions(allExams, studentId, sourceMapping);
 
             const renderItems = (items, emptyMessage) => {
@@ -711,10 +682,6 @@
                     <div style={{ background: '#fff8e1', padding: '15px', borderRadius: '8px', border: '1px solid #ffcc80' }}>
                         <h3 style={{ margin: '0 0 10px 0', color: '#e65100' }}>今回の復習項目 TOP5</h3>
                         {renderItems(currentExamItems, '今回の試験で間違えた項目はありません。')}
-                    </div>
-                    <div style={{ background: '#fbe9e7', padding: '15px', borderRadius: '8px', border: '1px solid #ffab91' }}>
-                        <h3 style={{ margin: '0 0 10px 0', color: '#bf360c' }}>通算の苦手領域 TOP5</h3>
-                        {renderItems(weakAreas, 'これまでの試験で間違えた項目はありません。')}
                     </div>
                     <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', border: '1px solid #90caf9', gridColumn: '1 / -1' }}>
                         <h3 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>各試験回：正答率50%以上の誤答 科目TOP5</h3>
@@ -4126,9 +4093,10 @@
                 );
             }
             
-            // 学生の場合のみ苦手領域を計算（全試験累積）
-            const weakAreaData = !user.isTeacher && user.studentId && allExams && allExams.length > 0
-                ? calculateWeakAreas(allExams, user.studentId) 
+            // 表示対象の学生について苦手領域を計算（全試験累積と直近3回）
+            const weakAreaStudentId = user.isTeacher ? selectedStudentId : user.studentId;
+            const weakAreaData = weakAreaStudentId && allExams && allExams.length > 0
+                ? calculateWeakAreas(allExams, weakAreaStudentId)
                 : null;
             const highRateWrongAnalysis = allExams && allExams.length > 0
                 ? calculateHighRateWrongQuestions(allExams, user.isTeacher ? selectedStudentId : user.studentId, sourceMapping)
@@ -4613,6 +4581,14 @@
                                     schoolId={user.schoolId}
                                     examId={currentExam?.id || null}
                                     syncToken={taskSyncToken}
+                                />
+                            )}
+
+                            {user.isTeacher && weakAreaData && (
+                                <WeakAreas
+                                    weakAreas={weakAreaData.areas}
+                                    sourceMapping={sourceMapping}
+                                    recentExamCount={weakAreaData.recentExamCount}
                                 />
                             )}
                         </div>
