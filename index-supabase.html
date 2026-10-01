@@ -3823,8 +3823,8 @@
         }
 
         // 苦手領域コンポーネント
-        function WeakAreas({ weakAreas, sourceMapping, recentExamCount }) {
-            const [isExpanded, setIsExpanded] = React.useState(false);
+        function WeakAreas({ weakAreas, sourceMapping, recentExamCount, initialExpanded = false }) {
+            const [isExpanded, setIsExpanded] = React.useState(initialExpanded);
             const subjectOrder = ['必修', '解剖学', '生理学', '運動学', '病理学', '衛生学', 'リハビリ医学', '一般臨床', '外科学', '整形外科', '柔整理論'];
             
             // 科目ごとに出典を間違い回数でソート
@@ -3915,8 +3915,8 @@
             );
         }
 
-        function CollapsibleResultSection({ title, children }) {
-            const [isExpanded, setIsExpanded] = React.useState(false);
+        function CollapsibleResultSection({ title, children, initialExpanded = false }) {
+            const [isExpanded, setIsExpanded] = React.useState(initialExpanded);
 
             return (
                 <section style={{ marginBottom: '20px', border: '1px solid #d1d5db', borderRadius: '6px', background: 'white', overflow: 'hidden' }}>
@@ -4331,7 +4331,7 @@
                                 <p style={{ margin: '5px 0' }}><strong>氏名:</strong> {result.studentName}</p>
                             </div>
                             {teacherReviewSummary}
-                            <CollapsibleResultSection title="総合成績">
+                            <CollapsibleResultSection title="総合成績" initialExpanded={user.isTeacher}>
                             <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '0' }}>
                                 <div className="result-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
                                     <div><strong>総合点:</strong> {result.totalScore}/{result.totalMaxScore}</div>
@@ -4381,7 +4381,7 @@
                             </div>
                             </CollapsibleResultSection>
 
-                            <CollapsibleResultSection title="科目別成績">
+                            <CollapsibleResultSection title="科目別成績" initialExpanded={user.isTeacher}>
                             <div style={{ marginBottom: '20px' }}>
                                 <table style={{ width: '100%', borderCollapse: 'collapse', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px', background: 'white' }}>
                                     <thead>
@@ -4589,6 +4589,7 @@
                                     weakAreas={weakAreaData.areas}
                                     sourceMapping={sourceMapping}
                                     recentExamCount={weakAreaData.recentExamCount}
+                                    initialExpanded
                                 />
                             )}
                         </div>
