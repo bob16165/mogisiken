@@ -1104,7 +1104,7 @@
                                         <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold' }}>{index + 1}</td>
                                         <td style={{ padding: '10px' }}>{result.studentId}</td>
                                         <td style={{ padding: '10px' }}>{result.studentName}</td>
-                                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: '#1976d2' }}>{result.totalScore}</td>
+                                        <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: getFourSubjectsScoreColor(result.totalStats, '#1976d2') }}>{result.totalScore}</td>
                                         {showFourSubjects && <td style={{ padding: '10px', textAlign: 'center', fontWeight: 'bold', color: getFourSubjectsScoreColor(result.fourSubjectsStats) }}>{result.fourSubjectsScore}</td>}
                                         {showRequired && <td style={{ padding: '10px', textAlign: 'center' }}>{result.requiredScore}</td>}
                                         {visibleSubjects.map(subjectName => (
