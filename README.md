@@ -107,7 +107,20 @@ supabase functions deploy student-results
 
 ## 🌐 アクセス方法
 
-**URL**: https://bob16165.github.io/mogisiken/index-supabase.html
+**URL**: https://mea-analysis.jp/index-supabase.html
+
+### カスタムドメイン（GitHub Pages）
+
+`CNAME` ファイルには `mea-analysis.jp` を設定しています。GitHub リポジトリの Settings → Pages でも Custom domain に `mea-analysis.jp` を設定してください。Xserver のDNSレコード設定では、`mea-analysis.jp` に次のAレコードを追加します。Xserverサーバー宛の既存のA/AAAAレコードは削除してください。
+
+| 種別 | ホスト名 | 内容 |
+|---|---|---|
+| A | `@`（または空欄） | `185.199.108.153` |
+| A | `@`（または空欄） | `185.199.109.153` |
+| A | `@`（または空欄） | `185.199.110.153` |
+| A | `@`（または空欄） | `185.199.111.153` |
+
+DNS反映後、Settings → Pages でHTTPSの有効化を確認します。証明書の発行・反映には時間がかかる場合があります。
 
 ---
 

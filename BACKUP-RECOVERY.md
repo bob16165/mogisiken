@@ -123,8 +123,8 @@ supabase secrets set OPENAI_API_KEY=<実際のキー>
 5. 次の URL で HTTP 200 を確認する
 
 ```text
-https://bob16165.github.io/mogisiken/
-https://bob16165.github.io/mogisiken/index-supabase.html
+https://mea-analysis.jp/
+https://mea-analysis.jp/index-supabase.html
 ```
 
 ## 8. 復旧完了の判定

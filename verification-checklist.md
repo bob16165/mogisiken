@@ -15,7 +15,7 @@
 
 ## 事前準備
 - [ ] 最新版が反映されたURLを開く
-  - https://bob16165.github.io/mogisiken/index-supabase.html
+  - https://mea-analysis.jp/index-supabase.html
 - [ ] 学生アカウントでログインできる
 - [ ] 必要なら右上の「Supabase接続設定」で Project URL / anon key を設定済み
 - [ ] Supabase に `student_chat_messages` と `student_study_tasks` が作成済み
