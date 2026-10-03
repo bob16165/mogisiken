@@ -4394,9 +4394,7 @@
                             <CollapsibleResultSection title="総合成績" initialExpanded={user.isTeacher}>
                             <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '0' }}>
                                 <div className="result-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
-                                    <div><strong>総合点:</strong> {user.isTeacher
-                                        ? <span style={{ color: getFourSubjectsScoreColor(result.totalStats, '#1976d2'), fontWeight: 'bold' }}>{result.totalScore}/{result.totalMaxScore}</span>
-                                        : <>{result.totalScore}/{result.totalMaxScore}</>}</div>
+                                    <div><strong>総合点:</strong> <span style={{ color: getFourSubjectsScoreColor(result.totalStats, '#1976d2'), fontWeight: 'bold' }}>{result.totalScore}/{result.totalMaxScore}</span></div>
                                     {result.requiredMaxScore > 0 && <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>}
                                     {result.generalMaxScore > 0 && <div><strong>一般合計:</strong> {result.generalScore}/{result.generalMaxScore}</div>}
                                     {result.fourSubjectsStats && <div><strong>4教科合計:</strong> <span style={{ color: getFourSubjectsScoreColor(result.fourSubjectsStats), fontWeight: 'bold' }}>{result.fourSubjectsScore}/{result.fourSubjectsMaxScore}</span></div>}
