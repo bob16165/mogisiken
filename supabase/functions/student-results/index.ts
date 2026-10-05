@@ -241,6 +241,13 @@ Deno.serve(async (request) => {
       .single();
     if (operatorError || !operator) throw new Error('利用者情報が見つかりません');
 
+    if (operator.role === 'admin') {
+      const { data: claimsData, error: claimsError } = await adminClient.auth.getClaims(token);
+      if (claimsError || claimsData?.claims?.aal !== 'aal2') {
+        throw new Error('管理者の二段階認証が必要です');
+      }
+    }
+
     const body = await request.json().catch(() => ({}));
     const requestedSchoolId = operator.role === 'admin' ? body.schoolId : operator.school_id;
     if (operator.role !== 'admin' && !operator.school_id) throw new Error('所属校が設定されていません');

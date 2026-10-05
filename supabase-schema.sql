@@ -120,12 +120,24 @@ ALTER TABLE student_master
 
 CREATE OR REPLACE FUNCTION public.is_admin()
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role = 'admin');
+  SELECT EXISTS (
+    SELECT 1 FROM app_users
+    WHERE id = auth.uid()
+      AND role = 'admin'
+      AND (auth.jwt() ->> 'aal') = 'aal2'
+  );
 $$;
 
 CREATE OR REPLACE FUNCTION public.is_teacher_of(target_school UUID)
 RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
-  SELECT EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role IN ('teacher', 'admin') AND (role = 'admin' OR school_id = target_school));
+  SELECT EXISTS (
+    SELECT 1 FROM app_users
+    WHERE id = auth.uid()
+      AND (
+        (role = 'teacher' AND school_id = target_school)
+        OR (role = 'admin' AND (auth.jwt() ->> 'aal') = 'aal2')
+      )
+  );
 $$;
 
 CREATE OR REPLACE FUNCTION public.is_student_owner(target_school UUID, target_student_id TEXT)

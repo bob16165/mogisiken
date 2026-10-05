@@ -2559,8 +2559,19 @@
             return sections;
         }
 
+        function toLoggedInUser(profile) {
+            return {
+                id: profile.id,
+                studentId: profile.student_id,
+                name: profile.display_name,
+                role: profile.role,
+                schoolId: profile.school_id,
+                isTeacher: profile.role === 'teacher' || profile.role === 'admin'
+            };
+        }
+
         // ログインコンポーネント
-        function LoginForm({ onLogin }) {
+        function LoginForm({ onLogin, onAdminMfaRequired }) {
             const [studentId, setStudentId] = useState('');
             const [password, setPassword] = useState('');
             const [error, setError] = useState('');
@@ -2646,14 +2657,17 @@
                     //     throw new Error(`入力されたIDが登録されたログインIDと一致しません。割り振られたID（例：${profile.login_id}）を入力してください。`);
                     // }
 
-                    onLogin({
-                        id: profile.id,
-                        studentId: profile.student_id,
-                        name: profile.display_name,
-                        role: profile.role,
-                        schoolId: profile.school_id,
-                        isTeacher: profile.role === 'teacher' || profile.role === 'admin'
-                    });
+                    const loggedInUser = toLoggedInUser(profile);
+                    if (profile.role === 'admin') {
+                        const { data: assurance, error: assuranceError } =
+                            await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+                        if (assuranceError) throw assuranceError;
+                        if (assurance?.currentLevel !== 'aal2') {
+                            onAdminMfaRequired(loggedInUser);
+                            return;
+                        }
+                    }
+                    onLogin(loggedInUser);
                 } catch (err) {
                     console.error('Login error:', err);
                     const errorMessage = String(err?.message || '');
@@ -2694,6 +2708,149 @@
                                 border: 'none', borderRadius: '6px', cursor: isLoading ? 'not-allowed' : 'pointer'
                             }}>{isLoading ? 'ログイン中...' : 'ログイン'}</button>
                         </form>
+                    </div>
+                </div>
+            );
+        }
+
+        function AdminMfaForm({ user, onVerified, onCancel }) {
+            const [mode, setMode] = useState('loading');
+            const [factorId, setFactorId] = useState('');
+            const [challengeId, setChallengeId] = useState('');
+            const [qrCode, setQrCode] = useState('');
+            const [secret, setSecret] = useState('');
+            const [code, setCode] = useState('');
+            const [error, setError] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+
+            useEffect(() => {
+                let isMounted = true;
+                async function loadFactors() {
+                    const { data, error: factorsError } = await supabase.auth.mfa.listFactors();
+                    if (factorsError) throw factorsError;
+                    const verifiedFactor = data?.totp?.find(factor => factor.status === 'verified');
+                    if (isMounted) {
+                        if (verifiedFactor) {
+                            setFactorId(verifiedFactor.id);
+                            setMode('verify');
+                        } else {
+                            setMode('enroll');
+                        }
+                    }
+                }
+                loadFactors().catch(loadError => {
+                    console.error('Admin MFA factor list error:', loadError);
+                    if (isMounted) {
+                        setError(loadError.message || '二段階認証の状態を確認できませんでした');
+                        setMode('error');
+                    }
+                });
+                return () => { isMounted = false; };
+            }, []);
+
+            const startEnrollment = async () => {
+                setIsLoading(true);
+                setError('');
+                try {
+                    const { data, error: enrollError } = await supabase.auth.mfa.enroll({
+                        factorType: 'totp',
+                        friendlyName: 'MogiSiken 管理者'
+                    });
+                    if (enrollError) throw enrollError;
+                    const newFactorId = data?.id;
+                    if (!newFactorId || !data?.totp?.qr_code || !data?.totp?.secret) {
+                        throw new Error('認証アプリ登録情報を取得できませんでした');
+                    }
+                    setFactorId(newFactorId);
+                    setQrCode(data.totp.qr_code);
+                    setSecret(data.totp.secret);
+                    setMode('setup');
+                } catch (enrollError) {
+                    console.error('Admin MFA enrollment error:', enrollError);
+                    setError(enrollError.message || '二段階認証の登録を開始できませんでした');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const verifyCode = async (event) => {
+                event.preventDefault();
+                setError('');
+                if (!/^\d{6}$/.test(code)) {
+                    setError('認証アプリに表示された6桁の数字を入力してください');
+                    return;
+                }
+
+                setIsLoading(true);
+                try {
+                    let currentChallengeId = challengeId;
+                    if (!currentChallengeId) {
+                        const { data, error: challengeError } = await supabase.auth.mfa.challenge({ factorId });
+                        if (challengeError) throw challengeError;
+                        currentChallengeId = data.id;
+                        setChallengeId(currentChallengeId);
+                    }
+
+                    const { error: verifyError } = await supabase.auth.mfa.verify({
+                        factorId,
+                        challengeId: currentChallengeId,
+                        code
+                    });
+                    if (verifyError) throw verifyError;
+
+                    const { data: assurance, error: assuranceError } =
+                        await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+                    if (assuranceError) throw assuranceError;
+                    if (assurance?.currentLevel !== 'aal2') {
+                        throw new Error('二段階認証の確認が完了しませんでした。コードを再度入力してください');
+                    }
+                    onVerified(user);
+                } catch (verifyError) {
+                    console.error('Admin MFA verification error:', verifyError);
+                    setError(verifyError.message || '認証コードを確認できませんでした');
+                    setCode('');
+                    setChallengeId('');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            return (
+                <div className="login-screen" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '20px' }}>
+                    <div className="login-card" style={{ background: 'white', padding: '32px', borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.2)', width: '100%', maxWidth: '440px' }}>
+                        <h1 style={{ textAlign: 'center', marginBottom: '12px', color: '#333', fontSize: '22px' }}>管理者の二段階認証</h1>
+                        <p style={{ color: '#555', lineHeight: 1.7, marginBottom: '20px', fontSize: '14px' }}>
+                            {mode === 'enroll' || mode === 'setup'
+                                ? '認証アプリを登録して、管理者アカウントを保護します。'
+                                : '認証アプリに表示された6桁のコードを入力してください。'}
+                        </p>
+                        {mode === 'loading' && <p>認証方法を確認しています...</p>}
+                        {mode === 'error' && <p style={{ color: '#b71c1c' }}>認証方法の確認に失敗しました。</p>}
+                        {mode === 'enroll' && (
+                            <button type="button" onClick={startEnrollment} disabled={isLoading} style={{ width: '100%', padding: '13px', background: '#1565c0', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>
+                                {isLoading ? '準備中...' : '認証アプリを登録する'}
+                            </button>
+                        )}
+                        {mode === 'setup' && (
+                            <div style={{ marginBottom: '18px', textAlign: 'center' }}>
+                                <img src={qrCode} alt="認証アプリ登録用QRコード" style={{ width: '180px', height: '180px', margin: '0 auto 12px' }} />
+                                <p style={{ fontSize: '13px', color: '#555', lineHeight: 1.6 }}>認証アプリでQRコードを読み取ってください。読み取れない場合は次のキーを手動で登録してください。</p>
+                                <code style={{ display: 'block', overflowWrap: 'anywhere', padding: '10px', marginTop: '8px', background: '#f2f2f2', borderRadius: '5px' }}>{secret}</code>
+                            </div>
+                        )}
+                        {(mode === 'setup' || mode === 'verify') && (
+                            <form onSubmit={verifyCode}>
+                                <label style={{ display: 'block', marginBottom: '7px', color: '#444', fontSize: '14px' }}>認証コード</label>
+                                <input type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength="6" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} required
+                                    style={{ width: '100%', padding: '13px', marginBottom: '14px', border: '1px solid #bbb', borderRadius: '5px', fontSize: '20px', letterSpacing: '0.3em', textAlign: 'center' }} />
+                                {error && <div style={{ padding: '10px', marginBottom: '14px', background: '#ffebee', color: '#c62828', borderRadius: '5px', fontSize: '13px' }}>{error}</div>}
+                                <button type="submit" disabled={isLoading} style={{ width: '100%', padding: '13px', background: isLoading ? '#999' : '#1565c0', color: 'white', border: 'none', borderRadius: '6px', cursor: isLoading ? 'not-allowed' : 'pointer' }}>
+                                    {isLoading ? '確認中...' : mode === 'setup' ? '登録してログイン' : '認証してログイン'}
+                                </button>
+                            </form>
+                        )}
+                        {mode !== 'setup' && mode !== 'verify' && error && <div style={{ padding: '10px', marginTop: '14px', background: '#ffebee', color: '#c62828', borderRadius: '5px', fontSize: '13px' }}>{error}</div>}
+                        <button type="button" onClick={onCancel} style={{ width: '100%', padding: '11px', marginTop: '12px', background: '#eee', color: '#333', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>ログアウト</button>
                     </div>
                 </div>
             );
@@ -4689,6 +4846,7 @@
         // メインアプリ
         function App() {
             const [loggedInUser, setLoggedInUser] = useState(null);
+            const [pendingAdminMfaUser, setPendingAdminMfaUser] = useState(null);
             const [allExams, setAllExams] = useState([]);
             const [schools, setSchools] = useState([]);
             const [selectedSchoolId, setSelectedSchoolId] = useState('');
@@ -4724,7 +4882,10 @@
                         setIsPasswordRecovery(true);
                         setLoggedInUser(null);
                     }
-                    if (event === 'SIGNED_OUT' && isMounted) setLoggedInUser(null);
+                    if (event === 'SIGNED_OUT' && isMounted) {
+                        setLoggedInUser(null);
+                        setPendingAdminMfaUser(null);
+                    }
                 });
 
                 async function restoreSession() {
@@ -4745,14 +4906,17 @@
                         .single();
 
                     if (isMounted && profile && !error) {
-                        setLoggedInUser({
-                            id: profile.id,
-                            studentId: profile.student_id,
-                            name: profile.display_name,
-                            role: profile.role,
-                            schoolId: profile.school_id,
-                            isTeacher: profile.role === 'teacher' || profile.role === 'admin'
-                        });
+                        const loggedInProfile = toLoggedInUser(profile);
+                        if (profile.role === 'admin') {
+                            const { data: assurance, error: assuranceError } =
+                                await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+                            if (assuranceError) throw assuranceError;
+                            if (assurance?.currentLevel !== 'aal2') {
+                                setPendingAdminMfaUser(loggedInProfile);
+                                return;
+                            }
+                        }
+                        setLoggedInUser(loggedInProfile);
                     }
                 }
 
@@ -5218,8 +5382,25 @@
                 }
             };
 
+            if (pendingAdminMfaUser) {
+                return <AdminMfaForm
+                    user={pendingAdminMfaUser}
+                    onVerified={(user) => {
+                        setPendingAdminMfaUser(null);
+                        setLoggedInUser(user);
+                    }}
+                    onCancel={async () => {
+                        await supabase.auth.signOut();
+                        setPendingAdminMfaUser(null);
+                    }}
+                />;
+            }
+
             if (!loggedInUser) {
-                return <LoginForm onLogin={setLoggedInUser} />;
+                return <LoginForm
+                    onLogin={setLoggedInUser}
+                    onAdminMfaRequired={setPendingAdminMfaUser}
+                />;
             }
 
             const schoolExams = loggedInUser.role === 'admin'

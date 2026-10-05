@@ -58,6 +58,27 @@ OSS の利用ライセンスと、Edge Function への秘密処理の移行状�
 
 管理者ログインの初期登録は `supabase-admin-bootstrap.sql` を使います。先にSupabase Authで `admin@mogisiken.local`（またはSQL内で変更したメールアドレス）のユーザーを作成・確認済みにし、そのSQLを実行してください。アプリにはID `admin` とAuthで設定したパスワードでログインします。
 
+### 管理者の二段階認証（TOTP）
+
+管理者はログインID・パスワードに加え、Google AuthenticatorやMicrosoft Authenticatorなどの認証アプリに表示される6桁コードを使います。初回ログイン後にアプリ内のQRコードを読み取り、コードを確認すると登録が完了します。管理者アカウントごとに登録が必要です。学生・教員のログイン方法は変わりません。方式の詳細は [Supabase MFA (TOTP) 公式ドキュメント](https://supabase.com/docs/guides/auth/auth-mfa/totp) を参照してください。
+
+既存プロジェクトでは、次の順で反映してください。
+
+1. Supabase DashboardのAuth/MFA設定でTOTP認証アプリを有効にする
+2. 更新した `index-supabase.html` を公開する
+3. Supabase SQL Editorで [supabase-admin-mfa-aal2.sql](supabase-admin-mfa-aal2.sql) を実行する
+4. 次のEdge Functionを再デプロイする
+   ```sh
+   supabase functions deploy student-results
+   supabase functions deploy import-exam
+   supabase functions deploy import-student-master
+   ```
+5. 各管理者がログインし、認証アプリを登録して6桁コードの確認を完了する
+
+初回登録が終わるまで管理者の成績閲覧・管理操作は許可されません。認証アプリを紛失した場合に備えて、導入前に本人確認・MFA要素の解除・再登録の管理者向け復旧手順を用意してください。TOTPコード、QRコード、セットアップキーを他人と共有しないでください。
+
+新規プロジェクトでは、既存DB用の移行SQLの代わりに [supabase-schema.sql](supabase-schema.sql) がAAL2対応の認可関数を作成します。別途作成した管理者向けRLSポリシーも、直接 `app_users.role = 'admin'` を判定せず `public.is_admin()` または `public.is_teacher_of()` を使ってください。
+
 既存試験を学校へ割り当てる場合は `supabase-assign-existing-exams.sql` を使います。SQL内の `SCHOOL_UUID` を `schools.id` に置き換えて実行すると、学校IDが未設定の既存試験と試験結果を指定校へ紐付けます。
 
 Table Editorでは学校が見えるのにアプリで「学校未登録」と表示される場合は、`supabase-admin-school-access.sql` を実行してください。管理者が `schools` を読めるRLSを追加します。

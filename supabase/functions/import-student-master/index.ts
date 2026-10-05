@@ -35,6 +35,12 @@ Deno.serve(async (request) => {
     if (operatorError || !operator || !['teacher', 'admin'].includes(operator.role)) {
       throw new Error('教員または管理者権限が必要です');
     }
+    if (operator.role === 'admin') {
+      const { data: claimsData, error: claimsError } = await adminClient.auth.getClaims(token);
+      if (claimsError || claimsData?.claims?.aal !== 'aal2') {
+        throw new Error('管理者の二段階認証が必要です');
+      }
+    }
 
     stage = '入力データ確認';
     const body = await request.json();

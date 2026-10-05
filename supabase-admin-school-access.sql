@@ -10,12 +10,7 @@ on public.schools
 for select
 to authenticated
 using (
-  exists (
-    select 1
-    from public.app_users
-    where app_users.id = auth.uid()
-      and app_users.role = 'admin'
-  )
+  public.is_admin()
 );
 
 -- アプリのログインユーザー自身のプロフィールを読めるようにします。

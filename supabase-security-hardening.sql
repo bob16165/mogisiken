@@ -86,7 +86,9 @@ AS $$
   SELECT EXISTS (
     SELECT 1
     FROM public.app_users
-    WHERE id = auth.uid() AND role = 'admin'
+    WHERE id = auth.uid()
+      AND role = 'admin'
+      AND (auth.jwt() ->> 'aal') = 'aal2'
   );
 $$;
 
@@ -101,8 +103,10 @@ AS $$
     SELECT 1
     FROM public.app_users
     WHERE id = auth.uid()
-      AND role IN ('teacher', 'admin')
-      AND (role = 'admin' OR school_id = target_school)
+      AND (
+        (role = 'teacher' AND school_id = target_school)
+        OR (role = 'admin' AND (auth.jwt() ->> 'aal') = 'aal2')
+      )
   );
 $$;
 
