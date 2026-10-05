@@ -29,7 +29,17 @@ const DEFAULT_QUESTION_LAYOUT = [
 ];
 const FOUR_SUBJECTS = ['解剖学', '生理学', '一般臨床', '柔整理論'];
 
-function getQuestionCounts(questionLayout: unknown) {
+type QuestionOverride = {
+  mode: 'accepted_answers' | 'full_credit' | 'excluded';
+  answers?: unknown[];
+};
+type QuestionOverrides = Record<string, Record<string, QuestionOverride>>;
+
+function getQuestionOverride(overrides: QuestionOverrides, subject: string, questionNumber: unknown) {
+  return overrides?.[subject]?.[String(questionNumber)];
+}
+
+function getQuestionCounts(questionLayout: unknown, overrides: QuestionOverrides = {}) {
   const subjectNames = ['必修', ...SUBJECTS.map(([, name]) => name)];
   const counts: Record<string, number> = Object.fromEntries(subjectNames.map((name) => [name, 0]));
   const layout = Array.isArray(questionLayout) && questionLayout.length > 0 ? questionLayout : DEFAULT_QUESTION_LAYOUT;
@@ -37,7 +47,12 @@ function getQuestionCounts(questionLayout: unknown) {
     const start = Number(item?.start);
     const end = Number(item?.end);
     if (Object.prototype.hasOwnProperty.call(counts, item?.subject) && Number.isInteger(start) && Number.isInteger(end) && start > 0 && end >= start) {
-      counts[item.subject] += end - start + 1;
+      const prefix = item?.section === '後半' ? 'B' : 'Q';
+      for (let questionNumber = start; questionNumber <= end; questionNumber++) {
+        if (getQuestionOverride(overrides, item.subject, `${prefix}${questionNumber}`)?.mode !== 'excluded') {
+          counts[item.subject] += 1;
+        }
+      }
     }
   });
   return counts;
@@ -55,6 +70,16 @@ function isCorrect(userAnswer: unknown, correctAnswer: unknown) {
       [...userAnswer].sort().every((value, index) => value === [...correctAnswer].sort()[index]);
   }
   return userAnswer === correctAnswer;
+}
+
+function isQuestionCorrect(question: Record<string, any>, override?: QuestionOverride) {
+  if (override?.mode === 'excluded') return null;
+  if (override?.mode === 'full_credit') return true;
+  if (override?.mode === 'accepted_answers') {
+    if (!override.answers && typeof question.isCorrect === 'boolean') return question.isCorrect;
+    return (override.answers || []).some((answer) => isCorrect(question.userAnswer, answer));
+  }
+  return isCorrect(question.userAnswer, question.correctAnswer);
 }
 
 function deviation(score: number, scores: number[]) {
@@ -83,7 +108,7 @@ function stats(score: number, maxScore: number, allScores: number[]) {
 
 function sanitizeQuestion(question: Record<string, unknown>, exposeAnswers: boolean) {
   if (exposeAnswers) return question;
-  const { correctAnswer: _correctAnswer, correctRate: _correctRate, correlWithTotal: _correl, ...safeQuestion } = question;
+  const { correctAnswer: _correctAnswer, correctRate: _correctRate, correlWithTotal: _correl, gradingOverride: _gradingOverride, isCorrect: _isCorrect, ...safeQuestion } = question;
   return safeQuestion;
 }
 
@@ -106,8 +131,8 @@ function computePearsonCorrel(xArr: number[], yArr: number[]) {
 
 // 正答率・相関係数はクラス全体（allRows）に対する統計のため、試験単位で一度だけ計算する
 // questionNumberはCSVの列名(例: "Q1")が文字列のまま入っているため、Number変換せず文字列キーで突き合わせる
-function buildQuestionStats(allRows: Record<string, any>[], questionLayout: unknown) {
-  const questionCounts = getQuestionCounts(questionLayout);
+function buildQuestionStats(allRows: Record<string, any>[], questionLayout: unknown, overrides: QuestionOverrides) {
+  const questionCounts = getQuestionCounts(questionLayout, overrides);
   const configuredSubjects = Object.keys(questionCounts).filter((subject) => questionCounts[subject] > 0);
   const allTotals = allRows.map((item) => configuredSubjects.reduce((sum, subject) => sum + scoreForSubject(item, subject), 0));
   const correctRateMap: Record<string, Record<string, number>> = {};
@@ -115,6 +140,7 @@ function buildQuestionStats(allRows: Record<string, any>[], questionLayout: unkn
 
   const subjectNames = new Set<string>();
   allRows.forEach((row) => Object.keys(row.question_details || {}).forEach((subject) => subjectNames.add(subject)));
+  Object.keys(overrides || {}).forEach((subject) => subjectNames.add(subject));
 
   subjectNames.forEach((subject) => {
     correctRateMap[subject] = {};
@@ -125,8 +151,11 @@ function buildQuestionStats(allRows: Record<string, any>[], questionLayout: unkn
         questionNumbers.add(String(question.questionNumber));
       });
     });
+    Object.keys(overrides?.[subject] || {}).forEach((questionNumber) => questionNumbers.add(questionNumber));
 
     questionNumbers.forEach((questionNumber) => {
+      const override = getQuestionOverride(overrides, subject, questionNumber);
+      if (override?.mode === 'excluded') return;
       let correctCount = 0;
       let totalCount = 0;
       const pairs: { x: number; y: number }[] = [];
@@ -134,12 +163,21 @@ function buildQuestionStats(allRows: Record<string, any>[], questionLayout: unkn
       allRows.forEach((row, index) => {
         const question = (row.question_details?.[subject] || []).find((q: Record<string, unknown>) => String(q.questionNumber) === questionNumber);
         if (!question) return;
+        const correct = isQuestionCorrect(question, override);
+        if (correct === null) return;
         totalCount += 1;
-        const correct = isCorrect(question.userAnswer, question.correctAnswer);
         if (correct) correctCount += 1;
         pairs.push({ x: correct ? 1 : 0, y: allTotals[index] });
       });
 
+      if (override?.mode === 'full_credit') {
+        correctRateMap[subject][questionNumber] = 100;
+        correlMap[subject][questionNumber] = computePearsonCorrel(
+          allRows.map(() => 1),
+          allTotals
+        );
+        return;
+      }
       correctRateMap[subject][questionNumber] = totalCount > 0 ? Math.round((correctCount / totalCount) * 100) : 0;
       correlMap[subject][questionNumber] = pairs.length >= 2
         ? computePearsonCorrel(pairs.map((p) => p.x), pairs.map((p) => p.y))
@@ -155,9 +193,10 @@ function buildComputed(
   allRows: Record<string, any>[],
   exposeAnswers: boolean,
   questionStats: { correctRateMap: Record<string, Record<string, number>>; correlMap: Record<string, Record<string, number | null>> },
-  questionLayout: unknown
+  questionLayout: unknown,
+  overrides: QuestionOverrides
 ) {
-  const questionCounts = getQuestionCounts(questionLayout);
+  const questionCounts = getQuestionCounts(questionLayout, overrides);
   const configuredSubjects = Object.keys(questionCounts).filter((subject) => questionCounts[subject] > 0);
   const configuredGeneralSubjects = SUBJECTS.map(([, name]) => name).filter((subject) => questionCounts[subject] > 0);
   const allTotals = allRows.map((item) => configuredSubjects.reduce((sum, subject) => sum + scoreForSubject(item, subject), 0));
@@ -173,8 +212,16 @@ function buildComputed(
     if (!Array.isArray(questions)) return;
     questionDetails[subject] = questions.map((question: Record<string, unknown>) => {
       const questionNumber = String(question.questionNumber);
+      const gradingOverride = getQuestionOverride(overrides, subject, questionNumber);
       const enriched = {
         ...question,
+        ...(exposeAnswers ? { isCorrect: isQuestionCorrect(question, gradingOverride) } : {}),
+        ...(gradingOverride ? {
+          gradingOverride: {
+            mode: gradingOverride.mode,
+            ...(gradingOverride.mode === 'accepted_answers' ? { answers: gradingOverride.answers } : {})
+          }
+        } : {}),
         correctRate: questionStats.correctRateMap[subject]?.[questionNumber] ?? null,
         correlWithTotal: questionStats.correlMap[subject]?.[questionNumber] ?? null
       };
@@ -255,7 +302,7 @@ Deno.serve(async (request) => {
     let examsQuery = adminClient
       .from('exams')
       .select(`
-        id, school_id, exam_name, question_layout, hide_correct_answer, is_published, created_at,
+        id, school_id, exam_name, question_layout, question_overrides, hide_correct_answer, is_published, created_at,
         student_exam_results (
           student_id, student_name, school_id, question_details,
           required_score, anatomy_score, physiology_score, kinesiology_score,
@@ -278,12 +325,22 @@ Deno.serve(async (request) => {
         : allRows;
       // 正答を隠すのは卒業判定試験(hide_correct_answer)だけ。通常試験は学生にも正答を返す
       const exposeAnswers = operator.role !== 'student' || !exam.hide_correct_answer;
-      const questionStats = buildQuestionStats(allRows, exam.question_layout);
+      const questionOverrides = exam.question_overrides || {};
+      const questionStats = buildQuestionStats(allRows, exam.question_layout, questionOverrides);
       return {
         id: exam.id,
         school_id: exam.school_id,
         exam_name: exam.exam_name,
         question_layout: exam.question_layout,
+        question_overrides: operator.role === 'student' && exam.hide_correct_answer
+          ? Object.fromEntries(Object.entries(questionOverrides).map(([subject, subjectRules]: [string, any]) => [
+            subject,
+            Object.fromEntries(Object.entries(subjectRules || {}).map(([questionNumber, rule]: [string, any]) => [
+              questionNumber,
+              { mode: rule.mode }
+            ]))
+          ]))
+          : questionOverrides,
         hide_correct_answer: exam.hide_correct_answer,
         is_published: exam.is_published,
         created_at: exam.created_at,
@@ -293,7 +350,7 @@ Deno.serve(async (request) => {
             subject,
             Array.isArray(questions) ? questions.map((question) => sanitizeQuestion(question as Record<string, unknown>, exposeAnswers)) : []
           ])),
-          computed: buildComputed(row, allRows, exposeAnswers, questionStats, exam.question_layout)
+          computed: buildComputed(row, allRows, exposeAnswers, questionStats, exam.question_layout, questionOverrides)
         }))
       };
     });

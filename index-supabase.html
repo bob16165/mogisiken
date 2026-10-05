@@ -210,11 +210,16 @@
                     && Number.isInteger(item.start) && Number.isInteger(item.end) && item.start > 0 && item.end >= item.start);
         }
 
-        function getQuestionCounts(questionLayout) {
+        function getQuestionCounts(questionLayout, questionOverrides = {}) {
             const counts = Object.fromEntries(['必修', ...subjectNames].map(subject => [subject, 0]));
             (questionLayout || []).forEach(range => {
                 if (Object.prototype.hasOwnProperty.call(counts, range.subject)) {
-                    counts[range.subject] += range.end - range.start + 1;
+                    const prefix = range.section === '後半' ? 'B' : 'Q';
+                    for (let questionNumber = range.start; questionNumber <= range.end; questionNumber++) {
+                        if (questionOverrides?.[range.subject]?.[`${prefix}${questionNumber}`]?.mode !== 'excluded') {
+                            counts[range.subject] += 1;
+                        }
+                    }
                 }
             });
             return counts;
@@ -284,9 +289,9 @@
             return defaultColor;
         }
 
-        function generateExamResults(dataSource, questionLayout = defaultQuestionLayout) {
+        function generateExamResults(dataSource, questionLayout = defaultQuestionLayout, questionOverrides = {}) {
             const studentScores = dataSource || rawStudentScores;
-            const questionCounts = getQuestionCounts(questionLayout);
+            const questionCounts = getQuestionCounts(questionLayout, questionOverrides);
             const configuredSubjects = Object.keys(questionCounts).filter(subject => questionCounts[subject] > 0);
             const configuredGeneralSubjects = subjectNames.filter(subject => questionCounts[subject] > 0);
             const allRequiredScores = studentScores.map(s => s.required);
@@ -306,12 +311,10 @@
                     if (questions) {
                         const question = questions.find(q => q.questionNumber === questionNumber);
                         if (question) {
+                            const isCorrect = isQuestionCorrect(question, questionOverrides?.[subjectName]?.[String(questionNumber)]);
+                            if (isCorrect === null) return;
                             totalCount++;
-                            const isCorrect = Array.isArray(question.userAnswer) && Array.isArray(question.correctAnswer)
-                                ? question.userAnswer.length === question.correctAnswer.length &&
-                                  question.userAnswer.every((val, idx) => val === question.correctAnswer[idx])
-                                : question.userAnswer === question.correctAnswer;
-                            if (isCorrect) correctCount++;
+                            if (isCorrect === true) correctCount++;
                         }
                     }
                 });
@@ -346,10 +349,8 @@
                     const pairs = studentScores.map((s, idx) => {
                         const q = (s.questionDetails?.[subjectName] || []).find(q => q.questionNumber === qNum);
                         if (!q) return null;
-                        const correct = Array.isArray(q.userAnswer) && Array.isArray(q.correctAnswer)
-                            ? q.userAnswer.length === q.correctAnswer.length &&
-                              q.userAnswer.every((val, vi) => val === q.correctAnswer[vi])
-                            : q.userAnswer === q.correctAnswer;
+                        const correct = isQuestionCorrect(q, questionOverrides?.[subjectName]?.[String(qNum)]);
+                        if (correct === null) return null;
                         return { x: correct ? 1 : 0, y: allTotalScores[idx] };
                     }).filter(p => p !== null);
                     if (pairs.length >= 2) {
@@ -408,15 +409,19 @@
                 const sourceQuestionDetails = student.computed?.questionDetails || student.questionDetails || {};
                 if (sourceQuestionDetails) {
                     Object.keys(sourceQuestionDetails).forEach(subjectName => {
-                        questionDetailsWithRate[subjectName] = sourceQuestionDetails[subjectName].map(q => ({
-                            ...q,
-                            correctRate: hasComputedQuestionDetails
-                                ? q.correctRate
-                                : calculateQuestionCorrectRate(q.questionNumber, subjectName),
-                            correlWithTotal: hasComputedQuestionDetails
-                                ? q.correlWithTotal
-                                : questionCorrelWithTotal[subjectName]?.[q.questionNumber] ?? null
-                        }));
+                        questionDetailsWithRate[subjectName] = sourceQuestionDetails[subjectName].map(q => {
+                            const override = questionOverrides?.[subjectName]?.[String(q.questionNumber)];
+                            return {
+                                ...q,
+                                ...(override ? { gradingOverride: override } : {}),
+                                correctRate: hasComputedQuestionDetails
+                                    ? q.correctRate
+                                    : calculateQuestionCorrectRate(q.questionNumber, subjectName),
+                                correlWithTotal: hasComputedQuestionDetails
+                                    ? q.correlWithTotal
+                                    : questionCorrelWithTotal[subjectName]?.[q.questionNumber] ?? null
+                            };
+                        });
                     });
                 }
 
@@ -509,6 +514,8 @@
                     
                     const questions = student.questionDetails[subjectName];
                     questions.forEach(q => {
+                        const isCorrect = isQuestionCorrect(q, exam.questionOverrides?.[subjectName]?.[String(q.questionNumber)]);
+                        if (isCorrect === null) return;
                         if (q.source && q.correctAnswer !== undefined) {
                             if (!weakAreas[subjectName][q.source]) {
                                 weakAreas[subjectName][q.source] = {
@@ -521,11 +528,7 @@
                             weakAreas[subjectName][q.source].questionCount++;
                             if (isRecentExam) weakAreas[subjectName][q.source].recentQuestionCount++;
 
-                            const isCorrect = Array.isArray(q.userAnswer) && Array.isArray(q.correctAnswer)
-                                ? q.userAnswer.length === q.correctAnswer.length &&
-                                  q.userAnswer.every((val, idx) => val === q.correctAnswer[idx])
-                                : q.userAnswer === q.correctAnswer;
-                            if (!isCorrect) {
+                            if (isCorrect === false) {
                                 weakAreas[subjectName][q.source].incorrectCount++;
                                 if (isRecentExam) weakAreas[subjectName][q.source].recentIncorrectCount++;
                             }
@@ -543,7 +546,7 @@
 
             Object.entries(student?.questionDetails || {}).forEach(([subjectName, questions]) => {
                 questions.forEach(q => {
-                    if (!isAnswerCorrect(q.userAnswer, q.correctAnswer) && q.source) {
+                    if (isQuestionCorrect(q, exam.questionOverrides?.[subjectName]?.[String(q.questionNumber)]) === false && q.source) {
                         const key = `${subjectName}\u0000${q.source}`;
                         if (!itemCounts[key]) {
                             itemCounts[key] = {
@@ -569,7 +572,7 @@
             const examGroups = {};
 
             (allExams || []).forEach(exam => {
-                const examResults = generateExamResults(exam?.students || [], exam?.questionLayout);
+                const examResults = generateExamResults(exam?.students || [], exam?.questionLayout, exam?.questionOverrides);
                 const studentResult = examResults.find(result => result.studentId === studentId);
                 if (!studentResult) return;
                 const examKey = exam.id || exam.examName;
@@ -584,7 +587,7 @@
 
                 Object.entries(studentResult.questionDetails || {}).forEach(([subjectName, subjectQuestions]) => {
                     subjectQuestions.forEach(question => {
-                        if (isAnswerCorrect(question.userAnswer, question.correctAnswer)) return;
+                        if (isQuestionCorrect(question) !== false) return;
                         if ((question.correctRate ?? 0) < 50) return;
 
                         const source = question.source || '出典未設定';
@@ -715,6 +718,28 @@
             return userAnswer === correctAnswer;
         }
 
+        function isQuestionCorrect(question, override = question?.gradingOverride) {
+            if (override?.mode === 'excluded') return null;
+            if (override?.mode === 'full_credit') return true;
+            if (override?.mode === 'accepted_answers') {
+                if (!Array.isArray(override.answers)) {
+                    return typeof question?.isCorrect === 'boolean' ? question.isCorrect : null;
+                }
+                return (override.answers || []).some(answer => isAnswerCorrect(question.userAnswer, answer));
+            }
+            return isAnswerCorrect(question.userAnswer, question.correctAnswer);
+        }
+
+        function displayCorrectAnswer(question) {
+            const override = question?.gradingOverride;
+            if (override?.mode === 'full_credit') return '全員に加点';
+            if (override?.mode === 'excluded') return '採点除外';
+            if (override?.mode === 'accepted_answers') {
+                return (override.answers || []).map(answer => formatAnswer(answer)).join(' / ');
+            }
+            return formatAnswer(question?.correctAnswer);
+        }
+
         // 問題詳細コンポーネント
         function QuestionDetails({ questions, sourceMapping, subjectName, hideCorrectAnswer }) {
             if (!questions || questions.length === 0) {
@@ -742,7 +767,8 @@
                         </thead>
                         <tbody>
                             {questions.map((q, index) => {
-                                const isCorrect = isAnswerCorrect(q.userAnswer, q.correctAnswer);
+                                const isCorrect = isQuestionCorrect(q) === true;
+                                const isExcluded = q.gradingOverride?.mode === 'excluded';
                                 const isHighCorrel = q.correlWithTotal != null && q.correlWithTotal >= 0.4;
                                 return (
                                     <tr key={index} style={{ background: index % 2 === 0 ? 'white' : '#f9f9f9' }}>
@@ -759,17 +785,17 @@
                                         </td>
                                         {!hideCorrectAnswer && (
                                             <td style={{ padding: '8px', textAlign: 'center', fontWeight: 'bold' }}>
-                                                {formatAnswer(q.correctAnswer)}
+                                                {displayCorrectAnswer(q)}
                                             </td>
                                         )}
                                         {!hideCorrectAnswer && (
                                             <td style={{ padding: '8px', textAlign: 'center' }}>
                                                 <span style={{
                                                     padding: '3px 8px', borderRadius: '3px', fontSize: '11px', fontWeight: 'bold',
-                                                    background: isCorrect ? '#C8E6C9' : '#FFCDD2',
-                                                    color: isCorrect ? '#2E7D32' : '#C62828'
+                                                    background: isExcluded ? '#eeeeee' : isCorrect ? '#C8E6C9' : '#FFCDD2',
+                                                    color: isExcluded ? '#616161' : isCorrect ? '#2E7D32' : '#C62828'
                                                 }}>
-                                                    {isCorrect ? '○' : '×'}
+                                                    {isExcluded ? '対象外' : isCorrect ? '○' : '×'}
                                                 </span>
                                             </td>
                                         )}
@@ -843,6 +869,8 @@
                     Object.entries(result.questionDetails || {}).forEach(([subjectName, questions]) => {
                         if (!areasBySubject[subjectName]) areasBySubject[subjectName] = {};
                         questions.forEach(question => {
+                            const correct = isQuestionCorrect(question);
+                            if (correct === null) return;
                             const source = question.source || '出典未設定';
                             if (!areasBySubject[subjectName][source]) {
                                 areasBySubject[subjectName][source] = {
@@ -859,7 +887,7 @@
                             const area = areasBySubject[subjectName][source];
                             area.questionNumbers.add(String(question.questionNumber));
                             area.responseCount++;
-                            if (isAnswerCorrect(question.userAnswer, question.correctAnswer)) {
+                            if (correct) {
                                 area.correctCount++;
                             } else {
                                 area.incorrectCount++;
@@ -907,7 +935,7 @@
                     Object.entries(result.questionDetails || {}).forEach(([subjectName, questions]) => {
                         if (!questionsBySubject[subjectName]) questionsBySubject[subjectName] = {};
                         questions.forEach(question => {
-                            if (typeof question.correlWithTotal !== 'number' || question.correlWithTotal < 0.3) return;
+                            if (question.gradingOverride?.mode === 'excluded' || typeof question.correlWithTotal !== 'number' || question.correlWithTotal < 0.3) return;
                             const source = question.source || '出典未設定';
                             const key = `${source}\u0000${question.questionNumber}`;
                             if (!questionsBySubject[subjectName][key]) {
@@ -922,7 +950,7 @@
                             }
                             const item = questionsBySubject[subjectName][key];
                             item.studentCount++;
-                            if (!isAnswerCorrect(question.userAnswer, question.correctAnswer)) item.incorrectCount++;
+                            if (isQuestionCorrect(question) === false) item.incorrectCount++;
                         });
                     });
                 });
@@ -2353,7 +2381,7 @@
                 .map(([subjectName, questions]) => ({
                     subjectName,
                     questions: questions.filter(question =>
-                        !isAnswerCorrect(question.userAnswer, question.correctAnswer) && Number(question.correctRate) >= 50
+                        isQuestionCorrect(question) === false && Number(question.correctRate) >= 50
                     )
                 }))
                 .filter(group => group.questions.length > 0)
@@ -2485,7 +2513,7 @@
             questions.forEach((q, idx) => {
                 const tr = document.createElement('tr');
                 tr.style.background = idx % 2 === 0 ? '#fff' : '#f9f9f9';
-                const correct = isAnswerCorrect(q.userAnswer, q.correctAnswer);
+                const correct = isQuestionCorrect(q) === true;
 
                 const cells = [
                     q.questionNumber,
@@ -2944,7 +2972,7 @@
             (allExams || []).forEach(exam => {
                 if (!exam || !exam.students || exam.students.length === 0) return;
 
-                const examResults = generateExamResults(exam.students, exam.questionLayout);
+                const examResults = generateExamResults(exam.students, exam.questionLayout, exam.questionOverrides);
                 const studentResult = examResults.find(item => item.studentId === studentId);
                 if (!studentResult) return;
 
@@ -2989,8 +3017,8 @@
 
                     const questions = studentResult.questionDetails?.[subjectName] || [];
                     questions.forEach(question => {
-                        const correct = isAnswerCorrect(question.userAnswer, question.correctAnswer);
-                        if (correct) return;
+                        const correct = isQuestionCorrect(question);
+                        if (correct !== false) return;
 
                         const source = question.source || '出典未設定';
                         const questionCorrectRate = question.correctRate || 0;
@@ -3015,7 +3043,7 @@
                             source,
                             displaySource: convertSourceToName(source, subjectName, sourceMapping),
                             userAnswer: formatAnswer(question.userAnswer),
-                            correctAnswer: formatAnswer(question.correctAnswer),
+                            correctAnswer: displayCorrectAnswer(question),
                             isCurrentExam
                         });
                     });
@@ -3468,7 +3496,7 @@
                 }
 
                 const subjectQuestions = result.questionDetails?.[selectedSubject] || [];
-                const wrongQuestions = subjectQuestions.filter(q => !isAnswerCorrect(q.userAnswer, q.correctAnswer));
+                const wrongQuestions = subjectQuestions.filter(q => isQuestionCorrect(q) === false);
                 const lowRateWrongCount = wrongQuestions.filter(q => (q.correctRate || 0) < 60).length;
 
                 if (!subjectPlan) {
@@ -4218,7 +4246,7 @@
         }
 
         // 結果表示コンポーネント
-        function ExamResultView({ user, onLogout, onOpenUpload, onOpenSupabaseConfig, onOpenMaintenanceNotices, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
+        function ExamResultView({ user, onLogout, onOpenUpload, onOpenSupabaseConfig, onOpenMaintenanceNotices, onOpenQuestionOverrides, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
                 return (
@@ -4243,6 +4271,10 @@
                                         padding: '10px 12px', fontSize: '13px', background: '#ef6c00', color: 'white',
                                         border: 'none', borderRadius: '5px', cursor: 'pointer'
                                     }}>停止予定のお知らせ</button>}
+                                    {user.isTeacher && <button onClick={onOpenQuestionOverrides} style={{
+                                        padding: '10px 12px', fontSize: '13px', background: '#e8eaf6', color: '#283593',
+                                        border: 'none', borderRadius: '5px', cursor: 'pointer'
+                                    }}>採点訂正・再集計</button>}
                                     {user.isTeacher && <button onClick={onOpenUpload} style={{
                                         padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                         background: '#2e7d32', color: 'white', border: 'none',
@@ -4269,7 +4301,7 @@
             }
 
             const dataSource = currentExam.students;
-            const allResults = generateExamResults(dataSource, currentExam.questionLayout);
+            const allResults = generateExamResults(dataSource, currentExam.questionLayout, currentExam.questionOverrides);
             const [selectedStudentId, setSelectedStudentId] = useState(user.isTeacher ? (allResults[0]?.studentId || '') : user.studentId);
             const [viewMode, setViewMode] = useState(user.isTeacher ? 'list' : 'detail');
             const [expandedSubject, setExpandedSubject] = useState(null);
@@ -4389,6 +4421,10 @@
                                         padding: '10px 12px', fontSize: '13px', background: '#fff3e0', color: '#e65100',
                                         border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: '600'
                                     }}>停止予定のお知らせ</button>}
+                                    {user.isTeacher && currentExam && <button onClick={onOpenQuestionOverrides} style={{
+                                        padding: '10px 12px', fontSize: '13px', background: '#e8eaf6', color: '#283593',
+                                        border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: '600'
+                                    }}>採点訂正・再集計</button>}
                                     {allExams && allExams.length > 0 && (
                                         <>
                                             <select value={selectedExamIndex} onChange={(e) => onExamChange(parseInt(e.target.value))}
@@ -4823,6 +4859,158 @@
             );
         }
 
+        function QuestionOverrideManager({ isOpen, exam, onClose, onApply }) {
+            const [modes, setModes] = useState({});
+            const [answerTexts, setAnswerTexts] = useState({});
+            const [error, setError] = useState('');
+            const [isSaving, setIsSaving] = useState(false);
+
+            const questions = (exam?.questionLayout || []).flatMap(range => {
+                const prefix = range.section === '後半' ? 'B' : 'Q';
+                const entries = [];
+                for (let number = range.start; number <= range.end; number++) {
+                    const questionNumber = `${prefix}${number}`;
+                    const question = exam.students
+                        .flatMap(student => student.questionDetails?.[range.subject] || [])
+                        .find(item => String(item.questionNumber) === questionNumber);
+                    entries.push({
+                        subject: range.subject,
+                        questionNumber,
+                        correctAnswer: question?.correctAnswer
+                    });
+                }
+                return entries;
+            });
+
+            useEffect(() => {
+                if (!isOpen || !exam) return;
+                const nextModes = {};
+                const nextAnswers = {};
+                questions.forEach(question => {
+                    const key = `${question.subject}:${question.questionNumber}`;
+                    const override = exam.questionOverrides?.[question.subject]?.[question.questionNumber];
+                    nextModes[key] = override?.mode || 'normal';
+                    nextAnswers[key] = override?.mode === 'accepted_answers'
+                        ? (override.answers || []).map(formatAnswer).join('\n')
+                        : formatAnswer(question.correctAnswer);
+                });
+                setModes(nextModes);
+                setAnswerTexts(nextAnswers);
+                setError('');
+            }, [isOpen, exam?.id]);
+
+            if (!isOpen || !exam) return null;
+
+            const parseAnswer = (text) => {
+                const values = text.split(',').map(value => value.trim()).filter(Boolean);
+                const parsed = values.map(value => value !== '' && Number.isFinite(Number(value)) ? Number(value) : value);
+                return parsed.length > 1 ? parsed : parsed[0];
+            };
+
+            const handleSubmit = async (event) => {
+                event.preventDefault();
+                setError('');
+                const overrides = {};
+                for (const question of questions) {
+                    const key = `${question.subject}:${question.questionNumber}`;
+                    const mode = modes[key] || 'normal';
+                    if (mode === 'normal') continue;
+                    if (!overrides[question.subject]) overrides[question.subject] = {};
+                    if (mode === 'accepted_answers') {
+                        const answers = (answerTexts[key] || '').split('\n').map(value => value.trim()).filter(Boolean);
+                        if (answers.length === 0) {
+                            setError(`${question.subject} ${question.questionNumber} の正答を入力してください`);
+                            return;
+                        }
+                        overrides[question.subject][question.questionNumber] = {
+                            mode,
+                            answers: answers.map(parseAnswer)
+                        };
+                    } else {
+                        overrides[question.subject][question.questionNumber] = { mode };
+                    }
+                }
+
+                if (!window.confirm(`「${exam.examName}」の採点設定を保存し、全員分を再集計します。続けますか？`)) return;
+                setIsSaving(true);
+                try {
+                    await onApply(exam.id, overrides);
+                    onClose();
+                } catch (applyError) {
+                    console.error('Question override regrade error:', applyError);
+                    setError(applyError.message || '採点設定を保存できませんでした');
+                } finally {
+                    setIsSaving(false);
+                }
+            };
+
+            return (
+                <div role="presentation" onClick={onClose} style={{
+                    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 2200,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+                }}>
+                    <section role="dialog" aria-modal="true" aria-labelledby="question-override-title"
+                        onClick={event => event.stopPropagation()} style={{
+                            background: 'white', borderRadius: '10px', width: 'min(100%, 1000px)',
+                            maxHeight: '92vh', overflow: 'auto', padding: '24px',
+                            boxShadow: '0 12px 36px rgba(0,0,0,0.3)'
+                        }}>
+                        <h2 id="question-override-title" style={{ margin: '0 0 8px' }}>採点訂正・再集計</h2>
+                        <p style={{ margin: '0 0 16px', color: '#555' }}>
+                            {exam.examName}：設問ごとに採点方法を変更できます。採点除外は満点からも除外されます。
+                        </p>
+                        <form onSubmit={handleSubmit}>
+                            <div style={{ maxHeight: '60vh', overflow: 'auto', border: '1px solid #ddd', borderRadius: '6px' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
+                                    <thead>
+                                        <tr style={{ position: 'sticky', top: 0, background: '#f4f6f8', textAlign: 'left' }}>
+                                            <th style={{ padding: '10px' }}>科目・設問</th>
+                                            <th style={{ padding: '10px' }}>現在の模範解答</th>
+                                            <th style={{ padding: '10px', minWidth: '180px' }}>採点方法</th>
+                                            <th style={{ padding: '10px' }}>正答候補（複数は改行、複数選択はカンマ区切り）</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {questions.map(question => {
+                                            const key = `${question.subject}:${question.questionNumber}`;
+                                            return (
+                                                <tr key={key} style={{ borderTop: '1px solid #eee' }}>
+                                                    <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>{question.subject} {question.questionNumber}</td>
+                                                    <td style={{ padding: '8px 10px' }}>{formatAnswer(question.correctAnswer) || '未登録'}</td>
+                                                    <td style={{ padding: '8px 10px' }}>
+                                                        <select value={modes[key] || 'normal'} onChange={event => setModes(current => ({ ...current, [key]: event.target.value }))} style={{ padding: '7px', width: '100%' }}>
+                                                            <option value="normal">通常採点</option>
+                                                            <option value="accepted_answers">正答候補を変更</option>
+                                                            <option value="full_credit">全員に加点</option>
+                                                            <option value="excluded">採点除外</option>
+                                                        </select>
+                                                    </td>
+                                                    <td style={{ padding: '8px 10px' }}>
+                                                        {modes[key] === 'accepted_answers' && (
+                                                            <textarea value={answerTexts[key] || ''} onChange={event => setAnswerTexts(current => ({ ...current, [key]: event.target.value }))}
+                                                                rows={2} style={{ width: '100%', minWidth: '200px', boxSizing: 'border-box', padding: '7px' }} />
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {error && <div role="alert" style={{ marginTop: '12px', padding: '10px', background: '#ffebee', color: '#b71c1c', borderRadius: '5px' }}>{error}</div>}
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
+                                <button type="button" onClick={onClose} disabled={isSaving} style={{ padding: '10px 16px' }}>キャンセル</button>
+                                <button type="submit" disabled={isSaving} style={{
+                                    padding: '10px 16px', background: isSaving ? '#aaa' : '#283593', color: 'white',
+                                    border: 0, borderRadius: '5px', cursor: isSaving ? 'not-allowed' : 'pointer'
+                                }}>{isSaving ? '再集計中...' : '保存して全員分を再集計'}</button>
+                            </div>
+                        </form>
+                    </section>
+                </div>
+            );
+        }
+
         function SupabaseConfigDialog({ isOpen, url, anonKey, onUrlChange, onKeyChange, onClose, onSave }) {
             if (!isOpen) return null;
 
@@ -5068,8 +5256,10 @@
             const [sourceMapping, setSourceMapping] = useState(null);
             const [isLoading, setIsLoading] = useState(false);
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
+            const [dataRefreshToken, setDataRefreshToken] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
             const [isMaintenanceManagerOpen, setIsMaintenanceManagerOpen] = useState(false);
+            const [isQuestionOverrideManagerOpen, setIsQuestionOverrideManagerOpen] = useState(false);
             const [pendingMaintenanceAnnouncements, setPendingMaintenanceAnnouncements] = useState([]);
             const [maintenanceNoticeLoadError, setMaintenanceNoticeLoadError] = useState('');
             const [isPasswordRecovery, setIsPasswordRecovery] = useState(isPasswordRecoveryRedirect);
@@ -5235,6 +5425,7 @@
                             schoolId: exam.school_id,
                             examName: exam.exam_name,
                             questionLayout: normalizeQuestionLayout(exam.question_layout),
+                            questionOverrides: exam.question_overrides || {},
                             hideCorrectAnswer: exam.hide_correct_answer || false,
                             isPublished: exam.is_published ?? false,
                             students: exam.student_exam_results.map(result => ({
@@ -5317,7 +5508,7 @@
                 return () => {
                     isMounted = false;
                 };
-            }, [loggedInUser, isPasswordRecovery]);
+            }, [loggedInUser, isPasswordRecovery, dataRefreshToken]);
 
             const handleCSVUpload = async (examData) => {
                 let createdExamId = null;
@@ -5629,6 +5820,23 @@
                     onClose={() => setIsMaintenanceManagerOpen(false)}
                 />
             );
+            const questionOverrideManager = loggedInUser?.isTeacher && (
+                <QuestionOverrideManager
+                    isOpen={isQuestionOverrideManagerOpen}
+                    exam={(loggedInUser.role === 'admin'
+                        ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
+                        : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId))[selectedExamIndex] || null}
+                    onClose={() => setIsQuestionOverrideManagerOpen(false)}
+                    onApply={async (examId, overrides) => {
+                        const { data, error: regradeError } = await supabase.functions.invoke('regrade-exam', {
+                            body: { examId, overrides }
+                        });
+                        if (regradeError) throw regradeError;
+                        setDataRefreshToken(token => token + 1);
+                        alert(`採点設定を保存し、${data?.updatedResults ?? 0}名分を再集計しました。`);
+                    }}
+                />
+            );
             const maintenanceNoticePopup = pendingMaintenanceAnnouncements.length > 0 && (
                 <MaintenanceNoticePopup
                     announcement={pendingMaintenanceAnnouncements[0]}
@@ -5705,6 +5913,7 @@
                         onOpenUpload={handleCSVUploadClick}
                         onOpenSupabaseConfig={handleSupabaseConfigClick}
                         onOpenMaintenanceNotices={() => setIsMaintenanceManagerOpen(true)}
+                        onOpenQuestionOverrides={() => setIsQuestionOverrideManagerOpen(true)}
                         currentExam={currentExam}
                         allExams={visibleExams}
                         selectedExamIndex={selectedExamIndex}
@@ -5721,6 +5930,7 @@
                     />
                     {supabaseConfigDialog}
                     {maintenanceNoticeManager}
+                    {questionOverrideManager}
                     {maintenanceNoticePopup}
                     {maintenanceNoticeError}
                 </>

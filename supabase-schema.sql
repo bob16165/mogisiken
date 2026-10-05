@@ -37,6 +37,7 @@ CREATE TABLE exams (
   created_by UUID NOT NULL REFERENCES app_users(id) ON DELETE RESTRICT,
   exam_name TEXT NOT NULL,
   question_layout JSONB NOT NULL DEFAULT '[]'::jsonb,
+  question_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
   hide_correct_answer BOOLEAN DEFAULT false NOT NULL,
   is_published BOOLEAN DEFAULT false NOT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,

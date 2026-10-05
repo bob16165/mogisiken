@@ -87,6 +87,19 @@ OSS の利用ライセンスと、Edge Function への秘密処理の移行状�
 
 既存試験を学校へ割り当てる場合は `supabase-assign-existing-exams.sql` を使います。SQL内の `SCHOOL_UUID` を `schools.id` に置き換えて実行すると、学校IDが未設定の既存試験と試験結果を指定校へ紐付けます。
 
+### 採点訂正と一括再集計
+
+教員は所属校の試験、管理者は選択中の学校の試験について、結果画面の「採点訂正・再集計」から設問単位で採点方法を変更できます。正答候補の追加・変更（複数選択を含む）、全員への加点、採点除外に対応し、採点除外は得点と満点・正答率の分母から除外します。変更を保存すると全員分の科目得点を再計算します。
+
+既存DBでは公開前に [supabase-exam-question-overrides.sql](supabase-exam-question-overrides.sql) をSupabase SQL Editorで実行し、新しいEdge Functionをデプロイしてください。
+
+```sh
+supabase functions deploy regrade-exam
+supabase functions deploy student-results
+```
+
+新規DBでは [supabase-schema.sql](supabase-schema.sql) の実行後に同じ移行SQLを実行します。採点設定の変更は全受験者の成績に反映されます。管理者の実行には二段階認証が必要です。
+
 Table Editorでは学校が見えるのにアプリで「学校未登録」と表示される場合は、`supabase-admin-school-access.sql` を実行してください。管理者が `schools` を読めるRLSを追加します。
 
 既存の学生データを東専門学校へ一括移行する場合は、`supabase-assign-students-to-higashi.sql` をSQL Editorで実行します。`student_master` と学生ロールの `app_users` のみを対象にし、教員・管理者は変更しません。
