@@ -79,6 +79,12 @@ OSS の利用ライセンスと、Edge Function への秘密処理の移行状�
 
 新規プロジェクトでは、既存DB用の移行SQLの代わりに [supabase-schema.sql](supabase-schema.sql) がAAL2対応の認可関数を作成します。別途作成した管理者向けRLSポリシーも、直接 `app_users.role = 'admin'` を判定せず `public.is_admin()` または `public.is_teacher_of()` を使ってください。
 
+### 停止予定のお知らせ
+
+管理者は結果画面の「停止予定のお知らせ」から、タイトル・内容・利用停止開始日時・利用再開日時を投稿できます。投稿は学生・教員の次回ログイン時に一度だけポップアップで表示され、確認すると既読状態がSupabaseに保存されます。再ログインや別端末でも同じ投稿は再表示されません。終了日時を過ぎた投稿は新たに表示されず、管理者は投稿一覧から削除できます。
+
+既存DBでは、公開前に [supabase-maintenance-announcements.sql](supabase-maintenance-announcements.sql) をSupabase SQL Editorで実行してください。新規DBでは [supabase-schema.sql](supabase-schema.sql) に含まれます。
+
 既存試験を学校へ割り当てる場合は `supabase-assign-existing-exams.sql` を使います。SQL内の `SCHOOL_UUID` を `schools.id` に置き換えて実行すると、学校IDが未設定の既存試験と試験結果を指定校へ紐付けます。
 
 Table Editorでは学校が見えるのにアプリで「学校未登録」と表示される場合は、`supabase-admin-school-access.sql` を実行してください。管理者が `schools` を読めるRLSを追加します。

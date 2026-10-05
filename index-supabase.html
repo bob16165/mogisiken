@@ -4218,7 +4218,7 @@
         }
 
         // 結果表示コンポーネント
-        function ExamResultView({ user, onLogout, onOpenUpload, onOpenSupabaseConfig, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
+        function ExamResultView({ user, onLogout, onOpenUpload, onOpenSupabaseConfig, onOpenMaintenanceNotices, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
                 return (
@@ -4239,6 +4239,10 @@
                                         padding: '10px 12px', fontSize: '13px', background: '#1565c0', color: 'white',
                                         border: 'none', borderRadius: '5px', cursor: 'pointer'
                                     }}>Supabase接続設定</button>}
+                                    {user.role === 'admin' && <button onClick={onOpenMaintenanceNotices} style={{
+                                        padding: '10px 12px', fontSize: '13px', background: '#ef6c00', color: 'white',
+                                        border: 'none', borderRadius: '5px', cursor: 'pointer'
+                                    }}>停止予定のお知らせ</button>}
                                     {user.isTeacher && <button onClick={onOpenUpload} style={{
                                         padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                         background: '#2e7d32', color: 'white', border: 'none',
@@ -4381,6 +4385,10 @@
                                         padding: '10px 12px', fontSize: '13px', background: 'white', color: '#1565c0',
                                         border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: '600'
                                     }}>Supabase接続設定</button>}
+                                    {user.role === 'admin' && <button onClick={onOpenMaintenanceNotices} style={{
+                                        padding: '10px 12px', fontSize: '13px', background: '#fff3e0', color: '#e65100',
+                                        border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: '600'
+                                    }}>停止予定のお知らせ</button>}
                                     {allExams && allExams.length > 0 && (
                                         <>
                                             <select value={selectedExamIndex} onChange={(e) => onExamChange(parseInt(e.target.value))}
@@ -4837,6 +4845,211 @@
             );
         }
 
+        function formatMaintenanceDate(value) {
+            return new Intl.DateTimeFormat('ja-JP', {
+                dateStyle: 'full',
+                timeStyle: 'short'
+            }).format(new Date(value));
+        }
+
+        function MaintenanceNoticeManager({ isOpen, onClose }) {
+            const [title, setTitle] = useState('');
+            const [content, setContent] = useState('');
+            const [startsAt, setStartsAt] = useState('');
+            const [endsAt, setEndsAt] = useState('');
+            const [announcements, setAnnouncements] = useState([]);
+            const [error, setError] = useState('');
+            const [success, setSuccess] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+
+            const loadAnnouncements = async () => {
+                const { data, error: loadError } = await supabase
+                    .from('maintenance_announcements')
+                    .select('id, title, content, starts_at, ends_at, created_at')
+                    .order('created_at', { ascending: false });
+                if (loadError) throw loadError;
+                setAnnouncements(data || []);
+            };
+
+            useEffect(() => {
+                if (!isOpen) return;
+                let isMounted = true;
+                async function load() {
+                    setIsLoading(true);
+                    setError('');
+                    try {
+                        const { data, error: loadError } = await supabase
+                            .from('maintenance_announcements')
+                            .select('id, title, content, starts_at, ends_at, created_at')
+                            .order('created_at', { ascending: false });
+                        if (loadError) throw loadError;
+                        if (isMounted) setAnnouncements(data || []);
+                    } catch (loadError) {
+                        console.error('Maintenance announcement list error:', loadError);
+                        if (isMounted) setError(loadError.message || 'お知らせ一覧を読み込めませんでした');
+                    } finally {
+                        if (isMounted) setIsLoading(false);
+                    }
+                }
+                load();
+                return () => { isMounted = false; };
+            }, [isOpen]);
+
+            const handleSubmit = async (event) => {
+                event.preventDefault();
+                setError('');
+                setSuccess('');
+                const startDate = new Date(startsAt);
+                const endDate = new Date(endsAt);
+                if (!Number.isFinite(startDate.getTime()) || !Number.isFinite(endDate.getTime())) {
+                    setError('停止開始日時と終了日時を指定してください');
+                    return;
+                }
+                if (endDate <= startDate) {
+                    setError('終了日時は開始日時より後にしてください');
+                    return;
+                }
+
+                setIsLoading(true);
+                try {
+                    const { data: authData, error: authError } = await supabase.auth.getUser();
+                    if (authError) throw authError;
+                    if (!authData.user) throw new Error('ログイン状態を確認できません。再度ログインしてください');
+                    const { error: insertError } = await supabase
+                        .from('maintenance_announcements')
+                        .insert({
+                            title: title.trim(),
+                            content: content.trim(),
+                            starts_at: startDate.toISOString(),
+                            ends_at: endDate.toISOString(),
+                            created_by: authData.user.id
+                        });
+                    if (insertError) throw insertError;
+                    await loadAnnouncements();
+                    setTitle('');
+                    setContent('');
+                    setStartsAt('');
+                    setEndsAt('');
+                    setSuccess('お知らせを投稿しました。学生・教員は次回ログイン時に一度だけ表示されます。');
+                } catch (submitError) {
+                    console.error('Maintenance announcement create error:', submitError);
+                    setError(submitError.message || 'お知らせを投稿できませんでした');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const handleDelete = async (announcement) => {
+                if (!window.confirm(`「${announcement.title}」を削除しますか？\\n学生・教員に未表示のお知らせも表示されなくなります。`)) return;
+                setError('');
+                setSuccess('');
+                setIsLoading(true);
+                try {
+                    const { error: deleteError } = await supabase
+                        .from('maintenance_announcements')
+                        .delete()
+                        .eq('id', announcement.id);
+                    if (deleteError) throw deleteError;
+                    setAnnouncements(current => current.filter(item => item.id !== announcement.id));
+                    setSuccess('お知らせを削除しました');
+                } catch (deleteError) {
+                    console.error('Maintenance announcement delete error:', deleteError);
+                    setError(deleteError.message || 'お知らせを削除できませんでした');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            if (!isOpen) return null;
+            return (
+                <div role="dialog" aria-modal="true" aria-labelledby="maintenance-manager-title" style={{ position: 'fixed', inset: 0, zIndex: 2100, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+                    <div style={{ width: '100%', maxWidth: '720px', maxHeight: '90vh', overflowY: 'auto', background: 'white', borderRadius: '10px', padding: '24px', boxShadow: '0 10px 40px rgba(0,0,0,0.25)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+                            <h2 id="maintenance-manager-title" style={{ margin: 0, color: '#333' }}>停止予定のお知らせ</h2>
+                            <button type="button" onClick={onClose} style={{ padding: '8px 12px', background: '#eee', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>閉じる</button>
+                        </div>
+                        <p style={{ color: '#555', lineHeight: 1.6, fontSize: '14px' }}>投稿したお知らせは、学生・教員が次回ログインした際に一度だけ表示されます。終了日時を過ぎたお知らせは新たに表示されません。</p>
+                        <form onSubmit={handleSubmit} style={{ display: 'grid', gap: '12px', padding: '16px', background: '#f7f9fc', borderRadius: '8px' }}>
+                            <label style={{ display: 'grid', gap: '6px', fontWeight: '600', fontSize: '14px' }}>
+                                タイトル
+                                <input value={title} onChange={event => setTitle(event.target.value)} maxLength="120" required placeholder="例：システムメンテナンスのお知らせ" style={{ width: '100%', padding: '10px', border: '1px solid #bbb', borderRadius: '5px', fontWeight: '400' }} />
+                            </label>
+                            <label style={{ display: 'grid', gap: '6px', fontWeight: '600', fontSize: '14px' }}>
+                                内容
+                                <textarea value={content} onChange={event => setContent(event.target.value)} maxLength="5000" required rows="4" placeholder="停止理由や利用者への案内を入力してください" style={{ width: '100%', padding: '10px', border: '1px solid #bbb', borderRadius: '5px', resize: 'vertical', fontWeight: '400' }} />
+                            </label>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '12px' }}>
+                                <label style={{ display: 'grid', gap: '6px', fontWeight: '600', fontSize: '14px' }}>
+                                    利用停止開始日時
+                                    <input type="datetime-local" value={startsAt} onChange={event => setStartsAt(event.target.value)} required style={{ width: '100%', padding: '10px', border: '1px solid #bbb', borderRadius: '5px', fontWeight: '400' }} />
+                                </label>
+                                <label style={{ display: 'grid', gap: '6px', fontWeight: '600', fontSize: '14px' }}>
+                                    利用再開日時
+                                    <input type="datetime-local" value={endsAt} onChange={event => setEndsAt(event.target.value)} required style={{ width: '100%', padding: '10px', border: '1px solid #bbb', borderRadius: '5px', fontWeight: '400' }} />
+                                </label>
+                            </div>
+                            {error && <div role="alert" style={{ padding: '10px', background: '#ffebee', color: '#b71c1c', borderRadius: '5px', fontSize: '13px' }}>{error}</div>}
+                            {success && <div role="status" style={{ padding: '10px', background: '#e8f5e9', color: '#1b5e20', borderRadius: '5px', fontSize: '13px' }}>{success}</div>}
+                            <button type="submit" disabled={isLoading} style={{ justifySelf: 'end', padding: '11px 18px', background: isLoading ? '#999' : '#ef6c00', color: 'white', border: 'none', borderRadius: '5px', cursor: isLoading ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
+                                {isLoading ? '処理中...' : 'お知らせを投稿'}
+                            </button>
+                        </form>
+                        <h3 style={{ margin: '22px 0 10px', color: '#333' }}>投稿済みのお知らせ</h3>
+                        {isLoading && announcements.length === 0 ? <p style={{ color: '#666' }}>読み込み中...</p> : null}
+                        {!isLoading && announcements.length === 0 ? <p style={{ color: '#666' }}>投稿はありません。</p> : null}
+                        <div style={{ display: 'grid', gap: '10px' }}>
+                            {announcements.map(announcement => (
+                                <div key={announcement.id} style={{ border: '1px solid #ddd', borderRadius: '7px', padding: '12px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                                        <strong style={{ color: '#333' }}>{announcement.title}</strong>
+                                        <button type="button" disabled={isLoading} onClick={() => handleDelete(announcement)} style={{ padding: '6px 10px', background: '#ffebee', color: '#b71c1c', border: 'none', borderRadius: '5px', cursor: isLoading ? 'not-allowed' : 'pointer', flexShrink: 0 }}>削除</button>
+                                    </div>
+                                    <p style={{ margin: '8px 0', color: '#555', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{announcement.content}</p>
+                                    <small style={{ color: '#666' }}>停止：{formatMaintenanceDate(announcement.starts_at)} ～ {formatMaintenanceDate(announcement.ends_at)}</small>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function MaintenanceNoticePopup({ announcement, onDismiss }) {
+            const [error, setError] = useState('');
+            const [isDismissing, setIsDismissing] = useState(false);
+
+            const dismiss = async () => {
+                setError('');
+                setIsDismissing(true);
+                try {
+                    await onDismiss(announcement);
+                } catch (dismissError) {
+                    console.error('Maintenance announcement read error:', dismissError);
+                    setError(dismissError.message || '既読状態を保存できませんでした。通信を確認して再度お試しください。');
+                } finally {
+                    setIsDismissing(false);
+                }
+            };
+
+            return (
+                <div role="dialog" aria-modal="true" aria-labelledby="maintenance-popup-title" style={{ position: 'fixed', inset: 0, zIndex: 2200, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '18px' }}>
+                    <div style={{ width: '100%', maxWidth: '520px', maxHeight: '85vh', overflowY: 'auto', background: 'white', borderRadius: '12px', padding: '26px', boxShadow: '0 12px 44px rgba(0,0,0,0.3)' }}>
+                        <div style={{ color: '#e65100', fontSize: '13px', fontWeight: '700', marginBottom: '8px' }}>システム停止予定のお知らせ</div>
+                        <h2 id="maintenance-popup-title" style={{ margin: '0 0 16px', color: '#333', lineHeight: 1.45 }}>{announcement.title}</h2>
+                        <div style={{ padding: '13px', marginBottom: '16px', background: '#fff3e0', borderRadius: '7px', color: '#5d4037', lineHeight: 1.7 }}>
+                            <div><strong>利用停止</strong>：{formatMaintenanceDate(announcement.starts_at)}</div>
+                            <div><strong>利用再開</strong>：{formatMaintenanceDate(announcement.ends_at)}</div>
+                        </div>
+                        <p style={{ color: '#444', lineHeight: 1.75, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{announcement.content}</p>
+                        {error && <div role="alert" style={{ padding: '10px', marginTop: '14px', background: '#ffebee', color: '#b71c1c', borderRadius: '5px', fontSize: '13px' }}>{error}</div>}
+                        <button type="button" disabled={isDismissing} onClick={dismiss} style={{ width: '100%', padding: '12px', marginTop: '16px', background: isDismissing ? '#999' : '#1565c0', color: 'white', border: 'none', borderRadius: '6px', cursor: isDismissing ? 'not-allowed' : 'pointer', fontWeight: '600' }}>
+                            {isDismissing ? '保存中...' : '確認しました'}
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
         function isPasswordRecoveryRedirect() {
             const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
             const queryParams = new URLSearchParams(window.location.search);
@@ -4856,6 +5069,9 @@
             const [isLoading, setIsLoading] = useState(false);
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
+            const [isMaintenanceManagerOpen, setIsMaintenanceManagerOpen] = useState(false);
+            const [pendingMaintenanceAnnouncements, setPendingMaintenanceAnnouncements] = useState([]);
+            const [maintenanceNoticeLoadError, setMaintenanceNoticeLoadError] = useState('');
             const [isPasswordRecovery, setIsPasswordRecovery] = useState(isPasswordRecoveryRedirect);
             const [showSupabaseConfig, setShowSupabaseConfig] = useState(false);
             const [supabaseUrlInput, setSupabaseUrlInput] = useState(SUPABASE_URL);
@@ -4927,6 +5143,51 @@
                     authListener.subscription.unsubscribe();
                 };
             }, []);
+
+            useEffect(() => {
+                if (!loggedInUser || !['student', 'teacher'].includes(loggedInUser.role)) {
+                    setPendingMaintenanceAnnouncements([]);
+                    setMaintenanceNoticeLoadError('');
+                    return;
+                }
+
+                let isMounted = true;
+                async function loadUnreadMaintenanceAnnouncements() {
+                    setMaintenanceNoticeLoadError('');
+                    try {
+                        const { data: announcements, error: announcementsError } = await supabase
+                            .from('maintenance_announcements')
+                            .select('id, title, content, starts_at, ends_at')
+                            .gt('ends_at', new Date().toISOString())
+                            .order('starts_at', { ascending: true });
+                        if (announcementsError) throw announcementsError;
+                        const announcementIds = (announcements || []).map(item => item.id);
+                        if (announcementIds.length === 0) {
+                            if (isMounted) setPendingMaintenanceAnnouncements([]);
+                            return;
+                        }
+
+                        const { data: readRows, error: readsError } = await supabase
+                            .from('maintenance_announcement_reads')
+                            .select('announcement_id')
+                            .eq('user_id', loggedInUser.id)
+                            .in('announcement_id', announcementIds);
+                        if (readsError) throw readsError;
+                        const readIds = new Set((readRows || []).map(item => item.announcement_id));
+                        if (isMounted) {
+                            setPendingMaintenanceAnnouncements((announcements || []).filter(item => !readIds.has(item.id)));
+                        }
+                    } catch (loadError) {
+                        console.error('Maintenance announcements load error:', loadError);
+                        if (isMounted) {
+                            setMaintenanceNoticeLoadError(loadError.message || 'システム停止予定のお知らせを読み込めませんでした');
+                        }
+                    }
+                }
+
+                loadUnreadMaintenanceAnnouncements();
+                return () => { isMounted = false; };
+            }, [loggedInUser?.id, loggedInUser?.role]);
 
             // Authセッション確認後、RLSが適用された状態でデータを読み込む
             useEffect(() => {
@@ -5362,6 +5623,29 @@
                     onSave={handleSupabaseConfigSave}
                 />
             );
+            const maintenanceNoticeManager = loggedInUser?.role === 'admin' && (
+                <MaintenanceNoticeManager
+                    isOpen={isMaintenanceManagerOpen}
+                    onClose={() => setIsMaintenanceManagerOpen(false)}
+                />
+            );
+            const maintenanceNoticePopup = pendingMaintenanceAnnouncements.length > 0 && (
+                <MaintenanceNoticePopup
+                    announcement={pendingMaintenanceAnnouncements[0]}
+                    onDismiss={async (announcement) => {
+                        const { error: readError } = await supabase
+                            .from('maintenance_announcement_reads')
+                            .insert({ announcement_id: announcement.id, user_id: loggedInUser.id });
+                        if (readError && readError.code !== '23505') throw readError;
+                        setPendingMaintenanceAnnouncements(current => current.filter(item => item.id !== announcement.id));
+                    }}
+                />
+            );
+            const maintenanceNoticeError = maintenanceNoticeLoadError && (
+                <div role="alert" style={{ position: 'fixed', zIndex: 2300, top: '12px', left: '12px', right: '12px', maxWidth: '720px', margin: '0 auto', padding: '12px 16px', background: '#ffebee', color: '#b71c1c', border: '1px solid #ef9a9a', borderRadius: '7px', boxShadow: '0 3px 12px rgba(0,0,0,0.18)', fontSize: '14px' }}>
+                    {maintenanceNoticeLoadError}。管理者にお知らせ機能の設定を確認してもらってください。
+                </div>
+            );
 
             if (showUpload) {
                 const uploadExams = loggedInUser.role === 'admin'
@@ -5370,6 +5654,7 @@
                 return <>
                     <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} onOpenSupabaseConfig={handleSupabaseConfigClick} existingExams={uploadExams} studentMaster={studentMaster} studentCounts={studentCounts} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={handleSourceMappingUpdate} onDeleteExam={handleDeleteExam} isAdmin={loggedInUser.role === 'admin'} schools={schools} selectedSchoolId={selectedSchoolId} onSchoolChange={(schoolId) => setSelectedSchoolId(schoolId)} />
                     {supabaseConfigDialog}
+                    {maintenanceNoticeManager}
                 </>;
             }
 
@@ -5419,6 +5704,7 @@
                         }}
                         onOpenUpload={handleCSVUploadClick}
                         onOpenSupabaseConfig={handleSupabaseConfigClick}
+                        onOpenMaintenanceNotices={() => setIsMaintenanceManagerOpen(true)}
                         currentExam={currentExam}
                         allExams={visibleExams}
                         selectedExamIndex={selectedExamIndex}
@@ -5434,6 +5720,9 @@
                         }}
                     />
                     {supabaseConfigDialog}
+                    {maintenanceNoticeManager}
+                    {maintenanceNoticePopup}
+                    {maintenanceNoticeError}
                 </>
             );
         }

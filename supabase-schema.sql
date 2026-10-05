@@ -103,11 +103,30 @@ CREATE TABLE student_study_tasks (
   UNIQUE(student_id, exam_id, task_key)
 );
 
+CREATE TABLE maintenance_announcements (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  title TEXT NOT NULL CHECK (char_length(btrim(title)) BETWEEN 1 AND 120),
+  content TEXT NOT NULL CHECK (char_length(btrim(content)) BETWEEN 1 AND 5000),
+  starts_at TIMESTAMPTZ NOT NULL,
+  ends_at TIMESTAMPTZ NOT NULL,
+  created_by UUID NOT NULL REFERENCES app_users(id) ON DELETE RESTRICT,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  CONSTRAINT maintenance_announcements_valid_period CHECK (ends_at > starts_at)
+);
+
+CREATE TABLE maintenance_announcement_reads (
+  announcement_id UUID NOT NULL REFERENCES maintenance_announcements(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  read_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  PRIMARY KEY (announcement_id, user_id)
+);
+
 CREATE INDEX idx_app_users_school ON app_users(school_id);
 CREATE INDEX idx_results_school_student ON student_exam_results(school_id, student_id);
 CREATE INDEX idx_exams_school ON exams(school_id);
 CREATE INDEX idx_chat_school_student ON student_chat_messages(school_id, student_id);
 CREATE INDEX idx_tasks_school_student ON student_study_tasks(school_id, student_id);
+CREATE INDEX idx_maintenance_announcements_ends_at ON maintenance_announcements(ends_at);
 
 ALTER TABLE app_users
   ADD CONSTRAINT app_users_school_student_key UNIQUE (school_id, student_id);
@@ -145,6 +164,14 @@ RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS
   SELECT EXISTS (SELECT 1 FROM app_users WHERE id = auth.uid() AND role = 'student' AND school_id = target_school AND student_id = target_student_id);
 $$;
 
+CREATE OR REPLACE FUNCTION public.can_receive_maintenance_notices()
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM app_users
+    WHERE id = auth.uid() AND role IN ('student', 'teacher')
+  );
+$$;
+
 ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app_users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_master ENABLE ROW LEVEL SECURITY;
@@ -153,6 +180,8 @@ ALTER TABLE student_exam_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE source_mapping ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_chat_messages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_study_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE maintenance_announcements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE maintenance_announcement_reads ENABLE ROW LEVEL SECURITY;
 
 -- テーブル所有者や誤った接続経路によるRLSバイパスも防ぐ。本番DBではRLSを強制する。
 ALTER TABLE schools FORCE ROW LEVEL SECURITY;
@@ -163,10 +192,16 @@ ALTER TABLE student_exam_results FORCE ROW LEVEL SECURITY;
 ALTER TABLE source_mapping FORCE ROW LEVEL SECURITY;
 ALTER TABLE student_chat_messages FORCE ROW LEVEL SECURITY;
 ALTER TABLE student_study_tasks FORCE ROW LEVEL SECURITY;
+ALTER TABLE maintenance_announcements FORCE ROW LEVEL SECURITY;
+ALTER TABLE maintenance_announcement_reads FORCE ROW LEVEL SECURITY;
 
 -- anonロールから業務テーブルへ直接到達できないようにする。
 REVOKE ALL ON TABLE schools, app_users, student_master, exams, student_exam_results,
-  source_mapping, student_chat_messages, student_study_tasks FROM anon;
+  source_mapping, student_chat_messages, student_study_tasks,
+  maintenance_announcements, maintenance_announcement_reads FROM anon;
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE maintenance_announcements TO authenticated;
+GRANT SELECT, INSERT ON TABLE maintenance_announcement_reads TO authenticated;
 
 CREATE POLICY schools_read_member ON schools FOR SELECT TO authenticated USING (public.is_teacher_of(id) OR EXISTS (SELECT 1 FROM app_users u WHERE u.id = auth.uid() AND u.school_id = id));
 CREATE POLICY app_users_self_or_school_teacher ON app_users FOR SELECT TO authenticated USING (id = auth.uid() OR public.is_teacher_of(school_id));
@@ -189,13 +224,19 @@ CREATE POLICY task_owner_read ON student_study_tasks FOR SELECT TO authenticated
 CREATE POLICY task_owner_insert ON student_study_tasks FOR INSERT TO authenticated WITH CHECK (public.is_student_owner(school_id, student_id));
 CREATE POLICY task_owner_update ON student_study_tasks FOR UPDATE TO authenticated USING (public.is_student_owner(school_id, student_id)) WITH CHECK (public.is_student_owner(school_id, student_id));
 CREATE POLICY task_owner_delete ON student_study_tasks FOR DELETE TO authenticated USING (public.is_student_owner(school_id, student_id) OR public.is_teacher_of(school_id));
+CREATE POLICY maintenance_announcements_admin_manage ON maintenance_announcements FOR ALL TO authenticated USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY maintenance_announcements_recipient_read ON maintenance_announcements FOR SELECT TO authenticated USING (public.can_receive_maintenance_notices() AND ends_at > NOW());
+CREATE POLICY maintenance_announcement_reads_owner_read ON maintenance_announcement_reads FOR SELECT TO authenticated USING (user_id = auth.uid());
+CREATE POLICY maintenance_announcement_reads_owner_insert ON maintenance_announcement_reads FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid() AND public.can_receive_maintenance_notices());
 
 -- 認可判定用関数も匿名クライアントから直接実行できないようにする。
 REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.is_teacher_of(UUID) FROM PUBLIC, anon;
 REVOKE ALL ON FUNCTION public.is_student_owner(UUID, TEXT) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.can_receive_maintenance_notices() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.is_teacher_of(UUID) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.is_student_owner(UUID, TEXT) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.can_receive_maintenance_notices() TO authenticated, service_role;
 
 -- 初期アカウントはINSERTしない。Supabase Authでユーザーを作成後、app_usersへ管理者が紐付ける。
