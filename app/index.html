@@ -3373,9 +3373,6 @@
                                         </table>
                                     </div>
                                 )}
-                                <p style={{ margin: '12px 0 0 0', fontSize: '12px', opacity: 0.8 }}>
-                                    このAIはローカルで動くルールベース試作です。後でOpenAIやAzure OpenAIをつなげれば、自然文の相談にも発展できます。
-                                </p>
                             </div>
                         </div>
                     )}
@@ -3518,10 +3515,10 @@
 
         function shouldRegisterTaskFromQuestion(question) {
             const normalized = normalizeText(question);
-            const hasTrackerWord = normalized.includes('課題') || normalized.includes('トラッカー') || normalized.includes('todo');
-            const hasActionWord = normalized.includes('追加') || normalized.includes('反映') || normalized.includes('登録') || normalized.includes('入れて');
-            const hasIntentWord = normalized.includes('したい') || normalized.includes('やりたい') || normalized.includes('勉強したい');
-            return (hasTrackerWord && (hasActionWord || hasIntentWord)) || (hasActionWord && hasIntentWord);
+            const hasTrackerWord = /(課題|トラッカー|todo)/.test(normalized);
+            const hasActionWord = /(追加|反映|登録|入れ|加え|載せ|書き込|記録|作成)/.test(normalized);
+            const hasRequestWord = /(して|しといて|してください|入れて|入れと|お願い|ほしい|欲しい|たい|やって|頼む|くれ)/.test(normalized);
+            return hasTrackerWord && hasActionWord && hasRequestWord;
         }
 
         function buildTasksFromQuestion(question, guidance) {
@@ -3530,29 +3527,19 @@
                 ? subjects
                 : [guidance?.actionPlan?.[0]?.subjectName || '必修'];
 
-            const subjectPattern = targetSubjects.join('|');
-            const trimmed = (question || '').trim();
-            const cleanedBase = trimmed
-                .replace(new RegExp(subjectPattern, 'g'), '')
-                .replace(/課題トラッカー|課題|トラッカー/g, '')
-                .replace(/追加|反映|登録|入れて/g, '')
-                .replace(/も|と|を|に/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-
-            const normalizedBase = cleanedBase.replace(/(して){2,}/g, 'して');
-            const commonText = normalizedBase.length > 0 ? normalizedBase : '学習計画を作成して実行';
-
             return targetSubjects.map((subject, idx) => {
                 const subjectProfile = guidance?.subjectProfiles?.[subject];
                 const actionPlanFallback = (guidance?.actionPlan || []).find(item => item.subjectName === subject);
                 const sourceText = subjectProfile?.sourceText || actionPlanFallback?.sourceText || '';
+                const focus = sourceText && sourceText !== '関連出典データなし'
+                    ? `「${sourceText}」領域`
+                    : '重点領域';
 
                 return {
                     key: `user-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 8)}`,
-                    day: 'User',
+                    day: '追加',
                     subject,
-                    task: `自主課題(${subject}): ${commonText}${sourceText ? `（推奨テーマ: ${sourceText}）` : ''}`,
+                    task: `${focus}の問題を30問解き直す`,
                     done: false
                 };
             });
@@ -3561,40 +3548,29 @@
         // ChatGPT連携(supabase/functions/ai-chat)は契約学校が増えた際に再検討。現時点ではクライアントから呼び出さない
 
         function buildWeeklyStudyTasks(guidance) {
-            const top = guidance?.actionPlan?.[0]?.subjectName || '必修';
-            const second = guidance?.actionPlan?.[1]?.subjectName || top;
-            const third = guidance?.actionPlan?.[2]?.subjectName || second;
-            const fourth = guidance?.actionPlan?.[3]?.subjectName || third;
-            const fifth = guidance?.actionPlan?.[4]?.subjectName || fourth;
-            const theme1 = guidance?.actionPlan?.[0]?.sourceText || '集中領域';
-            const theme2 = guidance?.actionPlan?.[1]?.sourceText || '集中領域';
-            const theme3 = guidance?.actionPlan?.[2]?.sourceText || '集中領域';
-            const theme4 = guidance?.actionPlan?.[3]?.sourceText || '集中領域';
-            const theme5 = guidance?.actionPlan?.[4]?.sourceText || '集中領域';
-            const hc1 = guidance?.actionPlan?.[0]?.isHighCorrelSubject || false;
-            const hc2 = guidance?.actionPlan?.[1]?.isHighCorrelSubject || false;
-            const hc3 = guidance?.actionPlan?.[2]?.isHighCorrelSubject || false;
-            const hc4 = guidance?.actionPlan?.[3]?.isHighCorrelSubject || false;
-            const hc5 = guidance?.actionPlan?.[4]?.isHighCorrelSubject || false;
-            const tag1 = hc1 ? '【合否直結】' : '';
-            const tag2 = hc2 ? '【合否直結】' : '';
-            const tag3 = hc3 ? '【合否直結】' : '';
-            const tag4 = hc4 ? '【合否直結】' : '';
-            const tag5 = hc5 ? '【合否直結】' : '';
+            const plans = guidance?.actionPlan?.length
+                ? guidance.actionPlan
+                : [{ subjectName: '必修', sourceText: '直近の重点', isHighCorrelSubject: false }];
+            const weeklyPlans = Array.from({ length: 7 }, (_, index) => plans[index % plans.length]);
 
-            return [
-                { key: 'd1', day: 'Day1', subject: top, task: `${tag1}${top}の誤答5問を解き直し（${theme1}）`, isHighCorrel: hc1 },
-                { key: 'd2', day: 'Day2', subject: second, task: `${tag2}${second}の誤答復習（${theme2}）`, isHighCorrel: hc2 },
-                { key: 'd3', day: 'Day3', subject: third, task: `${tag3}${third}の弱点問題5問 + 振り返り（${theme3}）`, isHighCorrel: hc3 },
-                { key: 'd4', day: 'Day4', subject: fourth, task: `${tag4}${fourth}の出典別まとめノート作成（${theme4}）`, isHighCorrel: hc4 },
-                { key: 'd5', day: 'Day5', subject: fifth, task: `${tag5}${fifth}の類題演習5問 + 解説要約（${theme5}）`, isHighCorrel: hc5 },
-                { key: 'd6', day: 'Day6', subject: top, task: `${tag1}${top}のミニテスト10問と取りこぼし再確認`, isHighCorrel: hc1 },
-                { key: 'd7', day: 'Day7', subject: '総合', task: '優先5科目の混合テストと再復習', isHighCorrel: false }
-            ];
+            return weeklyPlans.map((plan, index) => {
+                const subject = plan.subjectName || '必修';
+                const sourceText = plan.sourceText && plan.sourceText !== '関連出典データなし'
+                    ? `「${plan.sourceText}」領域`
+                    : '重点領域';
+                const isHighCorrel = !!plan.isHighCorrelSubject;
+                return {
+                    key: `d${index + 1}`,
+                    day: `Day${index + 1}`,
+                    subject,
+                    task: `${sourceText}の問題を30問解き直す`,
+                    isHighCorrel
+                };
+            });
         }
 
-        function WeeklyPlanTracker({ guidance, studentId, schoolId, examId, syncToken }) {
-            const TASK_TRACKER_SCHEMA_VERSION = 'v2';
+        function WeeklyPlanTracker({ guidance, studentId, schoolId, examId, syncToken, addedTasks }) {
+            const TASK_TRACKER_SCHEMA_VERSION = 'v3';
             const storageKey = `mogisiken_weekly_tasks_${studentId}_${examId || 'no_exam'}`;
             const storageMetaKey = `${storageKey}_meta`;
             const initFlagKey = `${storageKey}_init_${TASK_TRACKER_SCHEMA_VERSION}`;
@@ -3602,10 +3578,12 @@
             const [remoteTasksEnabled, setRemoteTasksEnabled] = React.useState(true);
             const [remoteNotice, setRemoteNotice] = React.useState('');
             const [isExpanded, setIsExpanded] = React.useState(false);
+            const [initializedPlanKey, setInitializedPlanKey] = React.useState('');
             const guidanceSignature = React.useMemo(() => {
                 const action = (guidance?.actionPlan || []).map(item => `${item.subjectName}:${item.latestScoreRate}:${item.sourceText}:${item.subjectCorrel ?? ''}`).join('|');
                 return `${guidance?.analyzedExamCount || 0}::${guidance?.totalTrend || 0}::${action}`;
             }, [guidance]);
+            const planKey = `${storageKey}::${guidanceSignature}`;
             const [tasks, setTasks] = React.useState(() => {
                 try {
                     const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
@@ -3651,6 +3629,17 @@
             }, [storageKey, tasks]);
 
             React.useEffect(() => {
+                if (!addedTasks?.length) return;
+                setTasks(prev => {
+                    const taskMap = new Map(prev.map(task => [task.key, task]));
+                    addedTasks.forEach(task => {
+                        if (!taskMap.has(task.key)) taskMap.set(task.key, task);
+                    });
+                    return Array.from(taskMap.values());
+                });
+            }, [addedTasks]);
+
+            React.useEffect(() => {
                 const applyResetIfNeeded = async () => {
                     const previousMetaRaw = localStorage.getItem(storageMetaKey);
                     let previousMeta = null;
@@ -3660,35 +3649,55 @@
                         previousMeta = null;
                     }
 
-                    const isFirstV2Run = !localStorage.getItem(initFlagKey);
+                    const isFirstRun = !localStorage.getItem(initFlagKey);
                     const guidanceChanged = previousMeta && previousMeta.guidanceSignature !== guidanceSignature;
-                    const needsReset = isFirstV2Run || guidanceChanged;
+                    const needsReset = isFirstRun || guidanceChanged;
 
-                    if (!needsReset) return;
-
-                    const resetTasks = generatedTasks.map(task => ({ ...task, done: false }));
-                    setTasks(resetTasks);
-                    localStorage.setItem(storageKey, JSON.stringify(resetTasks));
-                    localStorage.setItem(storageMetaKey, JSON.stringify({ guidanceSignature, schemaVersion: TASK_TRACKER_SCHEMA_VERSION }));
-                    localStorage.setItem(initFlagKey, '1');
-
-                    if (!studentId || !schoolId || !examId || !remoteTasksEnabled) return;
-
-                    const { error: deleteError } = await supabase
-                        .from('student_study_tasks')
-                        .delete()
-                        .eq('student_id', studentId)
-                        .eq('school_id', schoolId)
-                        .eq('exam_id', examId);
-
-                    if (deleteError) {
-                        if (isSupabaseTableMissingError(deleteError)) {
-                            setRemoteTasksEnabled(false);
-                            setRemoteNotice('サーバーに課題テーブルが未作成のため、端末内保存モードで動作しています。');
-                        }
+                    if (!needsReset) {
+                        setInitializedPlanKey(planKey);
                         return;
                     }
 
+                    let remoteRows = [];
+                    let canSaveRemote = !!(studentId && schoolId && examId && remoteTasksEnabled);
+                    if (canSaveRemote) {
+                        const { data, error } = await supabase
+                            .from('student_study_tasks')
+                            .select('task_key, day_label, subject_name, task_text, is_done')
+                            .eq('student_id', studentId)
+                            .eq('school_id', schoolId)
+                            .eq('exam_id', examId);
+
+                        if (error) {
+                            setRemoteNotice('サーバーから課題を読み込めませんでした。端末内の課題を表示しています。');
+                            canSaveRemote = false;
+                            if (isSupabaseTableMissingError(error)) {
+                                setRemoteTasksEnabled(false);
+                            }
+                        } else {
+                            remoteRows = data || [];
+                        }
+                    }
+
+                    const existingTasks = mergeRemoteRows(tasks, remoteRows);
+                    const generatedKeys = new Set(generatedTasks.map(task => task.key));
+                    const existingByKey = new Map(existingTasks.map(task => [task.key, task]));
+                    const resetTasks = generatedTasks.map(task => ({
+                        ...task,
+                        done: !!existingByKey.get(task.key)?.done
+                    }));
+                    const preservedCustomTasks = existingTasks.filter(task => !generatedKeys.has(task.key));
+                    const nextTasks = [...resetTasks, ...preservedCustomTasks];
+
+                    setTasks(nextTasks);
+                    localStorage.setItem(storageKey, JSON.stringify(nextTasks));
+                    localStorage.setItem(storageMetaKey, JSON.stringify({ guidanceSignature, schemaVersion: TASK_TRACKER_SCHEMA_VERSION }));
+                    localStorage.setItem(initFlagKey, '1');
+
+                    if (!canSaveRemote) {
+                        setInitializedPlanKey(planKey);
+                        return;
+                    }
                     const payload = resetTasks.map(task => ({
                         student_id: studentId,
                         school_id: schoolId,
@@ -3699,16 +3708,22 @@
                         task_text: task.task,
                         is_done: !!task.done
                     }));
-
-                    await supabase.from('student_study_tasks').insert(payload);
+                    const { error: saveError } = await supabase
+                        .from('student_study_tasks')
+                        .upsert(payload, { onConflict: 'student_id,exam_id,task_key' });
+                    if (saveError) {
+                        setRemoteNotice('週間課題をサーバーに保存できませんでした。端末内には保存されています。');
+                        if (isSupabaseTableMissingError(saveError)) setRemoteTasksEnabled(false);
+                    }
+                    setInitializedPlanKey(planKey);
                 };
 
                 applyResetIfNeeded();
-            }, [guidanceSignature, generatedTasks, storageKey, storageMetaKey, initFlagKey, studentId, schoolId, examId, remoteTasksEnabled]);
+            }, [guidanceSignature, generatedTasks, storageKey, storageMetaKey, initFlagKey, studentId, schoolId, examId, remoteTasksEnabled, planKey]);
 
             React.useEffect(() => {
                 const loadRemoteProgress = async () => {
-                    if (!studentId || !schoolId || !examId || !remoteTasksEnabled) return;
+                    if (initializedPlanKey !== planKey || !studentId || !schoolId || !examId || !remoteTasksEnabled) return;
                     const { data, error } = await supabase
                         .from('student_study_tasks')
                         .select('task_key, day_label, subject_name, task_text, is_done')
@@ -3716,19 +3731,43 @@
                         .eq('school_id', schoolId)
                         .eq('exam_id', examId);
                     if (error) {
+                        setRemoteNotice('サーバーから課題を読み込めませんでした。端末内の課題を表示しています。');
                         if (isSupabaseTableMissingError(error)) {
                             setRemoteTasksEnabled(false);
-                            setRemoteNotice('サーバーに課題テーブルが未作成のため、端末内保存モードで動作しています。');
                         }
                         return;
                     }
-                    if (!data || data.length === 0) return;
+                    const remoteRows = data || [];
+                    const mergedTasks = mergeRemoteRows(
+                        tasks.length > 0 ? tasks : generatedTasks.map(task => ({ ...task, done: false })),
+                        remoteRows
+                    );
+                    setTasks(mergedTasks);
 
-                    setTasks(prev => mergeRemoteRows(prev.length > 0 ? prev : generatedTasks.map(t => ({ ...t, done: false })), data));
+                    const remoteKeys = new Set(remoteRows.map(row => row.task_key));
+                    const missingDefaults = generatedTasks.filter(task => !remoteKeys.has(task.key));
+                    if (missingDefaults.length === 0) return;
+
+                    const payload = missingDefaults.map(task => ({
+                        student_id: studentId,
+                        school_id: schoolId,
+                        exam_id: examId,
+                        task_key: task.key,
+                        day_label: task.day,
+                        subject_name: task.subject,
+                        task_text: task.task,
+                        is_done: !!task.done
+                    }));
+                    const { error: saveError } = await supabase
+                        .from('student_study_tasks')
+                        .upsert(payload, { onConflict: 'student_id,exam_id,task_key' });
+                    if (saveError) {
+                        setRemoteNotice('週間課題をサーバーに保存できませんでした。端末内には保存されています。');
+                    }
                 };
 
                 loadRemoteProgress();
-            }, [studentId, schoolId, examId, syncToken, remoteTasksEnabled]);
+            }, [studentId, schoolId, examId, syncToken, remoteTasksEnabled, initializedPlanKey, planKey]);
 
             const completedCount = tasks.filter(t => t.done).length;
             const progressRate = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
@@ -3751,6 +3790,8 @@
                 if (error && isSupabaseTableMissingError(error)) {
                     setRemoteTasksEnabled(false);
                     setRemoteNotice('サーバー保存に失敗したため、端末内保存モードへ切り替えました。');
+                } else if (error) {
+                    setRemoteNotice('課題のサーバー保存に失敗しました。端末内には保存されています。');
                 }
             };
 
@@ -3918,19 +3959,19 @@
 
                     if (shouldRegisterTaskFromQuestion(text)) {
                         const tasks = buildTasksFromQuestion(text, guidance);
+                        if (onTaskAdded) onTaskAdded(tasks);
                         let savedCount = 0;
 
                         for (const task of tasks) {
                             const stored = await persistTask(task);
                             if (stored) savedCount += 1;
-                            if (onTaskAdded) onTaskAdded(task);
                         }
 
                         const listText = tasks.map(task => `- ${task.subject} / ${task.task}`).join('\n');
                         if (savedCount === tasks.length) {
                             reply += `\n\n✅ 分析結果を反映して、課題トラッカーに追加しました。\n${listText}`;
                         } else {
-                            reply += `\n\n⚠️ 一部または全部のサーバー保存に失敗しましたが、課題トラッカーには端末内追加しました。\n${listText}`;
+                            reply += `\n\n⚠️ 課題トラッカーには追加しました。一部または全部はサーバーに保存できておらず、別の端末では反映されない可能性があります。\n${listText}`;
                         }
                     }
 
@@ -4565,6 +4606,8 @@
             const [showAllQuestions, setShowAllQuestions] = useState(false);
             const [downloadMode, setDownloadMode] = useState('list');
             const [taskSyncToken, setTaskSyncToken] = useState(0);
+            const [chatAddedTasks, setChatAddedTasks] = useState({});
+            const activeExamTaskKey = currentExam?.id || 'no_exam';
             
             // 正答は卒業判定試験(hide_correct_answer)の場合のみ非表示。それ以外の試験は学生にも正答を表示する
             const hideCorrectAnswer = !user.isTeacher && !!currentExam?.hideCorrectAnswer;
@@ -5106,17 +5149,25 @@
                                     studentId={user.studentId}
                                     schoolId={user.schoolId}
                                     examId={currentExam?.id || null}
-                                    onTaskAdded={() => setTaskSyncToken(prev => prev + 1)}
+                                    onTaskAdded={(tasks) => {
+                                        setChatAddedTasks(prev => ({
+                                            ...prev,
+                                            [activeExamTaskKey]: [...(prev[activeExamTaskKey] || []), ...tasks]
+                                        }));
+                                        setTaskSyncToken(prev => prev + 1);
+                                    }}
                                 />
                             )}
 
                             {!user.isTeacher && aiGuidance && result && (
                                 <WeeklyPlanTracker
+                                    key={`${user.studentId}-${activeExamTaskKey}`}
                                     guidance={aiGuidance}
                                     studentId={user.studentId}
                                     schoolId={user.schoolId}
                                     examId={currentExam?.id || null}
                                     syncToken={taskSyncToken}
+                                    addedTasks={chatAddedTasks[activeExamTaskKey] || []}
                                 />
                             )}
 
