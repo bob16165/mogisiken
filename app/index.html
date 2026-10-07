@@ -3554,6 +3554,25 @@
             const weeklyPlans = Array.from({ length: 7 }, (_, index) => plans[index % plans.length]);
 
             return weeklyPlans.map((plan, index) => {
+                if (index === 5) {
+                    return {
+                        key: 'd6',
+                        day: 'Day6',
+                        subject: '自分で選ぶ2科目',
+                        task: '今週の重点領域や誤答を振り返り、特に確認したい2科目を自分で選んで合計約50問に取り組む。科目ごとの問題数も自分で決めて理解度をチェックする。',
+                        isHighCorrel: false
+                    };
+                }
+                if (index === 6) {
+                    return {
+                        key: 'd7',
+                        day: 'Day7',
+                        subject: '自分で選ぶ2科目',
+                        task: 'Day6の手応えや誤答を振り返り、1週間の総まとめにしたい2科目を自分で選んで合計約50問に取り組む。必要なら科目を選び直して定着度を確認する。',
+                        isHighCorrel: false
+                    };
+                }
+
                 const subject = plan.subjectName || '必修';
                 const sourceText = plan.sourceText && plan.sourceText !== '関連出典データなし'
                     ? `「${plan.sourceText}」領域`
@@ -3570,7 +3589,7 @@
         }
 
         function WeeklyPlanTracker({ guidance, studentId, examId, addedTasks }) {
-            const TASK_TRACKER_SCHEMA_VERSION = 'v4';
+            const TASK_TRACKER_SCHEMA_VERSION = 'v5';
             const storageKey = `mogisiken_weekly_tasks_${studentId}_${examId || 'no_exam'}`;
             const storageMetaKey = `${storageKey}_meta`;
             const initFlagKey = `${storageKey}_init_${TASK_TRACKER_SCHEMA_VERSION}`;
@@ -3616,7 +3635,8 @@
 
                 const isFirstRun = !localStorage.getItem(initFlagKey);
                 const guidanceChanged = previousMeta && previousMeta.guidanceSignature !== guidanceSignature;
-                if (!isFirstRun && !guidanceChanged) return;
+                const schemaChanged = previousMeta?.schemaVersion !== TASK_TRACKER_SCHEMA_VERSION;
+                if (!isFirstRun && !guidanceChanged && !schemaChanged) return;
 
                 const generatedKeys = new Set(generatedTasks.map(task => task.key));
                 const existingByKey = new Map(tasks.map(task => [task.key, task]));
