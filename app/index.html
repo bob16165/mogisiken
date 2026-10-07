@@ -119,6 +119,16 @@
         const SUPABASE_ANON_KEY = localStorage.getItem('mogisiken_supabase_anon_key') || DEFAULT_SUPABASE_ANON_KEY;
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        function getSupabaseErrorText(error) {
+            if (!error) return '詳細不明';
+            return [
+                error.code ? `code: ${error.code}` : '',
+                error.message || '',
+                error.details ? `詳細: ${error.details}` : '',
+                error.hint ? `ヒント: ${error.hint}` : ''
+            ].filter(Boolean).join(' / ').slice(0, 500);
+        }
+
         function isSupabaseTableMissingError(error) {
             if (!error) return false;
             const code = String(error.code || '');
@@ -3669,7 +3679,7 @@
                             .eq('exam_id', examId);
 
                         if (error) {
-                            setRemoteNotice('サーバーから課題を読み込めませんでした。端末内の課題を表示しています。');
+                            setRemoteNotice(`サーバーから課題を読み込めませんでした。端末内の課題を表示しています。(${getSupabaseErrorText(error)})`);
                             canSaveRemote = false;
                             if (isSupabaseTableMissingError(error)) {
                                 setRemoteTasksEnabled(false);
@@ -3712,7 +3722,7 @@
                         .from('student_study_tasks')
                         .upsert(payload, { onConflict: 'student_id,exam_id,task_key' });
                     if (saveError) {
-                        setRemoteNotice('週間課題をサーバーに保存できませんでした。端末内には保存されています。');
+                        setRemoteNotice(`週間課題をサーバーに保存できませんでした。端末内には保存されています。(${getSupabaseErrorText(saveError)})`);
                         if (isSupabaseTableMissingError(saveError)) setRemoteTasksEnabled(false);
                     }
                     setInitializedPlanKey(planKey);
@@ -3731,7 +3741,7 @@
                         .eq('school_id', schoolId)
                         .eq('exam_id', examId);
                     if (error) {
-                        setRemoteNotice('サーバーから課題を読み込めませんでした。端末内の課題を表示しています。');
+                        setRemoteNotice(`サーバーから課題を読み込めませんでした。端末内の課題を表示しています。(${getSupabaseErrorText(error)})`);
                         if (isSupabaseTableMissingError(error)) {
                             setRemoteTasksEnabled(false);
                         }
@@ -3762,7 +3772,7 @@
                         .from('student_study_tasks')
                         .upsert(payload, { onConflict: 'student_id,exam_id,task_key' });
                     if (saveError) {
-                        setRemoteNotice('週間課題をサーバーに保存できませんでした。端末内には保存されています。');
+                        setRemoteNotice(`週間課題をサーバーに保存できませんでした。端末内には保存されています。(${getSupabaseErrorText(saveError)})`);
                     }
                 };
 
@@ -3789,9 +3799,9 @@
 
                 if (error && isSupabaseTableMissingError(error)) {
                     setRemoteTasksEnabled(false);
-                    setRemoteNotice('サーバー保存に失敗したため、端末内保存モードへ切り替えました。');
+                    setRemoteNotice(`サーバー保存に失敗したため、端末内保存モードへ切り替えました。(${getSupabaseErrorText(error)})`);
                 } else if (error) {
-                    setRemoteNotice('課題のサーバー保存に失敗しました。端末内には保存されています。');
+                    setRemoteNotice(`課題のサーバー保存に失敗しました。端末内には保存されています。(${getSupabaseErrorText(error)})`);
                 }
             };
 
@@ -3926,7 +3936,9 @@
             };
 
             const persistTask = async (task) => {
-                if (!studentId || !schoolId || !examId || !task) return false;
+                if (!studentId || !schoolId || !examId || !task) {
+                    return { ok: false, error: '学生・学校・試験の識別情報が不足しています。' };
+                }
                 const { error } = await supabase
                     .from('student_study_tasks')
                     .upsert({
@@ -3940,7 +3952,7 @@
                         is_done: !!task.done
                     }, { onConflict: 'student_id,exam_id,task_key' });
 
-                return !error;
+                return { ok: !error, error };
             };
 
             const sendMessage = async (rawText) => {
@@ -3961,17 +3973,19 @@
                         const tasks = buildTasksFromQuestion(text, guidance);
                         if (onTaskAdded) onTaskAdded(tasks);
                         let savedCount = 0;
+                        let firstSaveError = null;
 
                         for (const task of tasks) {
-                            const stored = await persistTask(task);
-                            if (stored) savedCount += 1;
+                            const result = await persistTask(task);
+                            if (result.ok) savedCount += 1;
+                            else if (!firstSaveError) firstSaveError = result.error;
                         }
 
                         const listText = tasks.map(task => `- ${task.subject} / ${task.task}`).join('\n');
                         if (savedCount === tasks.length) {
                             reply += `\n\n✅ 分析結果を反映して、課題トラッカーに追加しました。\n${listText}`;
                         } else {
-                            reply += `\n\n⚠️ 課題トラッカーには追加しました。一部または全部はサーバーに保存できておらず、別の端末では反映されない可能性があります。\n${listText}`;
+                            reply += `\n\n⚠️ 課題トラッカーには追加しました。一部または全部はサーバーに保存できておらず、別の端末では反映されない可能性があります。\n保存エラー: ${getSupabaseErrorText(firstSaveError)}\n${listText}`;
                         }
                     }
 
