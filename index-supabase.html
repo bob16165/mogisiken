@@ -4246,6 +4246,264 @@
         }
 
         // 結果表示コンポーネント
+        function TeacherDeviationTrend({ allExams, selectedExamIndex, currentExam, allResults, onSelectStudent, onExamChange, onBack }) {
+            const examKey = (exam, index) => exam.id || `exam-${index}`;
+            const [selectedExamKeys, setSelectedExamKeys] = useState(() => new Set([examKey(currentExam, selectedExamIndex)]));
+            const [metric, setMetric] = useState('total');
+            const [highlightStudentId, setHighlightStudentId] = useState('');
+            const [hoveredPoint, setHoveredPoint] = useState(null);
+            const availableExams = (allExams || []).map((exam, index) => ({ exam, index, key: examKey(exam, index) }));
+            const selectedExams = availableExams.filter(item => selectedExamKeys.has(item.key));
+            const examResults = selectedExams.map(item => ({
+                ...item,
+                results: generateExamResults(item.exam.students || [], item.exam.questionLayout, item.exam.questionOverrides)
+            }));
+            const anchor = examResults[examResults.length - 1];
+            const anchorResults = anchor?.results || [];
+            const metrics = [
+                { value: 'total', label: '総合計' },
+                ...(anchorResults[0]?.fourSubjectsStats ? [{ value: 'four', label: '4教科合計' }] : []),
+                ...(anchorResults[0]?.generalMaxScore > 0 ? [{ value: 'general', label: '一般合計' }] : []),
+                ...(anchorResults[0]?.requiredMaxScore > 0 ? [{ value: 'required', label: '必修' }] : []),
+                ...((anchorResults[0]?.configuredSubjects || []).filter(name => subjectNames.includes(name))
+                    .map(name => ({ value: `subject:${name}`, label: name })))
+            ];
+            const studentRows = anchorResults.map(result => {
+                const points = examResults.map(({ exam, index, results }, examIndex) => {
+                    const examResult = results.find(item => item.studentId === result.studentId);
+                    if (!examResult) return null;
+                    let deviation = null;
+                    if (metric === 'total') deviation = examResult.totalStats?.deviation;
+                    else if (metric === 'four') deviation = examResult.fourSubjectsStats?.deviation;
+                    else if (metric === 'general') deviation = calculateDeviation(examResult.generalScore, results.map(item => item.generalScore));
+                    else if (metric === 'required') deviation = examResult.required?.deviation;
+                    else deviation = examResult.subjects?.[metric.slice('subject:'.length)]?.deviation;
+                    return Number.isFinite(deviation) ? { examIndex, originalIndex: index, examName: exam.examName, deviation } : null;
+                });
+                return { ...result, points };
+            });
+            const values = studentRows.flatMap(row => row.points.filter(Boolean).map(point => point.deviation));
+            const minValue = values.length ? Math.min(...values) : 40;
+            const maxValue = values.length ? Math.max(...values) : 60;
+            const yMin = Math.floor((minValue - 5) / 10) * 10;
+            const yMax = Math.max(yMin + 20, Math.ceil((maxValue + 5) / 10) * 10);
+            const chartWidth = 1000;
+            const chartHeight = 420;
+            const plot = { left: 70, right: 965, top: 28, bottom: 345 };
+            const xPosition = (index) => selectedExams.length <= 1
+                ? (plot.left + plot.right) / 2
+                : plot.left + (index / (selectedExams.length - 1)) * (plot.right - plot.left);
+            const yPosition = (value) => plot.bottom - ((value - yMin) / (yMax - yMin)) * (plot.bottom - plot.top);
+            const quantile = (sortedValues, proportion) => {
+                if (sortedValues.length === 0) return null;
+                const position = (sortedValues.length - 1) * proportion;
+                const lowerIndex = Math.floor(position);
+                const upperIndex = Math.ceil(position);
+                const fraction = position - lowerIndex;
+                return sortedValues[lowerIndex] * (1 - fraction) + sortedValues[upperIndex] * fraction;
+            };
+            const cohortTrend = selectedExams.map(({ exam }, examIndex) => {
+                const sortedValues = studentRows
+                    .map(row => row.points[examIndex]?.deviation)
+                    .filter(Number.isFinite)
+                    .sort((a, b) => a - b);
+                return {
+                    examName: exam.examName,
+                    examIndex,
+                    count: sortedValues.length,
+                    lower: quantile(sortedValues, 0.25),
+                    median: quantile(sortedValues, 0.5),
+                    upper: quantile(sortedValues, 0.75)
+                };
+            });
+            const targetDrops = studentRows.map(row => {
+                const validPoints = row.points.filter(Boolean);
+                const latest = validPoints[validPoints.length - 1];
+                const previous = validPoints[validPoints.length - 2];
+                return latest && previous && latest.deviation < 55 && previous.deviation - latest.deviation >= 5
+                    ? { ...row, previous, latest, drop: Math.round((previous.deviation - latest.deviation) * 10) / 10 }
+                    : null;
+            }).filter(Boolean).sort((a, b) => b.drop - a.drop);
+            const highlightedStudents = highlightStudentId === '__watchlist__'
+                ? targetDrops
+                : studentRows.filter(row => row.studentId === highlightStudentId);
+            const colors = ['#0072B2', '#D55E00', '#009E73', '#CC79A7', '#E69F00', '#56B4E9', '#6A3D9A', '#4D4D4D', '#A6761D', '#1B9E77'];
+            const goToStudent = (row) => {
+                onExamChange(anchor.index);
+                onSelectStudent(row.studentId);
+            };
+            const toggleExam = (key) => setSelectedExamKeys(current => {
+                const next = new Set(current);
+                if (next.has(key)) next.delete(key);
+                else next.add(key);
+                return next;
+            });
+            const selectAllExams = () => setSelectedExamKeys(new Set(availableExams.map(item => item.key)));
+
+            return (
+                <div style={{ minHeight: '100vh', background: '#f4f7fa' }}>
+                    <header style={{ background: '#fff', borderBottom: '1px solid #e1e8ed', padding: '16px 24px' }}>
+                        <div style={{ maxWidth: '1400px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
+                            <div>
+                                <div style={{ color: '#78909c', fontSize: '12px', marginBottom: '4px' }}>教員・管理者向け分析</div>
+                                <h1 style={{ margin: 0, color: '#263238', fontSize: '23px' }}>偏差値推移分析</h1>
+                            </div>
+                            <button onClick={onBack} style={{ padding: '10px 14px', border: '1px solid #cfd8dc', borderRadius: '7px', background: 'white', color: '#37474f', fontWeight: '600', cursor: 'pointer' }}>← 結果画面に戻る</button>
+                        </div>
+                    </header>
+                    <main style={{ maxWidth: '1400px', margin: '0 auto', padding: '22px 20px 40px' }}>
+                        <section style={{ background: 'white', border: '1px solid #e0e6ea', borderRadius: '10px', padding: '18px 20px', marginBottom: '16px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
+                                <div>
+                                    <h2 style={{ margin: '0 0 4px', color: '#263238', fontSize: '16px' }}>比較する試験</h2>
+                                    <p style={{ margin: 0, color: '#78909c', fontSize: '12px' }}>選択した試験を時系列で比較します。学生の集合は、選択した中で最も新しい試験の受験者です。</p>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                    <span style={{ fontSize: '13px', color: '#546e7a' }}>{selectedExams.length} / {availableExams.length} 試験選択</span>
+                                    <button onClick={selectAllExams} style={{ border: 0, background: 'transparent', color: '#1565c0', fontWeight: '600', cursor: 'pointer' }}>すべて選択</button>
+                                    <button onClick={() => setSelectedExamKeys(new Set())} style={{ border: 0, background: 'transparent', color: '#546e7a', cursor: 'pointer' }}>解除</button>
+                                </div>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '8px', maxHeight: '190px', overflowY: 'auto' }}>
+                                {availableExams.map(({ exam, index, key }) => {
+                                    const checked = selectedExamKeys.has(key);
+                                    return <label key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: '9px', padding: '10px 11px', border: `1px solid ${checked ? '#90caf9' : '#e4eaee'}`, borderRadius: '7px', background: checked ? '#f1f8ff' : 'white', cursor: 'pointer' }}>
+                                        <input type="checkbox" checked={checked} onChange={() => toggleExam(key)} style={{ marginTop: '2px', accentColor: '#1976d2' }} />
+                                        <span style={{ minWidth: 0 }}>
+                                            <span style={{ display: 'block', color: '#37474f', fontSize: '13px', fontWeight: checked ? '600' : '400', overflowWrap: 'anywhere' }}>{exam.examName}</span>
+                                            <span style={{ display: 'block', marginTop: '3px', color: '#90a4ae', fontSize: '11px' }}>{exam.students?.length || 0} 名</span>
+                                        </span>
+                                    </label>;
+                                })}
+                            </div>
+                        </section>
+
+                        <section style={{ background: 'white', border: '1px solid #e0e6ea', borderRadius: '10px', padding: '18px 20px', boxShadow: '0 2px 8px rgba(38,50,56,0.04)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap', marginBottom: '10px' }}>
+                                <div>
+                                    <h2 style={{ margin: '0 0 4px', color: '#263238', fontSize: '17px' }}>全体傾向と個人推移</h2>
+                                    <p style={{ margin: 0, color: '#78909c', fontSize: '12px' }}>{anchor ? `${anchor.exam.examName} の受験者 ${studentRows.length} 名` : '試験を選択してください'} ・ 帯は中央50%の範囲、太線は中央値です</p>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '7px', color: '#455a64', fontSize: '13px', fontWeight: '600' }}>
+                                        指標
+                                        <select value={metric} onChange={(event) => setMetric(event.target.value)}
+                                            style={{ padding: '9px 12px', border: '1px solid #cfd8dc', borderRadius: '6px', background: 'white', minWidth: '130px' }}>
+                                            {metrics.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+                                        </select>
+                                    </label>
+                                    <label style={{ display: 'flex', alignItems: 'center', gap: '7px', color: '#455a64', fontSize: '13px', fontWeight: '600' }}>
+                                        個人を重ねる
+                                        <select value={highlightStudentId} onChange={(event) => setHighlightStudentId(event.target.value)}
+                                            style={{ padding: '9px 12px', border: '1px solid #cfd8dc', borderRadius: '6px', background: 'white', minWidth: '180px', maxWidth: '260px' }}>
+                                            <option value="">表示しない（全体傾向のみ）</option>
+                                            <option value="__watchlist__">要チェック対象者（{targetDrops.length}名）</option>
+                                            {studentRows.map(row => <option key={row.studentId} value={row.studentId}>{row.studentName}（{row.studentId}）</option>)}
+                                        </select>
+                                    </label>
+                                </div>
+                            </div>
+                            {!anchor || studentRows.length === 0 ? (
+                                <div style={{ padding: '48px 16px', textAlign: 'center', color: '#78909c' }}>比較する試験を1つ以上選択してください。</div>
+                            ) : (
+                                <div style={{ overflowX: 'auto' }}>
+                                    <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} role="img" aria-label={`${metrics.find(item => item.value === metric)?.label || '成績'}の偏差値推移グラフ`}
+                                        style={{ display: 'block', width: '100%', minWidth: selectedExams.length > 8 ? '850px' : '620px', height: 'auto' }}>
+                                        {Array.from({ length: Math.floor((yMax - yMin) / 10) + 1 }, (_, index) => {
+                                            const tick = yMin + index * 10;
+                                            const y = yPosition(tick);
+                                            return <g key={tick}>
+                                                <line x1={plot.left} y1={y} x2={plot.right} y2={y} stroke="#e8edf0" />
+                                                <text x={plot.left - 12} y={y + 4} textAnchor="end" fill="#607d8b" fontSize="12">{tick}</text>
+                                            </g>;
+                                        })}
+                                        <line x1={plot.left} y1={yPosition(50)} x2={plot.right} y2={yPosition(50)} stroke="#90a4ae" strokeDasharray="5 5" />
+                                        <text x={plot.left + 4} y={yPosition(50) - 7} fill="#78909c" fontSize="11">偏差値50</text>
+                                        {cohortTrend.length > 1 && <path
+                                            d={`${cohortTrend.map((point, index) => point.upper === null ? '' : `${index === 0 ? 'M' : 'L'} ${xPosition(index)} ${yPosition(point.upper)}`).filter(Boolean).join(' ')} ${cohortTrend.map((point, index) => ({ point, index })).reverse().map(({ point, index }) => point.lower === null ? '' : `L ${xPosition(index)} ${yPosition(point.lower)}`).filter(Boolean).join(' ')} Z`}
+                                            fill="#e6e8eb" fillOpacity="0.55" stroke="none" />}
+                                        {cohortTrend.map(point => point.median !== null && <g key={`cohort-${point.examIndex}`}
+                                            onMouseEnter={() => setHoveredPoint({ kind: 'cohort', ...point })}
+                                            onMouseLeave={() => setHoveredPoint(null)}>
+                                            <circle cx={xPosition(point.examIndex)} cy={yPosition(point.median)} r="14" fill="transparent" />
+                                            <circle cx={xPosition(point.examIndex)} cy={yPosition(point.median)} r="5" fill="#1565c0" stroke="white" strokeWidth="2" />
+                                        </g>)}
+                                        {cohortTrend.filter(point => point.median !== null).length > 1 && <path
+                                            d={cohortTrend.filter(point => point.median !== null).map((point, index) =>
+                                                `${index === 0 ? 'M' : 'L'} ${xPosition(point.examIndex)} ${yPosition(point.median)}`
+                                            ).join(' ')}
+                                            fill="none" stroke="#1565c0" strokeWidth="3" strokeLinejoin="round" />}
+                                        {highlightedStudents.map((student, studentIndex) => {
+                                            const studentColor = highlightStudentId === '__watchlist__'
+                                                ? colors[(studentIndex + 1) % colors.length]
+                                                : '#d55e00';
+                                            const validPoints = student.points.filter(Boolean);
+                                            const path = validPoints.map((point, index) =>
+                                                `${index === 0 ? 'M' : 'L'} ${xPosition(point.examIndex)} ${yPosition(point.deviation)}`
+                                            ).join(' ');
+                                            const isHovered = hoveredPoint?.studentId === student.studentId;
+                                            const hasHoveredStudent = hoveredPoint?.kind === 'student';
+                                            return <g key={student.studentId}>
+                                                {validPoints.length > 1 && <path d={path} fill="none" stroke={studentColor} strokeWidth="2.5"
+                                                    strokeOpacity={hasHoveredStudent && !isHovered ? '0.16' : '0.95'}
+                                                    onMouseEnter={() => setHoveredPoint({ kind: 'student', studentId: student.studentId, studentName: student.studentName })}
+                                                    onMouseLeave={() => setHoveredPoint(null)} />}
+                                                {validPoints.map(point => <g key={`selected-${point.examIndex}`} role="button" tabIndex="0"
+                                                    aria-label={`${student.studentName}、${point.examName}、偏差値${point.deviation}。クリックで個人詳細`}
+                                                    onClick={() => goToStudent(student)}
+                                                    onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); goToStudent(student); } }}
+                                                    onMouseEnter={() => setHoveredPoint({ kind: 'student', studentId: student.studentId, studentName: student.studentName, examName: point.examName, deviation: point.deviation })}
+                                                    onMouseLeave={() => setHoveredPoint(null)} style={{ cursor: 'pointer' }}>
+                                                    <circle cx={xPosition(point.examIndex)} cy={yPosition(point.deviation)} r="10" fill="transparent" />
+                                                    <circle cx={xPosition(point.examIndex)} cy={yPosition(point.deviation)} r="5" fill={studentColor} stroke="white" strokeWidth="2" />
+                                                </g>)}
+                                            </g>;
+                                        })}
+                                        {hoveredPoint && <g pointerEvents="none">
+                                            <rect x={plot.left + 8} y={plot.top + 5} width="270" height="49" rx="6" fill="#263238" opacity="0.94" />
+                                            {hoveredPoint.kind === 'cohort' ? <>
+                                                <text x={plot.left + 20} y={plot.top + 24} fill="white" fontSize="12" fontWeight="600">{hoveredPoint.examName} ・ 受験者 {hoveredPoint.count} 名</text>
+                                                <text x={plot.left + 20} y={plot.top + 42} fill="#e0f2f1" fontSize="11">中央値 {hoveredPoint.median.toFixed(1)} ／ 中央50% {hoveredPoint.lower.toFixed(1)}〜{hoveredPoint.upper.toFixed(1)}</text>
+                                            </> : <>
+                                                <text x={plot.left + 20} y={plot.top + 24} fill="white" fontSize="12" fontWeight="600">{hoveredPoint.studentName}</text>
+                                                <text x={plot.left + 20} y={plot.top + 42} fill="#e0f2f1" fontSize="11">{hoveredPoint.examName} ・ 偏差値 {hoveredPoint.deviation}</text>
+                                            </>}
+                                        </g>}
+                                        {selectedExams.map(({ exam }, index) => <g key={exam.id || `${exam.examName}-${index}`}>
+                                            <line x1={xPosition(index)} y1={plot.bottom} x2={xPosition(index)} y2={plot.bottom + 5} stroke="#78909c" />
+                                            <text x={xPosition(index)} y={plot.bottom + 22} textAnchor="middle" fill="#455a64" fontSize="11">
+                                                {exam.examName.length > 16 ? `${exam.examName.slice(0, 15)}…` : exam.examName}
+                                            </text>
+                                        </g>)}
+                                        <text x="18" y={(plot.top + plot.bottom) / 2} transform={`rotate(-90 18 ${(plot.top + plot.bottom) / 2})`}
+                                            textAnchor="middle" fill="#546e7a" fontSize="12">偏差値</text>
+                                    </svg>
+                                </div>
+                            )}
+                        </section>
+
+                        <section aria-labelledby="deviation-watchlist-title" style={{ marginTop: '16px', background: 'white', border: '1px solid #e0e6ea', borderRadius: '10px', padding: '18px 20px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: '12px' }}>
+                                <h2 id="deviation-watchlist-title" style={{ margin: 0, color: '#263238', fontSize: '17px' }}>要チェック</h2>
+                                <span style={{ color: '#78909c', fontSize: '12px' }}>選択した試験のうち、直近の受験回から偏差値が5以上下落</span>
+                            </div>
+                            {targetDrops.length === 0 ? (
+                                <p style={{ margin: 0, color: '#78909c', fontSize: '13px' }}>該当する学生はいません。</p>
+                            ) : (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '8px' }}>
+                                    {targetDrops.map(row => <button key={row.studentId} onClick={() => goToStudent(row)}
+                                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', textAlign: 'left', padding: '11px 12px', border: '1px solid #f3c5bd', borderRadius: '7px', background: '#fffaf9', color: '#4e342e', cursor: 'pointer' }}>
+                                        <span><strong>{row.studentName}</strong><span style={{ display: 'block', marginTop: '3px', fontSize: '12px', color: '#78909c' }}>{row.previous.examName} → {row.latest.examName}</span></span>
+                                        <span style={{ whiteSpace: 'nowrap', fontWeight: '700', color: '#c62828' }}>−{row.drop}</span>
+                                    </button>)}
+                                </div>
+                            )}
+                        </section>
+                    </main>
+                </div>
+            );
+        }
+
         function ExamResultView({ user, onLogout, onOpenUpload, onOpenSupabaseConfig, onOpenMaintenanceNotices, onOpenQuestionOverrides, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
@@ -4395,6 +4653,18 @@
                     });
             };
 
+            if (user.isTeacher && viewMode === 'trend') {
+                return <TeacherDeviationTrend
+                    allExams={allExams}
+                    selectedExamIndex={selectedExamIndex}
+                    currentExam={currentExam}
+                    allResults={allResults}
+                    onSelectStudent={handleSelectStudent}
+                    onExamChange={onExamChange}
+                    onBack={() => setViewMode('list')}
+                />;
+            }
+
             return (
                 <div style={{ minHeight: '100vh', background: '#fafafa' }}>
                     <div className="result-header" style={{ background: '#1976d2', color: 'white', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
@@ -4500,6 +4770,12 @@
                                             color: viewMode === 'detail' ? '#1976d2' : 'white',
                                             border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600'
                                         }}>個別詳細</button>
+                                        <button onClick={() => setViewMode('trend')} style={{
+                                            padding: '8px 16px', fontSize: '14px',
+                                            background: viewMode === 'trend' ? 'white' : 'rgba(255,255,255,0.2)',
+                                            color: viewMode === 'trend' ? '#1976d2' : 'white',
+                                            border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: '600'
+                                        }}>偏差値推移</button>
                                     </div>
                                     {viewMode === 'detail' && (
                                         <div>
