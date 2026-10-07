@@ -119,16 +119,6 @@
         const SUPABASE_ANON_KEY = localStorage.getItem('mogisiken_supabase_anon_key') || DEFAULT_SUPABASE_ANON_KEY;
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-        function getSupabaseErrorText(error) {
-            if (!error) return '詳細不明';
-            return [
-                error.code ? `code: ${error.code}` : '',
-                error.message || '',
-                error.details ? `詳細: ${error.details}` : '',
-                error.hint ? `ヒント: ${error.hint}` : ''
-            ].filter(Boolean).join(' / ').slice(0, 500);
-        }
-
         function isSupabaseTableMissingError(error) {
             if (!error) return false;
             const code = String(error.code || '');
@@ -3579,21 +3569,17 @@
             });
         }
 
-        function WeeklyPlanTracker({ guidance, studentId, schoolId, examId, syncToken, addedTasks }) {
-            const TASK_TRACKER_SCHEMA_VERSION = 'v3';
+        function WeeklyPlanTracker({ guidance, studentId, examId, addedTasks }) {
+            const TASK_TRACKER_SCHEMA_VERSION = 'v4';
             const storageKey = `mogisiken_weekly_tasks_${studentId}_${examId || 'no_exam'}`;
             const storageMetaKey = `${storageKey}_meta`;
             const initFlagKey = `${storageKey}_init_${TASK_TRACKER_SCHEMA_VERSION}`;
             const generatedTasks = React.useMemo(() => buildWeeklyStudyTasks(guidance), [guidance]);
-            const [remoteTasksEnabled, setRemoteTasksEnabled] = React.useState(true);
-            const [remoteNotice, setRemoteNotice] = React.useState('');
             const [isExpanded, setIsExpanded] = React.useState(false);
-            const [initializedPlanKey, setInitializedPlanKey] = React.useState('');
             const guidanceSignature = React.useMemo(() => {
                 const action = (guidance?.actionPlan || []).map(item => `${item.subjectName}:${item.latestScoreRate}:${item.sourceText}:${item.subjectCorrel ?? ''}`).join('|');
                 return `${guidance?.analyzedExamCount || 0}::${guidance?.totalTrend || 0}::${action}`;
             }, [guidance]);
-            const planKey = `${storageKey}::${guidanceSignature}`;
             const [tasks, setTasks] = React.useState(() => {
                 try {
                     const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
@@ -3603,36 +3589,6 @@
                 } catch (e) {}
                 return generatedTasks.map(t => ({ ...t, done: false }));
             });
-
-            const mergeRemoteRows = (baseTasks, rows) => {
-                const map = {};
-                (baseTasks || []).forEach(task => {
-                    map[task.key] = { ...task };
-                });
-
-                (rows || []).forEach(row => {
-                    const key = row.task_key;
-                    if (!map[key]) {
-                        map[key] = {
-                            key,
-                            day: row.day_label || 'User',
-                            subject: row.subject_name || '総合',
-                            task: row.task_text || '',
-                            done: !!row.is_done
-                        };
-                    } else {
-                        map[key] = {
-                            ...map[key],
-                            day: row.day_label || map[key].day,
-                            subject: row.subject_name || map[key].subject,
-                            task: row.task_text || map[key].task,
-                            done: !!row.is_done
-                        };
-                    }
-                });
-
-                return Object.values(map);
-            };
 
             React.useEffect(() => {
                 localStorage.setItem(storageKey, JSON.stringify(tasks));
@@ -3650,160 +3606,35 @@
             }, [addedTasks]);
 
             React.useEffect(() => {
-                const applyResetIfNeeded = async () => {
-                    const previousMetaRaw = localStorage.getItem(storageMetaKey);
-                    let previousMeta = null;
-                    try {
-                        previousMeta = previousMetaRaw ? JSON.parse(previousMetaRaw) : null;
-                    } catch (e) {
-                        previousMeta = null;
-                    }
+                const previousMetaRaw = localStorage.getItem(storageMetaKey);
+                let previousMeta = null;
+                try {
+                    previousMeta = previousMetaRaw ? JSON.parse(previousMetaRaw) : null;
+                } catch (e) {
+                    previousMeta = null;
+                }
 
-                    const isFirstRun = !localStorage.getItem(initFlagKey);
-                    const guidanceChanged = previousMeta && previousMeta.guidanceSignature !== guidanceSignature;
-                    const needsReset = isFirstRun || guidanceChanged;
+                const isFirstRun = !localStorage.getItem(initFlagKey);
+                const guidanceChanged = previousMeta && previousMeta.guidanceSignature !== guidanceSignature;
+                if (!isFirstRun && !guidanceChanged) return;
 
-                    if (!needsReset) {
-                        setInitializedPlanKey(planKey);
-                        return;
-                    }
+                const generatedKeys = new Set(generatedTasks.map(task => task.key));
+                const existingByKey = new Map(tasks.map(task => [task.key, task]));
+                const resetTasks = generatedTasks.map(task => ({
+                    ...task,
+                    done: !!existingByKey.get(task.key)?.done
+                }));
+                const preservedCustomTasks = tasks.filter(task => !generatedKeys.has(task.key));
+                const nextTasks = [...resetTasks, ...preservedCustomTasks];
 
-                    let remoteRows = [];
-                    let canSaveRemote = !!(studentId && schoolId && examId && remoteTasksEnabled);
-                    if (canSaveRemote) {
-                        const { data, error } = await supabase
-                            .from('student_study_tasks')
-                            .select('task_key, day_label, subject_name, task_text, is_done')
-                            .eq('student_id', studentId)
-                            .eq('school_id', schoolId)
-                            .eq('exam_id', examId);
-
-                        if (error) {
-                            setRemoteNotice(`サーバーから課題を読み込めませんでした。端末内の課題を表示しています。(${getSupabaseErrorText(error)})`);
-                            canSaveRemote = false;
-                            if (isSupabaseTableMissingError(error)) {
-                                setRemoteTasksEnabled(false);
-                            }
-                        } else {
-                            remoteRows = data || [];
-                        }
-                    }
-
-                    const existingTasks = mergeRemoteRows(tasks, remoteRows);
-                    const generatedKeys = new Set(generatedTasks.map(task => task.key));
-                    const existingByKey = new Map(existingTasks.map(task => [task.key, task]));
-                    const resetTasks = generatedTasks.map(task => ({
-                        ...task,
-                        done: !!existingByKey.get(task.key)?.done
-                    }));
-                    const preservedCustomTasks = existingTasks.filter(task => !generatedKeys.has(task.key));
-                    const nextTasks = [...resetTasks, ...preservedCustomTasks];
-
-                    setTasks(nextTasks);
-                    localStorage.setItem(storageKey, JSON.stringify(nextTasks));
-                    localStorage.setItem(storageMetaKey, JSON.stringify({ guidanceSignature, schemaVersion: TASK_TRACKER_SCHEMA_VERSION }));
-                    localStorage.setItem(initFlagKey, '1');
-
-                    if (!canSaveRemote) {
-                        setInitializedPlanKey(planKey);
-                        return;
-                    }
-                    const payload = resetTasks.map(task => ({
-                        student_id: studentId,
-                        school_id: schoolId,
-                        exam_id: examId,
-                        task_key: task.key,
-                        day_label: task.day,
-                        subject_name: task.subject,
-                        task_text: task.task,
-                        is_done: !!task.done
-                    }));
-                    const { error: saveError } = await supabase
-                        .from('student_study_tasks')
-                        .upsert(payload, { onConflict: 'student_id,exam_id,task_key' });
-                    if (saveError) {
-                        setRemoteNotice(`週間課題をサーバーに保存できませんでした。端末内には保存されています。(${getSupabaseErrorText(saveError)})`);
-                        if (isSupabaseTableMissingError(saveError)) setRemoteTasksEnabled(false);
-                    }
-                    setInitializedPlanKey(planKey);
-                };
-
-                applyResetIfNeeded();
-            }, [guidanceSignature, generatedTasks, storageKey, storageMetaKey, initFlagKey, studentId, schoolId, examId, remoteTasksEnabled, planKey]);
-
-            React.useEffect(() => {
-                const loadRemoteProgress = async () => {
-                    if (initializedPlanKey !== planKey || !studentId || !schoolId || !examId || !remoteTasksEnabled) return;
-                    const { data, error } = await supabase
-                        .from('student_study_tasks')
-                        .select('task_key, day_label, subject_name, task_text, is_done')
-                        .eq('student_id', studentId)
-                        .eq('school_id', schoolId)
-                        .eq('exam_id', examId);
-                    if (error) {
-                        setRemoteNotice(`サーバーから課題を読み込めませんでした。端末内の課題を表示しています。(${getSupabaseErrorText(error)})`);
-                        if (isSupabaseTableMissingError(error)) {
-                            setRemoteTasksEnabled(false);
-                        }
-                        return;
-                    }
-                    const remoteRows = data || [];
-                    const mergedTasks = mergeRemoteRows(
-                        tasks.length > 0 ? tasks : generatedTasks.map(task => ({ ...task, done: false })),
-                        remoteRows
-                    );
-                    setTasks(mergedTasks);
-
-                    const remoteKeys = new Set(remoteRows.map(row => row.task_key));
-                    const missingDefaults = generatedTasks.filter(task => !remoteKeys.has(task.key));
-                    if (missingDefaults.length === 0) return;
-
-                    const payload = missingDefaults.map(task => ({
-                        student_id: studentId,
-                        school_id: schoolId,
-                        exam_id: examId,
-                        task_key: task.key,
-                        day_label: task.day,
-                        subject_name: task.subject,
-                        task_text: task.task,
-                        is_done: !!task.done
-                    }));
-                    const { error: saveError } = await supabase
-                        .from('student_study_tasks')
-                        .upsert(payload, { onConflict: 'student_id,exam_id,task_key' });
-                    if (saveError) {
-                        setRemoteNotice(`週間課題をサーバーに保存できませんでした。端末内には保存されています。(${getSupabaseErrorText(saveError)})`);
-                    }
-                };
-
-                loadRemoteProgress();
-            }, [studentId, schoolId, examId, syncToken, remoteTasksEnabled, initializedPlanKey, planKey]);
+                setTasks(nextTasks);
+                localStorage.setItem(storageKey, JSON.stringify(nextTasks));
+                localStorage.setItem(storageMetaKey, JSON.stringify({ guidanceSignature, schemaVersion: TASK_TRACKER_SCHEMA_VERSION }));
+                localStorage.setItem(initFlagKey, '1');
+            }, [guidanceSignature, generatedTasks, storageKey, storageMetaKey, initFlagKey, tasks]);
 
             const completedCount = tasks.filter(t => t.done).length;
             const progressRate = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
-
-            const updateRemoteTask = async (task, done) => {
-                if (!studentId || !schoolId || !examId || !remoteTasksEnabled) return;
-                const { error } = await supabase
-                    .from('student_study_tasks')
-                    .upsert({
-                        student_id: studentId,
-                        school_id: schoolId,
-                        exam_id: examId,
-                        task_key: task.key,
-                        day_label: task.day,
-                        subject_name: task.subject,
-                        task_text: task.task,
-                        is_done: done
-                    }, { onConflict: 'student_id,exam_id,task_key' });
-
-                if (error && isSupabaseTableMissingError(error)) {
-                    setRemoteTasksEnabled(false);
-                    setRemoteNotice(`サーバー保存に失敗したため、端末内保存モードへ切り替えました。(${getSupabaseErrorText(error)})`);
-                } else if (error) {
-                    setRemoteNotice(`課題のサーバー保存に失敗しました。端末内には保存されています。(${getSupabaseErrorText(error)})`);
-                }
-            };
 
             return (
                 <div style={{
@@ -3819,11 +3650,9 @@
                         <span aria-hidden="true">{isExpanded ? '▼' : '▶'}</span>
                     </button>
                     {isExpanded && <>
-                    {remoteNotice && (
-                        <div style={{ marginBottom: '10px', fontSize: '12px', color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '8px' }}>
-                            {remoteNotice}
-                        </div>
-                    )}
+                    <div style={{ marginBottom: '10px', fontSize: '12px', color: '#475569' }}>
+                        課題と進捗はこのブラウザーに保存されます。別の端末とは同期されません。
+                    </div>
                     <div style={{ marginBottom: '10px', fontSize: '13px', color: '#334155' }}>
                         進捗: {completedCount}/{tasks.length} ({progressRate}%)
                     </div>
@@ -3843,10 +3672,9 @@
                                 <input
                                     type="checkbox"
                                     checked={task.done}
-                                    onChange={async (e) => {
+                                    onChange={(e) => {
                                         const done = e.target.checked;
                                         setTasks(prev => prev.map(item => item.key === task.key ? { ...item, done } : item));
-                                        await updateRemoteTask(task, done);
                                     }}
                                     style={{ marginTop: '2px' }}
                                 />
@@ -3935,26 +3763,6 @@
                 }
             };
 
-            const persistTask = async (task) => {
-                if (!studentId || !schoolId || !examId || !task) {
-                    return { ok: false, error: '学生・学校・試験の識別情報が不足しています。' };
-                }
-                const { error } = await supabase
-                    .from('student_study_tasks')
-                    .upsert({
-                        student_id: studentId,
-                        school_id: schoolId,
-                        exam_id: examId,
-                        task_key: task.key,
-                        day_label: task.day,
-                        subject_name: task.subject,
-                        task_text: task.task,
-                        is_done: !!task.done
-                    }, { onConflict: 'student_id,exam_id,task_key' });
-
-                return { ok: !error, error };
-            };
-
             const sendMessage = async (rawText) => {
                 const text = (rawText || '').trim();
                 if (!text || isResponding) return;
@@ -3972,21 +3780,8 @@
                     if (shouldRegisterTaskFromQuestion(text)) {
                         const tasks = buildTasksFromQuestion(text, guidance);
                         if (onTaskAdded) onTaskAdded(tasks);
-                        let savedCount = 0;
-                        let firstSaveError = null;
-
-                        for (const task of tasks) {
-                            const result = await persistTask(task);
-                            if (result.ok) savedCount += 1;
-                            else if (!firstSaveError) firstSaveError = result.error;
-                        }
-
                         const listText = tasks.map(task => `- ${task.subject} / ${task.task}`).join('\n');
-                        if (savedCount === tasks.length) {
-                            reply += `\n\n✅ 分析結果を反映して、課題トラッカーに追加しました。\n${listText}`;
-                        } else {
-                            reply += `\n\n⚠️ 課題トラッカーには追加しました。一部または全部はサーバーに保存できておらず、別の端末では反映されない可能性があります。\n保存エラー: ${getSupabaseErrorText(firstSaveError)}\n${listText}`;
-                        }
+                        reply += `\n\n✅ 分析結果を反映して、このブラウザーの課題トラッカーに追加しました。\n${listText}`;
                     }
 
                     setMessages(prev => [...prev, { role: 'assistant', text: reply }]);
@@ -4619,7 +4414,6 @@
             const [expandedSubject, setExpandedSubject] = useState(null);
             const [showAllQuestions, setShowAllQuestions] = useState(false);
             const [downloadMode, setDownloadMode] = useState('list');
-            const [taskSyncToken, setTaskSyncToken] = useState(0);
             const [chatAddedTasks, setChatAddedTasks] = useState({});
             const activeExamTaskKey = currentExam?.id || 'no_exam';
             
@@ -5168,7 +4962,6 @@
                                             ...prev,
                                             [activeExamTaskKey]: [...(prev[activeExamTaskKey] || []), ...tasks]
                                         }));
-                                        setTaskSyncToken(prev => prev + 1);
                                     }}
                                 />
                             )}
@@ -5178,9 +4971,7 @@
                                     key={`${user.studentId}-${activeExamTaskKey}`}
                                     guidance={aiGuidance}
                                     studentId={user.studentId}
-                                    schoolId={user.schoolId}
                                     examId={currentExam?.id || null}
-                                    syncToken={taskSyncToken}
                                     addedTasks={chatAddedTasks[activeExamTaskKey] || []}
                                 />
                             )}
