@@ -65,7 +65,7 @@ OSS の利用ライセンスと、Edge Function への秘密処理の移行状�
 既存プロジェクトでは、次の順で反映してください。
 
 1. Supabase DashboardのAuth/MFA設定でTOTP認証アプリを有効にする
-2. 更新した `index-supabase.html` を公開する
+2. 更新した `app/index.html` を公開する
 3. Supabase SQL Editorで [supabase-admin-mfa-aal2.sql](supabase-admin-mfa-aal2.sql) を実行する
 4. 次のEdge Functionを再デプロイする
    ```sh
@@ -121,7 +121,7 @@ supabase functions deploy student-results
 
 ## 対話型AI学習コーチ（現在：ローカル推論のみ）
 
-`index-supabase.html` の学習コーチは現在、外部API（ChatGPT）と連携せず、ブラウザ内のルールベース推論（`buildLocalChatReply`）のみで応答します。契約校が増えるなど外部AI連携が必要になったタイミングで、以下の手順でChatGPT連携を再有効化できます。
+`app/index.html` の学習コーチは現在、外部API（ChatGPT）と連携せず、ブラウザ内のルールベース推論（`buildLocalChatReply`）のみで応答します。契約校が増えるなど外部AI連携が必要になったタイミングで、以下の手順でChatGPT連携を再有効化できます。
 
 1. OpenAIの実際のAPIキー（`sk-xxxxxxxx` はプレースホルダーなので必ず実キーに置き換える。全角文字が混ざらないよう半角入力で）をSecretsに登録する
    ```
@@ -131,7 +131,7 @@ supabase functions deploy student-results
    ```
    supabase functions deploy ai-chat
    ```
-3. `index-supabase.html` の `askExternalLlm`（Edge Function `${SUPABASE_URL}/functions/v1/ai-chat` を呼び出す処理、Git履歴上は削除済み）を復元し、`StudyChatAssistant` の `sendMessage` から呼び出すよう戻す
+3. `app/index.html` の `askExternalLlm`（Edge Function `${SUPABASE_URL}/functions/v1/ai-chat` を呼び出す処理、Git履歴上は削除済み）を復元し、`StudyChatAssistant` の `sendMessage` から呼び出すよう戻す
 4. `ai-chat` はリクエストのSupabase認証トークンから `app_users` を照会し、`role = student` かつ本人の `student_id` と一致する場合のみ応答します（他の生徒のIDを指定した呼び出しは拒否）。また同一学生からの直近1分間のリクエスト数が一定数を超えると429を返し、APIコストの暴走を防ぎます。
 5. Edge Functionが未デプロイ、またはエラーになった場合は、クライアント側でローカル推論（ルールベース）に自動フォールバックします。
 
@@ -143,11 +143,11 @@ supabase functions deploy student-results
 
 パスワード検証は `teachers` や `student_master` では行わず、Supabase Authに分離します。画面側でのID検索や配列フィルタは認可境界ではなく、最終的なアクセス制御はRLSが担当します。
 
-`index-supabase.html` はAuth移行済みのデモ画面です。既存Supabase環境へ適用する場合は、先に既存データを保持する移行SQLを作成し、Authユーザーと `app_users` の対応付けを検証してください。
+`app/index.html` はAuth移行済みのデモ画面です。既存Supabase環境へ適用する場合は、先に既存データを保持する移行SQLを作成し、Authユーザーと `app_users` の対応付けを検証してください。
 
 ## 🌐 アクセス方法
 
-**URL**: https://mea-analysis.jp/index-supabase.html
+**URL**: https://mea-analysis.jp/app/
 
 ### カスタムドメイン（GitHub Pages）
 

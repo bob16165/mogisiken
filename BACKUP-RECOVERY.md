@@ -124,7 +124,7 @@ supabase secrets set OPENAI_API_KEY=<実際のキー>
 
 ```text
 https://mea-analysis.jp/
-https://mea-analysis.jp/index-supabase.html
+https://mea-analysis.jp/app/
 ```
 
 ## 8. 復旧完了の判定
