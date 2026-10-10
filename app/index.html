@@ -37,6 +37,22 @@
 
         }
 
+        @media (max-width: 600px) {
+            .parent-header { padding: 14px 12px !important; }
+            .parent-header h1 { font-size: 18px !important; line-height: 1.4; }
+            .parent-header-actions { width: 100%; }
+            .parent-header-actions select { flex: 1 1 100%; min-width: 0; max-width: 100%; min-height: 44px; }
+            .parent-header-actions button { flex: 1 1 100%; min-height: 44px; }
+            .parent-content { padding: 12px !important; }
+            .parent-content h3 { font-size: 17px; }
+            .parent-grid { grid-template-columns: 1fr !important; }
+            .parent-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 10px !important; }
+            .parent-card { padding: 14px !important; }
+            .parent-table th, .parent-table td { padding: 8px 6px !important; font-size: 13px; white-space: nowrap; }
+            .parent-table-wrap { margin: 0 -12px; padding: 0 12px; -webkit-overflow-scrolling: touch; }
+            .parent-judge-head { flex-direction: column; align-items: flex-start !important; gap: 6px; }
+        }
+
         @media (max-width: 600px) and (orientation: portrait) {
             .result-header {
                 padding: 14px 12px !important;
@@ -5523,13 +5539,13 @@
                 : null;
 
             const header = (
-                <div style={{ background: '#2e7d32', color: 'white', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                <div className="parent-header" style={{ background: '#2e7d32', color: 'white', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
                     <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
                         <div>
                             <h1 style={{ margin: 0, fontSize: '22px' }}>模擬試験結果（保護者用）</h1>
                             {currentExam && <p style={{ margin: '5px 0 0 0', fontSize: '14px', opacity: 0.9 }}>📋 {currentExam.examName}</p>}
                         </div>
-                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                        <div className="parent-header-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                             {childExams.length > 1 && (
                                 <select value={safeIndex} onChange={(e) => setExamIndex(Number(e.target.value))}
                                     style={{ padding: '10px 15px', fontSize: '14px', borderRadius: '6px', border: 'none', fontWeight: '600' }}>
@@ -5568,7 +5584,7 @@
             return (
                 <div style={{ minHeight: '100vh', background: '#fafafa' }}>
                     {header}
-                    <div className="result-content" style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
+                    <div className="parent-content" style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
                         <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
                             <h3 style={{ margin: '0 0 10px 0' }}>学生情報</h3>
                             <p style={{ margin: '5px 0' }}><strong>受験番号:</strong> {result.studentId}</p>
@@ -5577,7 +5593,7 @@
 
                         <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
                             <h3 style={{ margin: '0 0 10px 0' }}>総合成績</h3>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
+                            <div className="parent-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
                                 <div><strong>総合点:</strong> <span style={{ color: getFourSubjectsScoreColor(result.totalStats, '#1976d2'), fontWeight: 'bold' }}>{result.totalScore}/{result.totalMaxScore}</span></div>
                                 {result.requiredMaxScore > 0 && <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>}
                                 {result.generalMaxScore > 0 && <div><strong>一般合計:</strong> {result.generalScore}/{result.generalMaxScore}</div>}
@@ -5587,7 +5603,7 @@
                                 <div style={{ marginTop: '20px' }}>
                                     <h4 style={{ margin: '0 0 10px 0', fontSize: '14px' }}>総合点得点率</h4>
                                     <BarChart scoreRate={result.totalStats.scoreRate} averageRate={result.totalStats.averageScoreRate} stdDeviation={result.totalStats.scoreRateStdDev} label="" />
-                                    <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px', fontSize: '13px' }}>
+                                    <div className="parent-grid-2" style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px', fontSize: '13px' }}>
                                         <div><strong>得点率:</strong> {result.totalStats.scoreRate}%</div>
                                         <div><strong>順位:</strong> {result.totalStats.rank}位</div>
                                         <div><strong>偏差値:</strong> {result.totalStats.deviation}</div>
@@ -5598,8 +5614,8 @@
                         </div>
 
                         <h3>科目別成績</h3>
-                        <div style={{ overflowX: 'auto' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px', background: 'white' }}>
+                        <div className="parent-table-wrap" style={{ overflowX: 'auto' }}>
+                            <table className="parent-table" style={{ width: '100%', borderCollapse: 'collapse', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px', background: 'white' }}>
                                 <thead>
                                     <tr style={{ background: '#1976d2', color: 'white' }}>
                                         {['科目', '得点', '得点率', '順位', '偏差値'].map(label => <th key={label} style={{ padding: '12px', textAlign: 'left' }}>{label}</th>)}
@@ -5619,15 +5635,15 @@
                             </table>
                         </div>
 
-                        <div style={cardStyle}>
+                        <div className="parent-card" style={cardStyle}>
                             <h3 style={{ margin: '0 0 10px 0' }}>国家試験の合格基準と今回の結果</h3>
                             <p style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#555', lineHeight: 1.7 }}>
                                 国家試験は、<strong>必修問題が50点満点中40点以上</strong>、かつ<strong>一般問題が200点満点中120点以上</strong>の両方を満たす必要があります。
                             </p>
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }} className="parent-grid">
                                 {th.requiredMax > 0 && (
                                     <div style={{ border: '1px solid #e0e0e0', borderRadius: '8px', padding: '12px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div className="parent-judge-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <strong>必修（基準 {th.requiredPass}/{th.requiredMax}点）</strong>{judgeBadge(guidance.requiredOk)}
                                         </div>
                                         <div style={{ marginTop: '8px', fontSize: '22px', fontWeight: 'bold' }}>{result.requiredScore}<span style={{ fontSize: '14px', color: '#666' }}> / {th.requiredMax}点</span></div>
@@ -5636,7 +5652,7 @@
                                 )}
                                 {th.generalMax > 0 && (
                                     <div style={{ border: '1px solid #e0e0e0', borderRadius: '8px', padding: '12px' }}>
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div className="parent-judge-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                             <strong>一般（基準 {th.generalPass}/{th.generalMax}点）</strong>{judgeBadge(guidance.generalOk)}
                                         </div>
                                         <div style={{ marginTop: '8px', fontSize: '22px', fontWeight: 'bold' }}>{result.generalScore}<span style={{ fontSize: '14px', color: '#666' }}> / {th.generalMax}点</span></div>
@@ -5649,10 +5665,10 @@
                             )}
                         </div>
 
-                        <div style={cardStyle}>
+                        <div className="parent-card" style={cardStyle}>
                             <h3 style={{ margin: '0 0 10px 0' }}>前回との比較</h3>
                             {!guidance.hasPrevious && <p style={{ margin: '0 0 10px 0', fontSize: '13px', color: '#666' }}>前回の公開済み試験がないため、今回の結果のみで評価しています。</p>}
-                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }} className="parent-grid">
                                 <div style={{ background: '#e8f5e9', borderRadius: '8px', padding: '12px' }}>
                                     <h4 style={{ margin: '0 0 8px 0', color: '#1b5e20' }}>📈 改善が見られる科目</h4>
                                     {guidance.improved.length === 0
@@ -5679,7 +5695,7 @@
                             <p style={{ margin: '10px 0 0 0', fontSize: '12px', color: '#888' }}>※ 試験ごとの難易度の差を除くため、偏差値の変化で判定しています（偏差値が2以上上昇＝改善、2以上低下または45未満＝努力が必要）。</p>
                         </div>
 
-                        <div style={{ ...cardStyle, borderLeft: '5px solid #2e7d32' }}>
+                        <div className="parent-card" style={{ ...cardStyle, borderLeft: '5px solid #2e7d32' }}>
                             <h3 style={{ margin: '0 0 10px 0' }}>保護者の皆様へ ― 今後の学習目標</h3>
                             {guidance.paragraphs.map((text, index) => (
                                 <p key={index} style={{ margin: '0 0 12px 0', lineHeight: 1.8, fontSize: '15px', color: '#333' }}>{text}</p>
