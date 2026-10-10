@@ -5861,7 +5861,11 @@
                         const { data: resultsResponse, error: resultsError } = await supabase.functions.invoke('student-results', {
                             body: { schoolId: loggedInUser.role === 'admin' ? null : loggedInUser.schoolId }
                         });
-                        if (resultsError) throw resultsError;
+                        if (resultsError) {
+                            const detail = await resultsError.context?.json?.().catch(() => null);
+                            if (detail?.error) throw new Error(detail.error);
+                            throw resultsError;
+                        }
                         const examsData = resultsResponse?.exams || [];
 
                         // データ変換: Supabaseスキーマ → ローカル形式
