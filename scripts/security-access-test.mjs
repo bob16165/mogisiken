@@ -12,6 +12,8 @@ const required = [
   'TEACHER_A_PASSWORD',
   'TEACHER_A_SCHOOL_ID'
 ];
+const parentRequired = ['PARENT_A_EMAIL', 'PARENT_A_PASSWORD', 'PARENT_A_SCHOOL_ID'];
+const parentEnabled = parentRequired.every(name => process.env[name]);
 
 for (const name of required) {
   if (!process.env[name]) throw new Error(`環境変数 ${name} が必要です`);
@@ -96,3 +98,30 @@ const resultText = await resultFunction.text();
 assert(!/correctAnswer|correct_answer/.test(resultText), '学生結果レスポンスに正答フィールドが含まれない');
 
 console.log('すべてのアクセス拒否テストに合格しました。');
+
+if (parentEnabled) {
+  const parentA = await signIn(process.env.PARENT_A_EMAIL, process.env.PARENT_A_PASSWORD);
+  const tables = ['student_exam_results', 'exams', 'student_master', 'student_chat_messages', 'student_study_tasks', 'source_mapping', 'maintenance_announcements'];
+  for (const table of tables) {
+    const read = await rest(`${table}?select=*`, parentA);
+    assert(!read.response.ok || (read.body || []).length === 0, `保護者Aは ${table} を直接取得できない`);
+  }
+  const ownProfile = await rest('app_users?select=id,role,student_id', parentA);
+  assert(ownProfile.response.ok && (ownProfile.body || []).length === 1 && ownProfile.body[0].role === 'parent', '保護者Aは自分のプロフィールだけ取得できる');
+  const schools = await rest('schools?select=id', parentA);
+  assert(!schools.response.ok || (schools.body || []).length === 0, '保護者Aは学校一覧を取得できない');
+  const escalate = await rest('app_users?id=eq.' + ownProfile.body[0].id, parentA, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ role: 'teacher' })
+  });
+  assert(!escalate.response.ok || (escalate.body || []).length === 0, '保護者Aは自分のroleを書き換えられない');
+  const forgedTask = await rest('student_study_tasks', parentA, {
+    method: 'POST',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ school_id: process.env.PARENT_A_SCHOOL_ID, student_id: 'x', title: 'security-test' })
+  });
+  assert(!forgedTask.response.ok, '保護者Aは課題を登録できない');
+} else {
+  console.log('SKIP: PARENT_A_* が未設定のため保護者のRLSテストを省略');
+}

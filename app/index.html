@@ -1221,6 +1221,7 @@
             const [isLoading, setIsLoading] = useState(false);
             const [showMasterUpload, setShowMasterUpload] = useState(false);
             const [masterUpdateMode, setMasterUpdateMode] = useState('add'); // 'add' or 'replace'
+            const [resetParentPasswords, setResetParentPasswords] = useState(false);
             const [questionLayout, setQuestionLayout] = useState(() => [{ section: '前半', start: '', end: '', subject: '' }]);
 
             const handleDelete = async (index) => {
@@ -1267,12 +1268,12 @@
                     
                     await Promise.all(promises);
                     
-                    const credentials = await onStudentMasterUpload(master, masterUpdateMode === 'replace');
+                    const credentials = await onStudentMasterUpload(master, masterUpdateMode === 'replace', resetParentPasswords);
                     if (!credentials) {
                         throw new Error('学生アカウントの保存に失敗しました。成功メッセージは表示しません。');
                     }
                     if (credentials?.length) {
-                        const csv = ['ログインID,学籍番号,氏名,初期パスワード', ...credentials.map(item => `${item.loginId},${item.studentId},${item.name},${item.password}`)].join('\n');
+                        const csv = ['ログインID,学籍番号,氏名,初期パスワード,保護者ログインID,保護者初期パスワード', ...credentials.map(item => `${item.loginId},${item.studentId},${item.name},${item.password},${item.parentLoginId || ''},${item.parentPassword || '（登録済み・変更なし）'}`)].join('\n');
                         const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
                         const link = document.createElement('a');
                         link.href = URL.createObjectURL(blob);
@@ -1771,6 +1772,10 @@
                                     </div>
                                 </div>
                                 
+                                <label style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', fontSize: '13px', marginBottom: '10px' }}>
+                                    <input type="checkbox" checked={resetParentPasswords} onChange={(e) => setResetParentPasswords(e.target.checked)} style={{ marginRight: '6px' }} />
+                                    登録済みの保護者パスワードも再発行する（未登録の保護者は常に自動発行）
+                                </label>
                                 <input type="file" accept=".csv" onChange={(e) => setStudentMasterFile(e.target.files[0])}
                                     style={{ width: '100%', padding: '10px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px', marginBottom: '10px' }} />
                                 <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
@@ -2594,7 +2599,8 @@
                 name: profile.display_name,
                 role: profile.role,
                 schoolId: profile.school_id,
-                isTeacher: profile.role === 'teacher' || profile.role === 'admin'
+                isTeacher: profile.role === 'teacher' || profile.role === 'admin',
+                isParent: profile.role === 'parent'
             };
         }
 
@@ -4609,18 +4615,6 @@
                                                 }}>メールで問い合わせる</a>
                                             </>
                                         )}
-                                        {!user.isTeacher && (
-                                            <div style={{
-                                                marginTop: '5px',
-                                                fontSize: '11px',
-                                                letterSpacing: '0.03em',
-                                                lineHeight: 1,
-                                                color: 'transparent',
-                                                WebkitTextStroke: '0.8px rgba(255,255,255,0.95)'
-                                            }}>
-                                                作成者：井上亜久吏
-                                            </div>
-                                        )}
                                         </div>
                                     </div>
                                 </div>
@@ -5396,6 +5390,306 @@
         }
 
         // メインアプリ
+        // 国家試験の合格基準: 必修 40/50点以上（80%）、一般 120/200点以上（60%）。両方を満たすことが必要
+        const NATIONAL_EXAM_RULES = { requiredPass: 40, requiredMax: 50, generalPass: 120, generalMax: 200 };
+
+        function getNationalExamThresholds(result) {
+            const requiredMax = result.requiredMaxScore || 0;
+            const generalMax = result.generalMaxScore || 0;
+            return {
+                requiredMax,
+                generalMax,
+                requiredPass: requiredMax === NATIONAL_EXAM_RULES.requiredMax ? NATIONAL_EXAM_RULES.requiredPass : Math.ceil(requiredMax * 0.8),
+                generalPass: generalMax === NATIONAL_EXAM_RULES.generalMax ? NATIONAL_EXAM_RULES.generalPass : Math.ceil(generalMax * 0.6)
+            };
+        }
+
+        function getParentSubjectEntries(result) {
+            const entries = [];
+            if (result.requiredMaxScore > 0 && result.required) entries.push({ name: '必修', stats: result.required });
+            subjectNames.forEach(name => {
+                if (result.subjects?.[name]) entries.push({ name, stats: result.subjects[name] });
+            });
+            return entries;
+        }
+
+        function buildParentGuidance(result, previousResult) {
+            const th = getNationalExamThresholds(result);
+            const requiredOk = th.requiredMax > 0 && result.requiredScore >= th.requiredPass;
+            const generalOk = th.generalMax > 0 && result.generalScore >= th.generalPass;
+            const requiredGap = th.requiredMax > 0 ? Math.max(0, th.requiredPass - result.requiredScore) : 0;
+            const generalGap = th.generalMax > 0 ? Math.max(0, th.generalPass - result.generalScore) : 0;
+
+            const current = getParentSubjectEntries(result);
+            const previousByName = new Map(getParentSubjectEntries(previousResult || { subjects: {} }).map(item => [item.name, item.stats]));
+            const improved = [];
+            const needsEffort = [];
+            current.forEach(({ name, stats }) => {
+                const prev = previousByName.get(name);
+                const diff = prev ? Math.round((stats.deviation - prev.deviation) * 10) / 10 : null;
+                const rateDiff = prev ? Math.round((stats.scoreRate - prev.scoreRate) * 10) / 10 : null;
+                if (diff !== null && diff >= 2) improved.push({ name, stats, prev, diff, rateDiff });
+                const declined = diff !== null && diff <= -2;
+                const belowAverage = stats.deviation < 45;
+                if (declined || belowAverage) needsEffort.push({ name, stats, prev, diff, rateDiff, declined, belowAverage });
+            });
+            improved.sort((a, b) => b.diff - a.diff);
+            needsEffort.sort((a, b) => a.stats.deviation - b.stats.deviation);
+
+            // 一般科目のうち、取りこぼしが多い（満点との差が大きい）科目を優先課題とする
+            const generalLoss = current
+                .filter(item => item.name !== '必修')
+                .map(item => ({ ...item, loss: item.stats.maxScore - item.stats.score }))
+                .sort((a, b) => b.loss - a.loss)
+                .slice(0, 3);
+
+            const paragraphs = [];
+            const dev = result.totalStats?.deviation;
+            const prevDev = previousResult?.totalStats?.deviation;
+            const devDiff = dev !== undefined && prevDev !== undefined ? Math.round((dev - prevDev) * 10) / 10 : null;
+            // 模試は難易度が毎回異なるため、点数だけでなく偏差値（同じ受験者内での位置）も併せて評価する
+            const level = dev === undefined ? 'unknown' : dev >= 55 ? 'high' : dev >= 45 ? 'mid' : 'low';
+
+            const scoreParts = [];
+            if (th.requiredMax > 0) {
+                scoreParts.push(requiredOk
+                    ? `必修は${result.requiredScore}点で、国家試験の合格基準（${th.requiredPass}点）に達しています。`
+                    : `必修は${result.requiredScore}点で、合格基準（${th.requiredPass}点）まであと${requiredGap}点です。`);
+            }
+            if (th.generalMax > 0) {
+                scoreParts.push(generalOk
+                    ? `一般は${result.generalScore}点で、合格基準（${th.generalPass}点）に達しています。`
+                    : `一般は${result.generalScore}点で、合格基準（${th.generalPass}点）まであと${generalGap}点です。`);
+            }
+            const levelText = {
+                high: `総合の偏差値は${dev}で、受験者全体の中でも上位に位置しています。`,
+                mid: `総合の偏差値は${dev}で、受験者全体の中では平均的な位置にいます。`,
+                low: `総合の偏差値は${dev}で、今回は全体の平均をやや下回りました。`,
+                unknown: ''
+            }[level];
+            let overall;
+            if (requiredOk && generalOk) {
+                overall = level === 'low'
+                    ? '点数は基準に達しており、今回の模試が比較的易しかった可能性もあります。基礎を固めながら、さらに得点を積み上げていきましょう。'
+                    : '点数・偏差値の両面から、順調に学習が進んでいると言えます。この調子で継続していきましょう。';
+            } else if (level === 'high' || level === 'mid') {
+                overall = '点数は基準にあと少し届いていませんが、偏差値で見ると周囲と比べて決して悪い位置ではありません。模試の難易度による影響も大きいため、点数だけで判断せず、引き続き着実に力を伸ばしていきましょう。';
+            } else {
+                overall = '点数・偏差値ともに伸びしろのある状況です。国家試験までにはまだ時間がありますので、得意・不得意を整理しながら、一歩ずつ力をつけていきましょう。';
+            }
+            paragraphs.push([...scoreParts, levelText, overall].filter(Boolean).join(''));
+
+            if (devDiff !== null) {
+                paragraphs.push(devDiff >= 2
+                    ? `前回と比べて総合の偏差値は${devDiff}ポイント上昇しており、学習の成果が表れています。`
+                    : devDiff <= -2
+                        ? `前回より総合の偏差値は${Math.abs(devDiff)}ポイント下がりましたが、模試ごとの難易度や出題の偏りでも変動します。一度の結果で心配しすぎず、次回以降の推移を見守ってください。`
+                        : '前回と比べて総合の偏差値はほぼ横ばいで、安定した成績です。');
+            }
+
+            if (th.requiredMax > 0) {
+                const requiredTarget = Math.min(th.requiredMax, th.requiredPass + 3);
+                paragraphs.push(requiredOk
+                    ? `【必修】基準を安定して超えられるよう、${requiredTarget}点以上を次の目標にします。本番の緊張も考えると、少し余裕を持てる点数が安心です。`
+                    : `【必修】基準の${th.requiredPass}点を、まず目指します。必修は基本問題が中心のため、毎日の短時間の復習が効果的です。`);
+            }
+
+            if (th.generalMax > 0) {
+                const focus = generalLoss.map(item => item.name).join('、');
+                paragraphs.push(generalOk
+                    ? `【一般】基準を超えています。${focus}は、まだ得点を伸ばせる余地が大きい科目ですので、ここを復習するとさらに安定します。`
+                    : `【一般】基準まであと${generalGap}点です。各科目を少しずつ積み上げれば届く範囲です。特に${focus}は伸ばしやすい科目ですので、重点的に取り組みます。`);
+            }
+
+            if (previousResult) {
+                if (improved.length > 0) paragraphs.push(`前回より伸びている${improved.slice(0, 3).map(item => item.name).join('、')}は、努力の成果です。ぜひ声をかけて、自信につなげてあげてください。`);
+                if (needsEffort.length > 0) paragraphs.push(`${needsEffort.slice(0, 3).map(item => item.name).join('、')}は、次回に向けて復習を進めたい科目です。ご家庭では、学習時間の確保や生活リズムを見守っていただけると助かります。`);
+            } else if (needsEffort.length > 0) {
+                paragraphs.push(`${needsEffort.slice(0, 3).map(item => item.name).join('、')}は、今後さらに伸ばしていきたい科目です。次回の試験に向けて、学校でも重点的に指導します。`);
+            }
+            paragraphs.push('学習の成果は、日々の積み重ねで少しずつ現れます。結果に一喜一憂せず、学校とご家庭で連携しながら、本人が前向きに取り組める環境を整えていきましょう。');
+
+            return { th, requiredOk, generalOk, requiredGap, generalGap, improved, needsEffort, paragraphs, hasPrevious: !!previousResult };
+        }
+
+        function ParentView({ user, exams, onLogout }) {
+            const childExams = exams.filter(exam => (exam.students || []).some(student => student.studentId === user.studentId));
+            const [examIndex, setExamIndex] = useState(Math.max(0, childExams.length - 1));
+            const safeIndex = Math.min(examIndex, Math.max(0, childExams.length - 1));
+            const currentExam = childExams[safeIndex];
+
+            const resultOf = (exam) => exam
+                ? generateExamResults(exam.students, exam.questionLayout, exam.questionOverrides).find(item => item.studentId === user.studentId)
+                : null;
+
+            const header = (
+                <div style={{ background: '#2e7d32', color: 'white', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+                    <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                        <div>
+                            <h1 style={{ margin: 0, fontSize: '22px' }}>模擬試験結果（保護者用）</h1>
+                            {currentExam && <p style={{ margin: '5px 0 0 0', fontSize: '14px', opacity: 0.9 }}>📋 {currentExam.examName}</p>}
+                        </div>
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            {childExams.length > 1 && (
+                                <select value={safeIndex} onChange={(e) => setExamIndex(Number(e.target.value))}
+                                    style={{ padding: '10px 15px', fontSize: '14px', borderRadius: '6px', border: 'none', fontWeight: '600' }}>
+                                    {childExams.map((exam, index) => <option key={exam.id || index} value={index}>{exam.examName}</option>)}
+                                </select>
+                            )}
+                            <button onClick={onLogout} style={{ padding: '10px 20px', fontSize: '14px', fontWeight: '600', background: '#f44336', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>ログアウト</button>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            const result = resultOf(currentExam);
+            if (!result) {
+                return (
+                    <div style={{ minHeight: '100vh', background: '#fafafa' }}>
+                        {header}
+                        <div style={{ maxWidth: '1000px', margin: '40px auto', padding: '30px', background: 'white', borderRadius: '8px', textAlign: 'center', color: '#666' }}>
+                            公開されている試験結果がまだありません。結果が公開されると、こちらで確認できます。
+                        </div>
+                    </div>
+                );
+            }
+
+            const previousResult = safeIndex > 0 ? resultOf(childExams[safeIndex - 1]) : null;
+            const guidance = buildParentGuidance(result, previousResult);
+            const { th } = guidance;
+            const cardStyle = { background: 'white', padding: '18px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '20px' };
+            const judgeBadge = (ok) => (
+                <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '999px', fontSize: '13px', fontWeight: '700', color: 'white', background: ok ? '#2e7d32' : '#e65100' }}>
+                    {ok ? '基準クリア' : 'これから伸ばす分野'}
+                </span>
+            );
+            const diffText = (value, unit = '') => `${value > 0 ? '+' : ''}${value}${unit}`;
+
+            return (
+                <div style={{ minHeight: '100vh', background: '#fafafa' }}>
+                    {header}
+                    <div className="result-content" style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto' }}>
+                        <div style={{ background: '#f5f5f5', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                            <h3 style={{ margin: '0 0 10px 0' }}>学生情報</h3>
+                            <p style={{ margin: '5px 0' }}><strong>受験番号:</strong> {result.studentId}</p>
+                            <p style={{ margin: '5px 0' }}><strong>氏名:</strong> {result.studentName}</p>
+                        </div>
+
+                        <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                            <h3 style={{ margin: '0 0 10px 0' }}>総合成績</h3>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
+                                <div><strong>総合点:</strong> <span style={{ color: getFourSubjectsScoreColor(result.totalStats, '#1976d2'), fontWeight: 'bold' }}>{result.totalScore}/{result.totalMaxScore}</span></div>
+                                {result.requiredMaxScore > 0 && <div><strong>必修:</strong> {result.requiredScore}/{result.requiredMaxScore}</div>}
+                                {result.generalMaxScore > 0 && <div><strong>一般合計:</strong> {result.generalScore}/{result.generalMaxScore}</div>}
+                                {result.fourSubjectsStats && <div><strong>4教科合計:</strong> <span style={{ color: getFourSubjectsScoreColor(result.fourSubjectsStats), fontWeight: 'bold' }}>{result.fourSubjectsScore}/{result.fourSubjectsMaxScore}</span></div>}
+                            </div>
+                            {result.totalStats && (
+                                <div style={{ marginTop: '20px' }}>
+                                    <h4 style={{ margin: '0 0 10px 0', fontSize: '14px' }}>総合点得点率</h4>
+                                    <BarChart scoreRate={result.totalStats.scoreRate} averageRate={result.totalStats.averageScoreRate} stdDeviation={result.totalStats.scoreRateStdDev} label="" />
+                                    <div style={{ marginTop: '10px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: '10px', fontSize: '13px' }}>
+                                        <div><strong>得点率:</strong> {result.totalStats.scoreRate}%</div>
+                                        <div><strong>順位:</strong> {result.totalStats.rank}位</div>
+                                        <div><strong>偏差値:</strong> {result.totalStats.deviation}</div>
+                                        <div><strong>Ave.:</strong> {result.totalStats.averageScoreRate}%</div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <h3>科目別成績</h3>
+                        <div style={{ overflowX: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '30px', background: 'white' }}>
+                                <thead>
+                                    <tr style={{ background: '#1976d2', color: 'white' }}>
+                                        {['科目', '得点', '得点率', '順位', '偏差値'].map(label => <th key={label} style={{ padding: '12px', textAlign: 'left' }}>{label}</th>)}
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {getParentSubjectEntries(result).map(({ name, stats }, index) => (
+                                        <tr key={name} style={{ background: name === '必修' ? '#fff3e0' : (index % 2 === 0 ? 'white' : '#f9f9f9') }}>
+                                            <td style={{ padding: '12px', fontWeight: 'bold' }}>{name}</td>
+                                            <td style={{ padding: '12px' }}>{stats.score}/{stats.maxScore}</td>
+                                            <td style={{ padding: '12px' }}>{stats.scoreRate}%</td>
+                                            <td style={{ padding: '12px' }}>{stats.rank}位</td>
+                                            <td style={{ padding: '12px' }}>{stats.deviation}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div style={cardStyle}>
+                            <h3 style={{ margin: '0 0 10px 0' }}>国家試験の合格基準と今回の結果</h3>
+                            <p style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#555', lineHeight: 1.7 }}>
+                                国家試験は、<strong>必修問題が50点満点中40点以上</strong>、かつ<strong>一般問題が200点満点中120点以上</strong>の両方を満たす必要があります。
+                            </p>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '12px' }}>
+                                {th.requiredMax > 0 && (
+                                    <div style={{ border: '1px solid #e0e0e0', borderRadius: '8px', padding: '12px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <strong>必修（基準 {th.requiredPass}/{th.requiredMax}点）</strong>{judgeBadge(guidance.requiredOk)}
+                                        </div>
+                                        <div style={{ marginTop: '8px', fontSize: '22px', fontWeight: 'bold' }}>{result.requiredScore}<span style={{ fontSize: '14px', color: '#666' }}> / {th.requiredMax}点</span></div>
+                                        <div style={{ fontSize: '13px', color: '#555' }}>{guidance.requiredOk ? `基準を${result.requiredScore - th.requiredPass}点上回っています` : `基準まであと${guidance.requiredGap}点`}</div>
+                                    </div>
+                                )}
+                                {th.generalMax > 0 && (
+                                    <div style={{ border: '1px solid #e0e0e0', borderRadius: '8px', padding: '12px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <strong>一般（基準 {th.generalPass}/{th.generalMax}点）</strong>{judgeBadge(guidance.generalOk)}
+                                        </div>
+                                        <div style={{ marginTop: '8px', fontSize: '22px', fontWeight: 'bold' }}>{result.generalScore}<span style={{ fontSize: '14px', color: '#666' }}> / {th.generalMax}点</span></div>
+                                        <div style={{ fontSize: '13px', color: '#555' }}>{guidance.generalOk ? `基準を${result.generalScore - th.generalPass}点上回っています` : `基準まであと${guidance.generalGap}点`}</div>
+                                    </div>
+                                )}
+                            </div>
+                            {(th.requiredMax !== NATIONAL_EXAM_RULES.requiredMax || th.generalMax !== NATIONAL_EXAM_RULES.generalMax) && (
+                                <p style={{ margin: '10px 0 0 0', fontSize: '12px', color: '#888' }}>※ この試験は満点が国家試験と異なるため、基準点は割合（必修80%・一般60%）で換算しています。</p>
+                            )}
+                        </div>
+
+                        <div style={cardStyle}>
+                            <h3 style={{ margin: '0 0 10px 0' }}>前回との比較</h3>
+                            {!guidance.hasPrevious && <p style={{ margin: '0 0 10px 0', fontSize: '13px', color: '#666' }}>前回の公開済み試験がないため、今回の結果のみで評価しています。</p>}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px' }}>
+                                <div style={{ background: '#e8f5e9', borderRadius: '8px', padding: '12px' }}>
+                                    <h4 style={{ margin: '0 0 8px 0', color: '#1b5e20' }}>📈 改善が見られる科目</h4>
+                                    {guidance.improved.length === 0
+                                        ? <p style={{ margin: 0, fontSize: '13px', color: '#555' }}>{guidance.hasPrevious ? '今回は大きく伸びた科目はありませんでした。' : '前回データがないため比較できません。'}</p>
+                                        : guidance.improved.map(item => (
+                                            <div key={item.name} style={{ fontSize: '14px', marginBottom: '6px' }}>
+                                                <strong>{item.name}</strong>：偏差値 {item.prev.deviation} → {item.stats.deviation}（{diffText(item.diff)}）／得点率 {diffText(item.rateDiff, '%')}
+                                            </div>
+                                        ))}
+                                </div>
+                                <div style={{ background: '#fff3e0', borderRadius: '8px', padding: '12px' }}>
+                                    <h4 style={{ margin: '0 0 8px 0', color: '#e65100' }}>💪 努力が必要な科目</h4>
+                                    {guidance.needsEffort.length === 0
+                                        ? <p style={{ margin: 0, fontSize: '13px', color: '#555' }}>特に注意が必要な科目はありません。</p>
+                                        : guidance.needsEffort.map(item => (
+                                            <div key={item.name} style={{ fontSize: '14px', marginBottom: '6px' }}>
+                                                <strong>{item.name}</strong>：偏差値 {item.stats.deviation}
+                                                {item.diff !== null && <>（前回比 {diffText(item.diff)}）</>}
+                                                {item.belowAverage && <span style={{ color: '#e65100' }}> 伸びしろがあります</span>}
+                                            </div>
+                                        ))}
+                                </div>
+                            </div>
+                            <p style={{ margin: '10px 0 0 0', fontSize: '12px', color: '#888' }}>※ 試験ごとの難易度の差を除くため、偏差値の変化で判定しています（偏差値が2以上上昇＝改善、2以上低下または45未満＝努力が必要）。</p>
+                        </div>
+
+                        <div style={{ ...cardStyle, borderLeft: '5px solid #2e7d32' }}>
+                            <h3 style={{ margin: '0 0 10px 0' }}>保護者の皆様へ ― 今後の学習目標</h3>
+                            {guidance.paragraphs.map((text, index) => (
+                                <p key={index} style={{ margin: '0 0 12px 0', lineHeight: 1.8, fontSize: '15px', color: '#333' }}>{text}</p>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
         function App() {
             const [loggedInUser, setLoggedInUser] = useState(null);
             const [pendingAdminMfaUser, setPendingAdminMfaUser] = useState(null);
@@ -5747,7 +6041,7 @@
                 }
             };
 
-            const handleStudentMasterUpload = async (master, shouldReplace) => {
+            const handleStudentMasterUpload = async (master, shouldReplace, resetParentPasswords = false) => {
                 try {
                     const targetSchoolId = loggedInUser?.role === 'admin' ? selectedSchoolId : loggedInUser?.schoolId;
                     if (!targetSchoolId) {
@@ -5760,7 +6054,7 @@
                         password: info.password
                     }));
                     const { data, error: functionError } = await supabase.functions.invoke('import-student-master', {
-                        body: { schoolId: targetSchoolId, students, replace: shouldReplace }
+                        body: { schoolId: targetSchoolId, students, replace: shouldReplace, resetParentPasswords }
                     });
                     if (functionError) throw functionError;
                     if (data?.error) throw new Error(data.error);
@@ -6052,6 +6346,19 @@
                 : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId);
             const visibleExams = loggedInUser.isTeacher ? schoolExams : publishedExams;
             const currentExam = visibleExams[selectedExamIndex] || null;
+
+            if (loggedInUser.isParent) {
+                return (
+                    <ParentView
+                        user={loggedInUser}
+                        exams={publishedExams.filter(exam => exam.schoolId === loggedInUser.schoolId)}
+                        onLogout={async () => {
+                            await supabase.auth.signOut();
+                            setLoggedInUser(null);
+                        }}
+                    />
+                );
+            }
 
             return (
                 <>

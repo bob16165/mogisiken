@@ -7,6 +7,12 @@ type StudentInput = {
   password: string;
 };
 
+function generateParentPassword() {
+  const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(10));
+  return Array.from(bytes, (byte) => chars[byte % chars.length]).join('');
+}
+
 Deno.serve(async (request) => {
   let stage = '開始';
   if (request.method === 'OPTIONS') {
@@ -79,6 +85,14 @@ Deno.serve(async (request) => {
         .eq('school_id', targetSchoolId)
         .not('student_id', 'in', `(${ids.map((id) => `"${id}"`).join(',')})`);
       if (deleteAppUserError) throw deleteAppUserError;
+
+      const { error: deleteParentError } = await adminClient
+        .from('app_users')
+        .delete()
+        .eq('role', 'parent')
+        .eq('school_id', targetSchoolId)
+        .not('student_id', 'in', `(${ids.map((id) => `"${id}"`).join(',')})`);
+      if (deleteParentError) throw deleteParentError;
     }
 
     stage = 'Authユーザー一覧取得';
@@ -100,6 +114,7 @@ Deno.serve(async (request) => {
         .select('id')
         .eq('student_id', student.studentId)
         .eq('school_id', targetSchoolId)
+        .eq('role', 'student')
         .maybeSingle();
       if (appLookupError) throw appLookupError;
       const existing = existingUsers.find((user) => user.email?.toLowerCase() === email);
@@ -153,7 +168,50 @@ Deno.serve(async (request) => {
       }, { onConflict: 'id' });
       if (appUserError) throw appUserError;
 
-      results.push({ studentId: student.studentId, loginId, name: student.name, password: student.password, email });
+      stage = `学生 ${student.studentId} の保護者アカウント登録`;
+      const parentLoginId = `${loginId}-p`;
+      const parentEmail = `${encodeURIComponent(parentLoginId)}@mogisiken.local`;
+      const { data: existingParentApp, error: parentLookupError } = await adminClient
+        .from('app_users')
+        .select('id')
+        .eq('student_id', student.studentId)
+        .eq('school_id', targetSchoolId)
+        .eq('role', 'parent')
+        .maybeSingle();
+      if (parentLookupError) throw parentLookupError;
+      const existingParentAuth = existingUsers.find((user) => user.email?.toLowerCase() === parentEmail.toLowerCase());
+      const parentAuthId = existingParentApp?.id || existingParentAuth?.id;
+      let parentPassword: string | null = null;
+      let parentUserId = parentAuthId;
+
+      if (parentAuthId) {
+        // 既存の保護者パスワードは、再発行指定がない限り変更しない
+        if (body.resetParentPasswords === true) {
+          parentPassword = generateParentPassword();
+          const { error } = await adminClient.auth.admin.updateUserById(parentAuthId, { password: parentPassword, email_confirm: true });
+          if (error) throw error;
+        }
+      } else {
+        parentPassword = generateParentPassword();
+        const { data, error } = await adminClient.auth.admin.createUser({ email: parentEmail, password: parentPassword, email_confirm: true });
+        if (error) throw error;
+        parentUserId = data.user.id;
+      }
+
+      const { error: parentAppError } = await adminClient.from('app_users').upsert({
+        id: parentUserId,
+        role: 'parent',
+        school_id: targetSchoolId,
+        student_id: student.studentId,
+        login_id: parentLoginId,
+        display_name: `${student.name} 保護者`
+      }, { onConflict: 'id' });
+      if (parentAppError) throw parentAppError;
+
+      results.push({
+        studentId: student.studentId, loginId, name: student.name, password: student.password, email,
+        parentLoginId, parentPassword
+      });
     }
 
     return new Response(JSON.stringify({ count: results.length, students: results }), {

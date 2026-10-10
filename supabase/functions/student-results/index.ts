@@ -313,18 +313,21 @@ Deno.serve(async (request) => {
       .order('created_at', { ascending: true });
 
     if (requestedSchoolId) examsQuery = examsQuery.eq('school_id', requestedSchoolId);
-    if (operator.role === 'student') examsQuery = examsQuery.eq('is_published', true);
+    const isStudentLike = operator.role === 'student' || operator.role === 'parent';
+    if (isStudentLike) examsQuery = examsQuery.eq('is_published', true);
 
     const { data: exams, error: examsError } = await examsQuery;
     if (examsError) throw examsError;
 
     const visibleExams = (exams || []).map((exam: any) => {
       const allRows = (exam.student_exam_results || []) as Record<string, any>[];
-      const visibleRows = operator.role === 'student'
+      const visibleRows = isStudentLike
         ? allRows.filter((row) => row.school_id === operator.school_id && row.student_id === operator.student_id)
         : allRows;
       // 正答を隠すのは卒業判定試験(hide_correct_answer)だけ。通常試験は学生にも正答を返す
-      const exposeAnswers = operator.role !== 'student' || !exam.hide_correct_answer;
+      // 保護者には問題単位の詳細（設問・正答）を返さず、科目別の集計だけを返す
+      const isParent = operator.role === 'parent';
+      const exposeAnswers = !isParent && (operator.role !== 'student' || !exam.hide_correct_answer);
       const questionOverrides = exam.question_overrides || {};
       const questionStats = buildQuestionStats(allRows, exam.question_layout, questionOverrides);
       return {
@@ -332,7 +335,7 @@ Deno.serve(async (request) => {
         school_id: exam.school_id,
         exam_name: exam.exam_name,
         question_layout: exam.question_layout,
-        question_overrides: operator.role === 'student' && exam.hide_correct_answer
+        question_overrides: isParent ? {} : operator.role === 'student' && exam.hide_correct_answer
           ? Object.fromEntries(Object.entries(questionOverrides).map(([subject, subjectRules]: [string, any]) => [
             subject,
             Object.fromEntries(Object.entries(subjectRules || {}).map(([questionNumber, rule]: [string, any]) => [
@@ -346,11 +349,13 @@ Deno.serve(async (request) => {
         created_at: exam.created_at,
         student_exam_results: visibleRows.map((row) => ({
           ...row,
-          question_details: Object.fromEntries(Object.entries(row.question_details || {}).map(([subject, questions]) => [
+          question_details: isParent ? {} : Object.fromEntries(Object.entries(row.question_details || {}).map(([subject, questions]) => [
             subject,
             Array.isArray(questions) ? questions.map((question) => sanitizeQuestion(question as Record<string, unknown>, exposeAnswers)) : []
           ])),
-          computed: buildComputed(row, allRows, exposeAnswers, questionStats, exam.question_layout, questionOverrides)
+          computed: isParent
+            ? { ...buildComputed(row, allRows, false, questionStats, exam.question_layout, questionOverrides), questionDetails: {} }
+            : buildComputed(row, allRows, exposeAnswers, questionStats, exam.question_layout, questionOverrides)
         }))
       };
     });
