@@ -2987,6 +2987,11 @@
                 return currentExam.examName === exam.examName;
             });
             const selectedWindowStart = Math.max(0, selectedExamIndex - 2);
+            const selectedExamHistory = new Set(
+                selectedExamIndex >= 0
+                    ? examList.slice(0, selectedExamIndex + 1)
+                    : []
+            );
             const selectedRecentExams = new Set(
                 selectedExamIndex >= 0
                     ? examList.slice(selectedWindowStart, selectedExamIndex + 1)
@@ -3120,7 +3125,8 @@
                             displaySource: convertSourceToName(source, subjectName, sourceMapping),
                             userAnswer: formatAnswer(question.userAnswer),
                             correctAnswer: displayCorrectAnswer(question),
-                            isCurrentExam
+                            isCurrentExam,
+                            isNotAfterSelectedExam: selectedExamHistory.has(exam)
                         });
                     });
                 });
@@ -3320,7 +3326,8 @@
             const recommendedQuestionsByPriority = topPriorities.map((priority, index) => {
                 const sortedQuestions = priority.relatedQuestions
                     .filter(question =>
-                        (question.correctRate ?? 0) >= 50 || (question.correlWithTotal ?? 0) >= 0.4
+                        question.isNotAfterSelectedExam &&
+                        ((question.correctRate ?? 0) >= 50 || (question.correlWithTotal ?? 0) >= 0.4)
                     )
                     .sort((a, b) => {
                         if (a.isCurrentExam !== b.isCurrentExam) return a.isCurrentExam ? -1 : 1;
@@ -3584,7 +3591,7 @@
                                         {isTeacher && <div style={{ fontSize: '13px', lineHeight: 1.6, marginBottom: '10px', opacity: 0.92 }}>{plan.focusText}</div>}
                                         <div style={{ fontSize: '12px', lineHeight: 1.7 }}>
                                             <div>今回の得点率: {plan.latestScoreRate}%</div>
-                                            <div>周りが正解した問題の取りこぼし: {plan.highCorrectRateMisses}/{plan.highCorrectRateQuestionCount}問（{(plan.highCorrectRateMissRate * 100).toFixed(1)}%）</div>
+                                            <div>直近3回分の取りこぼし（周りが正解した問題）: {plan.highCorrectRateMisses}/{plan.highCorrectRateQuestionCount}問（{(plan.highCorrectRateMissRate * 100).toFixed(1)}%）</div>
                                             {isTeacher && (
                                                 <>
                                                     <div>直近評価得点率（試験規模補正）: {plan.priorityScoreRate}%</div>
@@ -3613,7 +3620,6 @@
                                 ))}
                             </div>
 
-                            {!isTeacher && (
                             <div style={{
                                 background: 'rgba(255,255,255,0.08)',
                                 border: '1px solid rgba(255,255,255,0.14)',
@@ -3688,7 +3694,6 @@
                                     </div>
                                 )}
                             </div>
-                            )}
                         </div>
                     )}
                 </div>
@@ -5309,7 +5314,6 @@
                                     weakAreas={weakAreaData.areas}
                                     sourceMapping={sourceMapping}
                                     recentExamCount={weakAreaData.recentExamCount}
-                                    initialExpanded
                                 />
                             )}
                         </div>
