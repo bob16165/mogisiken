@@ -3004,6 +3004,7 @@
                     (currentExam.id && exam.id && currentExam.id === exam.id) ||
                     currentExam.examName === exam.examName
                 );
+                const examWeight = Math.min(1, studentResult.totalMaxScore / 250);
 
                 examHistory.push({
                     examName: exam.examName,
@@ -3011,12 +3012,15 @@
                     totalMaxScore: studentResult.totalMaxScore,
                     scoreRate: studentResult.totalStats?.scoreRate || 0,
                     deviation: studentResult.totalStats?.deviation ?? null,
+                    examWeight,
                     isCurrentExam
                 });
                 if (studentResult.fourSubjectsStats) {
                     fourSubjectsRateHistory.push({
                         scoreRate: studentResult.fourSubjectsStats.scoreRate,
                         deviation: studentResult.fourSubjectsStats.deviation ?? null,
+                        cohortSize: exam.students.length,
+                        examWeight,
                         isCurrentExam
                     });
                 }
@@ -3038,6 +3042,7 @@
                         scoreRate: subjectStats.scoreRate,
                         deviation: subjectStats.deviation,
                         cohortSize: exam.students.length,
+                        examWeight,
                         isCurrentExam,
                         wrongCount: 0,
                         questionCount: 0,
@@ -3105,18 +3110,36 @@
             });
             const getRecentStandardDeviation = records => {
                 if (records.length < 2) return null;
-                const mean = records.reduce((sum, record) => sum + record.scoreRate, 0) / records.length;
-                const variance = records.reduce((sum, record) => sum + Math.pow(record.scoreRate - mean, 2), 0) / records.length;
+                const totalWeight = records.reduce((sum, record) => sum + record.examWeight, 0);
+                if (totalWeight === 0) return null;
+                const mean = records.reduce((sum, record) => sum + record.scoreRate * record.examWeight, 0) / totalWeight;
+                const variance = records.reduce((sum, record) => sum + Math.pow(record.scoreRate - mean, 2) * record.examWeight, 0) / totalWeight;
                 return Math.sqrt(variance);
             };
             const fourSubjectsRecent = sortedFourSubjectsRateHistory.slice(-3);
             const fourSubjectsStdDev = getRecentStandardDeviation(fourSubjectsRecent);
-            const latestFourSubjectsDeviation = fourSubjectsRecent[fourSubjectsRecent.length - 1]?.deviation ?? null;
+            const fourSubjectsDeviationRecords = fourSubjectsRecent.filter(record => record.deviation !== null);
+            const fourSubjectsDeviationWeight = fourSubjectsDeviationRecords.reduce((sum, record) => sum + record.examWeight, 0);
+            const latestFourSubjectsDeviation = fourSubjectsDeviationWeight > 0
+                ? fourSubjectsDeviationRecords.reduce((sum, record) => sum + record.deviation * record.examWeight, 0) / fourSubjectsDeviationWeight
+                : null;
+            const fourSubjectExamDeviations = sortedFourSubjectsRateHistory
+                .filter(record => record.cohortSize >= 5 && record.deviation !== null)
+                .map(record => record.deviation);
+            const hasThreeConsecutiveCorePasses = fourSubjectExamDeviations.length >= 3 &&
+                fourSubjectExamDeviations.slice(-3).every(deviation => deviation >= 50);
+            const hasSingleHighCorePass = fourSubjectExamDeviations.some(deviation => deviation >= 60);
+            const otherSubjectsUnlocked = hasThreeConsecutiveCorePasses || hasSingleHighCorePass;
+            const priorityStage = otherSubjectsUnlocked ? '科目拡張' : '基礎固め';
 
             const totalTrend = examHistorySorted.length >= 2
                 ? Math.round((examHistorySorted[examHistorySorted.length - 1].scoreRate - examHistorySorted[0].scoreRate) * 10) / 10
                 : 0;
-            const latestTotalDeviation = examHistorySorted[examHistorySorted.length - 1]?.deviation ?? null;
+            const totalDeviationRecords = examHistorySorted.slice(-3).filter(record => record.deviation !== null);
+            const totalDeviationWeight = totalDeviationRecords.reduce((sum, record) => sum + record.examWeight, 0);
+            const latestTotalDeviation = totalDeviationWeight > 0
+                ? totalDeviationRecords.reduce((sum, record) => sum + record.deviation * record.examWeight, 0) / totalDeviationWeight
+                : null;
             const isLowerPerformingStudent = latestTotalDeviation !== null && latestTotalDeviation < 45;
 
             const priorities = Object.values(subjectAnalytics)
@@ -3129,20 +3152,27 @@
                     });
                     const latestPerformance = examPerformance[examPerformance.length - 1];
                     const recentPerformance = examPerformance.slice(-3);
-                    const avgScoreRate = Math.round((item.avgScoreRateSum / item.examsTaken) * 10) / 10;
+                    const totalPerformanceWeight = examPerformance.reduce((sum, record) => sum + record.examWeight, 0);
+                    const avgScoreRate = totalPerformanceWeight > 0
+                        ? Math.round(examPerformance.reduce((sum, record) => sum + record.scoreRate * record.examWeight, 0) / totalPerformanceWeight * 10) / 10
+                        : Math.round((item.avgScoreRateSum / item.examsTaken) * 10) / 10;
                     const latestScoreRate = latestPerformance?.scoreRate ?? item.latestScoreRate ?? avgScoreRate;
-                    const recentMean = recentPerformance.length > 0
-                        ? recentPerformance.reduce((sum, record) => sum + record.scoreRate, 0) / recentPerformance.length
+                    const recentPerformanceWeight = recentPerformance.reduce((sum, record) => sum + record.examWeight, 0);
+                    const priorityScoreRate = recentPerformanceWeight > 0
+                        ? recentPerformance.reduce((sum, record) => sum + record.scoreRate * record.examWeight, 0) / recentPerformanceWeight
                         : latestScoreRate;
                     const recentStdDev = getRecentStandardDeviation(recentPerformance);
                     const improvement = recentPerformance.length >= 2
-                        ? recentPerformance[recentPerformance.length - 1].scoreRate - recentPerformance[0].scoreRate
+                        ? (recentPerformance[recentPerformance.length - 1].scoreRate - recentPerformance[0].scoreRate) *
+                            recentPerformance[recentPerformance.length - 1].examWeight
                         : 0;
                     const recentWrongCount = recentPerformance.reduce((sum, record) => sum + record.wrongCount, 0);
-                    const recentQuestionCount = recentPerformance.reduce((sum, record) => sum + record.questionCount, 0);
-                    const totalQuestionCount = item.examPerformance.reduce((sum, record) => sum + record.questionCount, 0);
-                    const recentHighCorrectRateMisses = recentPerformance.reduce((sum, record) => sum + record.highCorrectRateMisses, 0);
-                    const recentMidCorrectRateMisses = recentPerformance.reduce((sum, record) => sum + record.midCorrectRateMisses, 0);
+                    const weightedRecentWrongCount = recentPerformance.reduce((sum, record) => sum + record.wrongCount * record.examWeight, 0);
+                    const weightedRecentQuestionCount = recentPerformance.reduce((sum, record) => sum + record.questionCount * record.examWeight, 0);
+                    const weightedRecentHighCorrectRateMisses = recentPerformance.reduce((sum, record) => sum + record.highCorrectRateMisses * record.examWeight, 0);
+                    const weightedRecentMidCorrectRateMisses = recentPerformance.reduce((sum, record) => sum + record.midCorrectRateMisses * record.examWeight, 0);
+                    const weightedWrongCount = examPerformance.reduce((sum, record) => sum + record.wrongCount * record.examWeight, 0);
+                    const weightedQuestionCount = examPerformance.reduce((sum, record) => sum + record.questionCount * record.examWeight, 0);
                     const isFourCoreSubject = fourCoreSubjects.includes(item.subjectName);
                     const dominantSources = Object.entries(item.sourceCounts)
                         .sort((a, b) => b[1] - a[1])
@@ -3160,15 +3190,30 @@
                             count,
                             displaySource: convertSourceToName(source, item.subjectName, sourceMapping)
                         }));
-                    const avgSubjectCorrel = item.correlCount > 0 ? item.correlSum / item.correlCount : 0;
-                    const hasEnoughCohortData = (latestPerformance?.cohortSize || 0) >= 5;
-                    const deviation = hasEnoughCohortData ? latestPerformance?.deviation ?? null : null;
+                    const deviationRecords = recentPerformance.filter(record => record.deviation !== null && record.cohortSize >= 5);
+                    const deviationWeight = deviationRecords.reduce((sum, record) => sum + record.examWeight, 0);
+                    const deviation = deviationWeight > 0
+                        ? deviationRecords.reduce((sum, record) => sum + record.deviation * record.examWeight, 0) / deviationWeight
+                        : null;
+                    const absoluteRisk = Math.min(30, Math.max(0, 70 - priorityScoreRate) / 70 * 30);
+                    const relativeRisk = deviation === null
+                        ? 0
+                        : Math.min(30, Math.max(0, 50 - deviation) / 50 * 30);
+                    const performanceComparison = deviation === null
+                        ? '偏差値データが少ないため、得点率を中心に評価'
+                        : priorityScoreRate < 70 && deviation >= 50
+                            ? '得点率は低めですが、集団内では相対的に健闘'
+                            : priorityScoreRate >= 70 && deviation < 50
+                                ? '得点率は確保していますが、集団内では相対的に遅れ'
+                                : priorityScoreRate < 70 && deviation < 50
+                                    ? '得点率・偏差値の両面で復習が必要'
+                                    : '得点率・偏差値の両面で安定';
                     const stabilityRisk = recentStdDev === null ? 0 : Math.min(12, Math.max(0, recentStdDev - 4) * 0.8);
                     const groupStabilityRisk = fourSubjectsStdDev === null
                         ? 0
                         : Math.min(12, Math.max(0, fourSubjectsStdDev - 4) * 0.8);
                     const requiredThresholdRisk = item.subjectName === '必修'
-                        ? Math.max(0, 80 - latestScoreRate) * (isLowerPerformingStudent ? 2.2 : 1.2)
+                        ? Math.max(0, 80 - priorityScoreRate) * (isLowerPerformingStudent ? 2.2 : 1.2)
                         : 0;
                     const coreSubjectRisk = isLowerPerformingStudent && isFourCoreSubject && deviation !== null
                         ? Math.max(0, 50 - deviation) * 1.2
@@ -3176,13 +3221,13 @@
                     const coreGroupRisk = isLowerPerformingStudent && isFourCoreSubject && latestFourSubjectsDeviation !== null
                         ? Math.max(0, 50 - latestFourSubjectsDeviation) * 0.8
                         : 0;
-                    const priorityScore =
-                        Math.max(0, 70 - latestScoreRate) * 1.2 +
-                        (deviation === null ? 0 : Math.max(0, 50 - deviation) * 0.6) +
-                        (item.wrongCount / Math.max(1, item.examPerformance.reduce((sum, record) => sum + record.questionCount, 0))) * 8 +
-                        (recentWrongCount / Math.max(1, recentQuestionCount)) * 28 +
-                        (recentHighCorrectRateMisses / Math.max(1, recentQuestionCount)) * 12 +
-                        (recentMidCorrectRateMisses / Math.max(1, recentQuestionCount)) * 8 +
+                    const unweightedPriorityScore =
+                        absoluteRisk +
+                        relativeRisk +
+                        (weightedWrongCount / Math.max(1, weightedQuestionCount)) * 8 +
+                        (weightedRecentWrongCount / Math.max(1, weightedRecentQuestionCount)) * 28 +
+                        (weightedRecentHighCorrectRateMisses / Math.max(1, weightedRecentQuestionCount)) * 12 +
+                        (weightedRecentMidCorrectRateMisses / Math.max(1, weightedRecentQuestionCount)) * 8 +
                         stabilityRisk +
                         (isFourCoreSubject ? groupStabilityRisk : 0) +
                         requiredThresholdRisk +
@@ -3190,21 +3235,23 @@
                         coreGroupRisk +
                         (item.subjectName === '必修' ? stabilityRisk : 0) -
                         Math.min(10, Math.max(0, improvement) * 0.8);
+                    const priorityScore = unweightedPriorityScore;
 
                     return {
                         ...item,
                         avgScoreRate,
                         latestScoreRate,
+                        priorityScoreRate: Math.round(priorityScoreRate * 10) / 10,
                         deviation,
+                        absoluteRisk: Math.round(absoluteRisk * 10) / 10,
+                        relativeRisk: Math.round(relativeRisk * 10) / 10,
+                        performanceComparison,
                         recentStdDev,
-                        recentMean: Math.round(recentMean * 10) / 10,
                         improvement: Math.round(improvement * 10) / 10,
                         groupStabilityRisk: isFourCoreSubject ? groupStabilityRisk : 0,
                         recentWrongCount,
-                        wrongRate: item.wrongCount / Math.max(1, totalQuestionCount),
-                        recentWrongRate: recentWrongCount / Math.max(1, recentQuestionCount),
-                        recentHighCorrectRateMisses,
-                        recentMidCorrectRateMisses,
+                        wrongRate: weightedWrongCount / Math.max(1, weightedQuestionCount),
+                        recentWrongRate: weightedRecentWrongCount / Math.max(1, weightedRecentQuestionCount),
                         requiredThresholdRisk,
                         coreSubjectRisk,
                         coreGroupRisk,
@@ -3216,7 +3263,11 @@
                 })
                 .sort((a, b) => b.priorityScore - a.priorityScore);
 
-            const topPriorities = priorities.slice(0, 5);
+            const foundationalSubjects = new Set(['必修', ...fourCoreSubjects]);
+            const eligiblePriorities = priorities.filter(priority =>
+                otherSubjectsUnlocked || foundationalSubjects.has(priority.subjectName)
+            );
+            const topPriorities = eligiblePriorities.slice(0, 5);
             const recommendedQuestionMap = new Map();
             const recommendedQuestionsByPriority = topPriorities.map((priority, index) => {
                 const sortedQuestions = priority.relatedQuestions
@@ -3258,6 +3309,9 @@
             let summary = '問題別データが不足しているため、科目別の得点率から優先順位を出しています。';
             if (topPriorities.length > 0) {
                 summary = `優先順位は ${subjectLine} です。`;
+                summary += otherSubjectsUnlocked
+                    ? ' 4教科偏差値の条件を満たしたため、全科目を対象にしています。'
+                    : ' 4教科偏差値が条件に届くまでは、必修と4教科を優先して見ています。';
                 const highRateMissTotal = topPriorities.reduce((sum, item) => sum + item.highCorrectRateMisses, 0);
                 const midBandMissTotal = topPriorities.reduce((sum, item) => sum + item.midCorrectRateMisses, 0);
                 if (highRateMissTotal > 0) {
@@ -3286,7 +3340,7 @@
                     : (priority.dominantSources.length > 0
                         ? priority.dominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
                         : '関連出典データなし');
-                const latestGap = Math.max(0, Math.round((priority.avgScoreRate - priority.latestScoreRate) * 10) / 10);
+                const latestGap = Math.max(0, Math.round((priority.avgScoreRate - priority.priorityScoreRate) * 10) / 10);
                 const isHighCorrelSubject = (priority.subjectCorrel ?? 0) >= 0.4;
                 const stabilityText = priority.recentStdDev !== null
                     ? `直近の得点率のばらつきは約${priority.recentStdDev.toFixed(1)}ポイントです。`
@@ -3301,6 +3355,7 @@
                 return {
                     subjectName: priority.subjectName,
                     latestScoreRate: priority.latestScoreRate,
+                    priorityScoreRate: priority.priorityScoreRate,
                     avgScoreRate: priority.avgScoreRate,
                     wrongCount: priority.wrongCount,
                     recentWrongCount: priority.recentWrongCount,
@@ -3315,6 +3370,9 @@
                         : `平均帯にはいますが、${highRateLabel}${midBandLabel}${isHighCorrelSubject ? ' 総合点との連動が強い科目です。' : ''} ${stabilityText}`,
                     sourceText: sourcesText,
                     deviation: priority.deviation,
+                    absoluteRisk: priority.absoluteRisk,
+                    relativeRisk: priority.relativeRisk,
+                    performanceComparison: priority.performanceComparison,
                     recentStdDev: priority.recentStdDev,
                     improvement: priority.improvement,
                     groupStabilityRisk: priority.groupStabilityRisk,
@@ -3358,6 +3416,9 @@
                 subjectProfiles,
                 recommendedQuestions,
                 recommendedQuestionsByPriority,
+                priorityStage,
+                otherSubjectsUnlocked,
+                fourSubjectsDeviationHistoryCount: fourSubjectExamDeviations.length,
                 totalTrend,
                 analyzedExamCount: examHistory.length
             };
@@ -3421,7 +3482,11 @@
                                     解析対象試験数: {guidance.analyzedExamCount}件
                                 </div>
                                 <div style={{ marginTop: '8px', fontSize: '12px', opacity: 0.8 }}>
-                                    優先度は最新得点率・誤答率（直近3回を重視）・改善傾向・成績のばらつきで算出し、受験者5人以上の場合は偏差値目安も加味しています。総合点との相関は順位づけには使わず、総合点との連動を示す参考値として表示します。総合偏差値45未満では、必修の80%基準未達と4教科の弱さを強く反映します。
+                                    判定段階: {guidance.priorityStage}（4教科がそろい、受験者5人以上の試験 {guidance.fourSubjectsDeviationHistoryCount}回）
+                                    {guidance.otherSubjectsUnlocked
+                                        ? '。4教科偏差値が50以上で3回連続、または1回で60以上になったため、全科目を優先順位の対象にしています。'
+                                        : '。条件を満たすまでは、必修と実施済みの4教科だけで優先順位を決めます。'}
+                                    {' '}優先度は絶対評価（得点率70%を基準）と相対評価（偏差値50を基準）を別々に点数化して合算し、誤答率・改善傾向・ばらつきも加味します。部分模試は250問に対する試験規模で影響を調整します。総合点との相関は順位づけには使わず参考値として表示します。低学年で4教科が未実施の場合は、実施済みの基礎科目（例：解剖・生理・柔整理論）と必修を対象にします。関連過去問には部分模試の誤答も含みます。
                                 </div>
                             </div>
 
@@ -3429,16 +3494,16 @@
                                 {guidance.actionPlan.map((plan, index) => (
                                     <div key={plan.subjectName} style={{
                                         background: index === 0 ? 'rgba(255,214,102,0.16)' : 'rgba(255,255,255,0.08)',
-                                        border: plan.isHighCorrelSubject
-                                            ? '2px solid rgba(220,38,38,0.7)'
-                                            : (index === 0 ? '1px solid rgba(255,214,102,0.45)' : '1px solid rgba(255,255,255,0.12)'),
+                                        border: index === 0
+                                            ? '1px solid rgba(255,214,102,0.45)'
+                                            : '1px solid rgba(255,255,255,0.12)',
                                         borderRadius: '10px',
                                         padding: '14px'
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                                             <div style={{ fontSize: '12px', opacity: 0.8 }}>優先 {index + 1}</div>
                                             {plan.isHighCorrelSubject && (
-                                                <span style={{ fontSize: '10px', padding: '2px 5px', background: '#dc2626', color: 'white', borderRadius: '4px', fontWeight: 'bold' }}>
+                                                <span style={{ fontSize: '10px', padding: '2px 5px', background: 'rgba(255,255,255,0.18)', color: 'white', borderRadius: '4px' }}>
                                                     総合点との相関 r={plan.subjectCorrel?.toFixed(2)}
                                                 </span>
                                             )}
@@ -3451,16 +3516,21 @@
                                         <div style={{ fontSize: '18px', fontWeight: '700', marginBottom: '8px' }}>{plan.subjectName}</div>
                                         <div style={{ fontSize: '13px', lineHeight: 1.6, marginBottom: '10px', opacity: 0.92 }}>{plan.focusText}</div>
                                         <div style={{ fontSize: '12px', lineHeight: 1.7 }}>
-                                            <div>最新得点率: {plan.latestScoreRate}%</div>
-                                            <div>累積誤答: {plan.wrongCount}問（誤答率 {(plan.wrongRate * 100).toFixed(1)}%）</div>
-                                            <div>直近3回: {plan.recentWrongCount}問（誤答率 {(plan.recentWrongRate * 100).toFixed(1)}%）</div>
+                                            <div>最新試験得点率: {plan.latestScoreRate}%</div>
+                                            <div>直近評価得点率（試験規模補正）: {plan.priorityScoreRate}%</div>
+                                            <div>累積誤答: {plan.wrongCount}問（規模補正後誤答率 {(plan.wrongRate * 100).toFixed(1)}%）</div>
+                                            <div>直近3回: {plan.recentWrongCount}問（規模補正後誤答率 {(plan.recentWrongRate * 100).toFixed(1)}%）</div>
                                             <div>高正答率取りこぼし: {plan.highCorrectRateMisses}問</div>
                                             <div>50〜70%帯誤答: {plan.midCorrectRateMisses}問</div>
-                                            <div>偏差値目安: {plan.deviation === null ? '参考値なし' : plan.deviation}</div>
+                                            <div>絶対評価（得点率）: {plan.priorityScoreRate}% ／優先度寄与 {plan.absoluteRisk}</div>
+                                            <div>相対評価（偏差値）: {plan.deviation === null ? '参考値なし' : `${plan.deviation.toFixed(1)} ／優先度寄与 ${plan.relativeRisk}`}</div>
                                             <div>直近得点率のばらつき: {plan.recentStdDev === null ? '参考値なし' : `±${plan.recentStdDev.toFixed(1)}ポイント`}</div>
                                             {plan.improvement > 0 && <div>直近の改善: +{plan.improvement}ポイント</div>}
                                             {plan.fourSubjectsStdDev !== null && <div>4教科合計のばらつき: ±{plan.fourSubjectsStdDev.toFixed(1)}ポイント</div>}
                                             {plan.fourSubjectsDeviation !== null && <div>4教科合計の偏差値: {plan.fourSubjectsDeviation}</div>}
+                                        </div>
+                                        <div style={{ marginTop: '8px', fontSize: '11px', fontWeight: '600', color: '#ffe08a' }}>
+                                            得点率と偏差値の見方: {plan.performanceComparison}
                                         </div>
                                         {plan.lowerTierRiskLabel && (
                                             <div style={{ marginTop: '8px', fontSize: '11px', fontWeight: '600', color: '#ffe08a' }}>
