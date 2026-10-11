@@ -232,6 +232,7 @@ function buildComputed(
   const result: Record<string, any> = {
     studentId: row.student_id,
     studentName: row.student_name,
+    cohortSize: allRows.length,
     totalScore,
     totalMaxScore,
     requiredScore: Number(row.required_score || 0),
