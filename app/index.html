@@ -3112,9 +3112,13 @@
                         if (questionCorrectRate >= 50 && questionCorrectRate < 70) {
                             analytics.midCorrectRateMisses += 1;
                             examPerformance.midCorrectRateMisses += 1;
-                            analytics.midBandSourceCounts[source] = (analytics.midBandSourceCounts[source] || 0) + 1;
                         }
-                        analytics.sourceCounts[source] = (analytics.sourceCounts[source] || 0) + 1;
+                        if (selectedExamHistory.has(exam)) {
+                            analytics.sourceCounts[source] = (analytics.sourceCounts[source] || 0) + 1;
+                            if (questionCorrectRate >= 50 && questionCorrectRate < 70) {
+                                analytics.midBandSourceCounts[source] = (analytics.midBandSourceCounts[source] || 0) + 1;
+                            }
+                        }
                         analytics.relatedQuestions.push({
                             examName: exam.examName,
                             subjectName,
@@ -3547,6 +3551,9 @@
                                     {isTeacher
                                         ? guidance.summary
                                         : '最近の成績と問題の正答状況から、復習をおすすめする科目を表示しています。'}
+                                </div>
+                                <div style={{ marginTop: '8px', fontSize: '12px', lineHeight: 1.6, opacity: 0.82 }}>
+                                    取りこぼしは選択中の模試とその前2回分（受験回数が3回未満の場合は受験した分）から、他の受験者の正答率が70%以上だった問題のうち本人が誤答したものを集計しています。集中領域は選択中の模試までの全試験の誤答出典を集計し、正答率50%以上70%未満の問題で誤答があった出典を優先して表示します。
                                 </div>
                                 {isTeacher && (
                                     <>
