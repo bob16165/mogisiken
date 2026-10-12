@@ -563,58 +563,6 @@
             return { areas: weakAreas, recentExamCount: recentExams.length };
         }
 
-        function calculateTopReviewItems(exam, studentId, sourceMapping, limit = 5) {
-            const student = exam?.students?.find(s => s.studentId === studentId);
-            const itemCounts = {};
-            const fourCoreSubjects = ['解剖学', '生理学', '一般臨床', '柔整理論'];
-
-            Object.entries(student?.questionDetails || {}).forEach(([subjectName, questions]) => {
-                questions.forEach(q => {
-                    const isCorrect = isQuestionCorrect(q, exam?.questionOverrides?.[subjectName]?.[String(q.questionNumber)]);
-                    if (isCorrect === null || !q.source) return;
-
-                    const key = `${subjectName}\u0000${q.source}`;
-                    if (!itemCounts[key]) {
-                        itemCounts[key] = {
-                            subjectName,
-                            source: q.source,
-                            displaySource: convertSourceToName(q.source, subjectName, sourceMapping),
-                            incorrectCount: 0,
-                            questionCount: 0
-                        };
-                    }
-                    itemCounts[key].questionCount++;
-                    if (!isCorrect) itemCounts[key].incorrectCount++;
-                });
-            });
-
-            const items = Object.values(itemCounts).map(item => ({
-                ...item,
-                incorrectRate: Math.round(item.incorrectCount / item.questionCount * 100)
-            }));
-            const sortByIncorrectRate = (a, b) =>
-                b.incorrectRate - a.incorrectRate ||
-                b.incorrectCount - a.incorrectCount ||
-                b.questionCount - a.questionCount ||
-                a.subjectName.localeCompare(b.subjectName) ||
-                a.source.localeCompare(b.source);
-            const rankedItems = items
-                .filter(item => item.questionCount >= 2 && item.incorrectCount > 0)
-                .sort(sortByIncorrectRate);
-
-            return {
-                fourCore: rankedItems
-                    .filter(item => fourCoreSubjects.includes(item.subjectName))
-                    .slice(0, limit),
-                other: rankedItems
-                    .filter(item => !fourCoreSubjects.includes(item.subjectName))
-                    .slice(0, limit),
-                singleQuestionReference: items
-                    .filter(item => item.questionCount === 1 && item.incorrectCount > 0)
-                    .sort((a, b) => a.subjectName.localeCompare(b.subjectName) || a.source.localeCompare(b.source))
-            };
-        }
-
         function calculateHighRateWrongQuestions(allExams, studentId, sourceMapping) {
             const questions = [];
             const subjectCounts = {};
@@ -695,73 +643,6 @@
             }
             
             return source; // マッピングがなければそのまま返す
-        }
-
-        function TeacherReviewSummary({ currentExam, allExams, studentId, sourceMapping }) {
-            const currentExamItems = calculateTopReviewItems(currentExam, studentId, sourceMapping);
-            const highRateWrong = calculateHighRateWrongQuestions(allExams, studentId, sourceMapping);
-
-            const renderItems = (items, emptyMessage) => {
-                if (items.length === 0) {
-                    return <p style={{ margin: 0, color: '#666' }}>{emptyMessage}</p>;
-                }
-
-                return (
-                    <ol style={{ margin: 0, paddingLeft: '26px' }}>
-                        {items.map(item => (
-                            <li key={`${item.subjectName}-${item.source}`} style={{ padding: '7px 0', borderBottom: '1px solid #eee' }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px' }}>
-                                    <span><strong>{item.displaySource}</strong><span style={{ color: '#666', fontSize: '12px' }}>（{item.subjectName}）</span></span>
-                                    <strong style={{ whiteSpace: 'nowrap', color: '#c62828' }}>
-                                        {item.incorrectRate}%（{item.incorrectCount}/{item.questionCount}問）
-                                    </strong>
-                                </div>
-                            </li>
-                        ))}
-                    </ol>
-                );
-            };
-
-            return (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '15px', marginBottom: '20px' }}>
-                    <div style={{ background: '#fff8e1', padding: '15px', borderRadius: '8px', border: '1px solid #ffcc80' }}>
-                        <h3 style={{ margin: '0 0 10px 0', color: '#e65100' }}>今回の復習領域 TOP5（誤答率順）</h3>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
-                            <div>
-                                <h4 style={{ margin: '0 0 6px 0' }}>4教科</h4>
-                                {renderItems(currentExamItems.fourCore, '該当する領域はありません。')}
-                            </div>
-                            <div>
-                                <h4 style={{ margin: '0 0 6px 0' }}>その他</h4>
-                                {renderItems(currentExamItems.other, '該当する領域はありません。')}
-                            </div>
-                        </div>
-                        {currentExamItems.singleQuestionReference.length > 0 && (
-                            <div style={{ marginTop: '12px', padding: '10px', background: '#fff', borderRadius: '6px', border: '1px solid #ffe0b2' }}>
-                                <h4 style={{ margin: '0 0 6px 0' }}>参考：1問のみ出題された領域の誤答</h4>
-                                {renderItems(currentExamItems.singleQuestionReference, '')}
-                            </div>
-                        )}
-                    </div>
-                    <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', border: '1px solid #90caf9', gridColumn: '1 / -1' }}>
-                        <h3 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>各試験回：正答率50%以上の誤答 科目TOP5</h3>
-                        {highRateWrong.examGroups.length === 0 ? (
-                            <p style={{ margin: 0, color: '#666' }}>該当する誤答はありません。</p>
-                        ) : (
-                            <div style={{ display: 'grid', gap: '12px' }}>
-                                {highRateWrong.examGroups.map(group => (
-                                    <HighRateWrongQuestions
-                                        key={group.examName}
-                                        analysis={group}
-                                        title={`${group.examName}：正答率50%以上の誤答 科目TOP5`}
-                                        compact
-                                    />
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            );
         }
 
         // 解答を文字列に変換（配列の場合はカンマ区切り）
@@ -2307,7 +2188,7 @@
             return item;
         }
 
-        function buildPdfResultCover(result, examName, studentCount, reviewItems = []) {
+        function buildPdfResultCover(result, examName, studentCount) {
             const cover = createPdfSectionBase();
             cover.appendChild(createTitle('個人試験結果'));
 
@@ -2373,60 +2254,6 @@
                 totals.appendChild(item);
             });
             cover.appendChild(totals);
-
-            const reviewTitle = document.createElement('h3');
-            reviewTitle.textContent = '今回の復習領域 TOP5（誤答率順）';
-            reviewTitle.style.margin = '0 0 5px 0';
-            reviewTitle.style.fontSize = '12px';
-            reviewTitle.style.color = '#334155';
-            cover.appendChild(reviewTitle);
-
-            const reviewList = document.createElement('div');
-            reviewList.style.display = 'grid';
-            reviewList.style.gridTemplateColumns = '1fr 1fr';
-            reviewList.style.gap = '3px 14px';
-            reviewList.style.marginBottom = '12px';
-            const hasRankedReviewItems = reviewItems.fourCore.length > 0 || reviewItems.other.length > 0;
-            if (!hasRankedReviewItems && reviewItems.singleQuestionReference.length === 0) {
-                const empty = document.createElement('div');
-                empty.textContent = '今回の試験で誤答した復習領域はありません。';
-                empty.style.gridColumn = '1 / -1';
-                empty.style.fontSize = '10px';
-                empty.style.color = '#64748b';
-                reviewList.appendChild(empty);
-            } else {
-                const appendReviewGroup = (groupTitle, items, isReference = false) => {
-                    if (items.length === 0) return;
-                    const group = document.createElement('div');
-                    group.style.gridColumn = '1 / -1';
-                    group.style.marginTop = '3px';
-                    const heading = document.createElement('strong');
-                    heading.textContent = groupTitle;
-                    heading.style.fontSize = '9px';
-                    group.appendChild(heading);
-                    items.forEach((reviewItem, index) => {
-                        const row = document.createElement('div');
-                        row.style.display = 'flex';
-                        row.style.justifyContent = 'space-between';
-                        row.style.gap = '6px';
-                        row.style.padding = '4px 6px';
-                        row.style.background = !isReference && index === 0 ? '#fff1e6' : '#f8fafc';
-                        row.style.fontSize = '9px';
-                        const label = document.createElement('span');
-                        label.textContent = `${isReference ? '・' : `${index + 1}. `}${reviewItem.subjectName} / ${reviewItem.displaySource || reviewItem.source}`;
-                        const rate = document.createElement('strong');
-                        rate.textContent = `${reviewItem.incorrectRate}%（${reviewItem.incorrectCount}/${reviewItem.questionCount}問）`;
-                        rate.style.whiteSpace = 'nowrap';
-                        row.append(label, rate);
-                        group.appendChild(row);
-                    });
-                    reviewList.appendChild(group);
-                };
-                appendReviewGroup('4教科', reviewItems.fourCore);
-                appendReviewGroup('その他', reviewItems.other);
-                appendReviewGroup('参考：1問のみ出題された領域の誤答', reviewItems.singleQuestionReference, true);
-            }
-            cover.appendChild(reviewList);
 
             const subjectTitle = document.createElement('h3');
             subjectTitle.textContent = '得点率';
@@ -4861,9 +4688,6 @@
             const highRateWrongAnalysis = allExams && allExams.length > 0
                 ? calculateHighRateWrongQuestions(allExams, user.isTeacher ? selectedStudentId : user.studentId, sourceMapping)
                 : null;
-            const teacherReviewSummary = user.isTeacher && result && allExams && allExams.length > 0
-                ? <TeacherReviewSummary currentExam={currentExam} allExams={allExams} studentId={selectedStudentId} sourceMapping={sourceMapping} />
-                : null;
             const guidanceStudentId = user.isTeacher ? result.studentId : user.studentId;
             const aiGuidance = guidanceStudentId && allExams && allExams.length > 0
                 ? buildStudentAiGuidance(allExams, currentExam, guidanceStudentId, sourceMapping)
@@ -4896,8 +4720,7 @@
                 printRoot.style.width = '794px';
                 printRoot.style.background = '#fff';
 
-                const reviewItems = calculateTopReviewItems(currentExam, target.studentId, sourceMapping);
-                const cover = buildPdfResultCover(target, currentExam?.examName, allResults.length, reviewItems);
+                const cover = buildPdfResultCover(target, currentExam?.examName, allResults.length);
                 const sections = [
                     buildPdfHighRateWrongSection(target, currentExam?.examName, sourceMapping),
                     ...buildSubjectQuestionSections(target, sourceMapping, hideCorrectAnswer)
@@ -5114,7 +4937,6 @@
                                     )}
                                 </p>
                             </div>
-                            {teacherReviewSummary}
                             <CollapsibleResultSection title="総合成績" initialExpanded={user.isTeacher}>
                             <div style={{ background: '#e3f2fd', padding: '15px', borderRadius: '8px', marginBottom: '0' }}>
                                 <div className="result-summary-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '15px' }}>
@@ -5383,6 +5205,26 @@
                                     sourceMapping={sourceMapping}
                                     recentExamCount={weakAreaData.recentExamCount}
                                 />
+                            )}
+
+                            {user.isTeacher && highRateWrongAnalysis && (
+                                <div style={{ marginTop: '20px', padding: '15px', background: '#e3f2fd', border: '1px solid #90caf9', borderRadius: '8px' }}>
+                                    <h3 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>各試験回：正答率50%以上の誤答 科目TOP5</h3>
+                                    {highRateWrongAnalysis.examGroups.length === 0 ? (
+                                        <p style={{ margin: 0, color: '#666' }}>該当する誤答はありません。</p>
+                                    ) : (
+                                        <div style={{ display: 'grid', gap: '12px' }}>
+                                            {highRateWrongAnalysis.examGroups.map(group => (
+                                                <HighRateWrongQuestions
+                                                    key={group.examName}
+                                                    analysis={group}
+                                                    title={`${group.examName}：正答率50%以上の誤答 科目TOP5`}
+                                                    compact
+                                                />
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             )}
                         </div>
                     )}
