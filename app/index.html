@@ -537,7 +537,6 @@
                     
                     const questions = student.questionDetails[subjectName];
                     questions.forEach(q => {
-                        if (q.correctRate === null || q.correctRate === undefined || q.correctRate < 50) return;
                         const isCorrect = isQuestionCorrect(q, exam.questionOverrides?.[subjectName]?.[String(q.questionNumber)]);
                         if (isCorrect === null) return;
                         if (q.source && q.correctAnswer !== undefined) {
@@ -4280,7 +4279,7 @@
                         onClick={() => setIsExpanded(!isExpanded)}
                         style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', marginBottom: isExpanded ? '15px' : '0' }}
                     >
-                        <h3 style={{ margin: 0, color: hasWeakAreas ? '#e65100' : '#2e7d32', flex: 1 }}>📚 苦手領域分析（正答率50%以上・全試験累積 / 直近{recentExamCount}回）</h3>
+                        <h3 style={{ margin: 0, color: hasWeakAreas ? '#e65100' : '#2e7d32', flex: 1 }}>📚 苦手領域分析（全試験累積 / 直近{recentExamCount}回）</h3>
                         <span style={{ fontSize: '20px', color: hasWeakAreas ? '#e65100' : '#2e7d32' }}>{isExpanded ? '▼' : '▶'}</span>
                     </div>
                     
@@ -4296,10 +4295,10 @@
                                         <thead>
                                             <tr style={{ backgroundColor: '#ffe0b2' }}>
                                                 <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ffb74d' }}>出典</th>
-                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d' }}>全累積（50%以上）間違い回数</th>
-                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '90px' }}>全累積（50%以上）誤答率</th>
-                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d' }}>直近{recentExamCount}回（50%以上）間違い回数</th>
-                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '90px' }}>直近{recentExamCount}回（50%以上）誤答率</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d' }}>全累積 間違い回数</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '90px' }}>全累積 誤答率</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d' }}>直近{recentExamCount}回 間違い回数</th>
+                                                <th style={{ padding: '8px', textAlign: 'center', border: '1px solid #ffb74d', width: '90px' }}>直近{recentExamCount}回 誤答率</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -4337,7 +4336,7 @@
                                 </div>
                             ))}
                             <p style={{ marginTop: '10px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
-                                ※ 他の受験者の正答率が50%以上で、正答データが利用できる問題のみを集計しています。全試験累積と直近{recentExamCount}回分を表示しています。
+                                ※ 正答データが利用できる問題のみを集計しています。全試験累積と直近{recentExamCount}回分を表示しています。
                             </p>
                         </div> : <p style={{ margin: 0, color: '#555' }}>間違えた問題はありません！</p>
                     )}
@@ -5289,7 +5288,7 @@
                                 <HighRateWrongQuestions
                                     analysis={highRateWrongAnalysis}
                                     hideCorrectAnswer={hideCorrectAnswer}
-                                    title="正答率50%以上で誤答した問題一覧（全試験統計）"
+                                    title="正答率50%以上で誤答した問題一覧（全試験累積）"
                                 />
                             )}
 
