@@ -3011,7 +3011,7 @@
                     midCorrectRateMisses: 0,
                     examPerformance: [],
                     sourceCounts: {},
-                    midBandSourceCounts: {},
+                    focusSourceCounts: {},
                     relatedQuestions: [],
                     correlSum: 0,
                     correlCount: 0
@@ -3115,8 +3115,8 @@
                         }
                         if (selectedExamHistory.has(exam)) {
                             analytics.sourceCounts[source] = (analytics.sourceCounts[source] || 0) + 1;
-                            if (questionCorrectRate >= 50 && questionCorrectRate < 70) {
-                                analytics.midBandSourceCounts[source] = (analytics.midBandSourceCounts[source] || 0) + 1;
+                            if (questionCorrectRate >= 50) {
+                                analytics.focusSourceCounts[source] = (analytics.focusSourceCounts[source] || 0) + 1;
                             }
                         }
                         analytics.relatedQuestions.push({
@@ -3164,10 +3164,12 @@
             const fourSubjectExamDeviations = sortedFourSubjectsRateHistory
                 .filter(record => record.isInSelectedRecentWindow && record.cohortSize >= 5 && record.deviation !== null)
                 .map(record => record.deviation);
+            const fourSubjectsScorePassCount = fourSubjectsRecent.filter(record => record.scoreRate >= 60).length;
             const hasThreeConsecutiveCorePasses = fourSubjectExamDeviations.length >= 3 &&
                 fourSubjectExamDeviations.slice(-3).every(deviation => deviation >= 50);
+            const hasThreeCoreScorePasses = fourSubjectsRecent.length >= 3 && fourSubjectsScorePassCount >= 3;
             const hasSingleHighCorePass = fourSubjectExamDeviations.some(deviation => deviation >= 60);
-            const otherSubjectsUnlocked = hasThreeConsecutiveCorePasses || hasSingleHighCorePass;
+            const otherSubjectsUnlocked = hasThreeConsecutiveCorePasses || hasThreeCoreScorePasses || hasSingleHighCorePass;
             const priorityStage = otherSubjectsUnlocked ? '科目拡張' : '基礎固め';
 
             const totalTrend = examHistorySorted.length >= 2
@@ -3224,7 +3226,7 @@
                             count,
                             displaySource: convertSourceToName(source, item.subjectName, sourceMapping)
                         }));
-                    const midBandDominantSources = Object.entries(item.midBandSourceCounts)
+                    const focusDominantSources = Object.entries(item.focusSourceCounts)
                         .sort((a, b) => b[1] - a[1])
                         .slice(0, 3)
                         .map(([source, count]) => ({
@@ -3307,7 +3309,7 @@
                         coreSubjectRisk,
                         coreGroupRisk,
                         dominantSources,
-                        midBandDominantSources,
+                        focusDominantSources,
                         subjectCorrel: item.correlCount > 0 ? Math.round((item.correlSum / item.correlCount) * 1000) / 1000 : null,
                         priorityScore: Math.round(Math.max(0, priorityScore) * 10) / 10
                     };
@@ -3397,8 +3399,8 @@
             }
 
             const actionPlan = topPriorities.map(priority => {
-                const sourcesText = priority.midBandDominantSources.length > 0
-                    ? priority.midBandDominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
+                const sourcesText = priority.focusDominantSources.length > 0
+                    ? priority.focusDominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
                     : (priority.dominantSources.length > 0
                         ? priority.dominantSources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
                         : '関連出典データなし');
@@ -3407,8 +3409,8 @@
                 const stabilityText = priority.recentStdDev !== null
                     ? `直近の得点率のばらつきは約${priority.recentStdDev.toFixed(1)}ポイントです。`
                     : '安定性は試験回数が少ないため参考値なしです。';
-                const midBandLabel = priority.midBandDominantSources.length > 0
-                    ? '50〜70%帯で誤答が集中する領域です。'
+                const midBandLabel = priority.focusDominantSources.length > 0
+                    ? '正答率50%以上の問題で誤答が集中する領域です。'
                     : '誤答が集中する領域を優先的に固めるべき科目です。';
                 const highRateLabel = priority.recentHighCorrectRateMisses > 0
                     ? `${priority.recentExamCount < 3 ? `受験した全${priority.recentExamCount}回で` : '直近3回分で'}正答率70%以上の取りこぼしが ${priority.recentHighCorrectRateMisses}問あります。`
@@ -3455,8 +3457,8 @@
 
             const subjectProfiles = {};
             priorities.forEach(priority => {
-                const sources = priority.midBandDominantSources.length > 0
-                    ? priority.midBandDominantSources
+                const sources = priority.focusDominantSources.length > 0
+                    ? priority.focusDominantSources
                     : priority.dominantSources;
                 const sourcesText = sources.length > 0
                     ? sources.map(source => `${source.displaySource}(${source.count}回)`).join(' / ')
@@ -3487,6 +3489,7 @@
                 priorityStage,
                 otherSubjectsUnlocked,
                 fourSubjectsDeviationHistoryCount: fourSubjectExamDeviations.length,
+                fourSubjectsScorePassCount,
                 totalTrend,
                 analyzedExamCount: examHistory.length
             };
@@ -3553,7 +3556,7 @@
                                         : '最近の成績と問題の正答状況から、復習をおすすめする科目を表示しています。'}
                                 </div>
                                 <div style={{ marginTop: '8px', fontSize: '12px', lineHeight: 1.6, opacity: 0.82 }}>
-                                    取りこぼしは選択中の模試とその前2回分（受験回数が3回未満の場合は受験した分）から、他の受験者の正答率が70%以上だった問題のうち本人が誤答したものを集計しています。集中領域は選択中の模試までの全試験の誤答出典を集計し、正答率50%以上70%未満の問題で誤答があった出典を優先して表示します。
+                                    取りこぼしは選択中の模試とその前2回分（受験回数が3回未満の場合は受験した分）から、他の受験者の正答率が70%以上だった問題のうち本人が誤答したものを集計しています。集中領域は選択中の模試までの全試験を対象に、本人が誤答した正答率50%以上の問題の出典を集計しています。
                                 </div>
                                 {isTeacher && (
                                     <>
@@ -3563,7 +3566,7 @@
                                         <div style={{ marginTop: '8px', fontSize: '12px', opacity: 0.8 }}>
                                             判定段階: {guidance.priorityStage}（4教科がそろい、受験者5人以上の試験 {guidance.fourSubjectsDeviationHistoryCount}回）
                                             {guidance.otherSubjectsUnlocked
-                                                ? '。4教科偏差値が50以上で3回連続、または1回で60以上になったため、全科目を優先順位の対象にしています。'
+                                                ? `。4教科偏差値50以上が3回連続、4教科合計得点率60%以上（80点相当）が直近3回すべて、または偏差値60以上が1回あったため、全科目を優先順位の対象にしています。`
                                                 : '。条件を満たすまでは、実施済みの4教科を必修より優先する補正を加えて順位づけします。'}
                                             {' '}優先度は絶対評価（得点率70%を基準）と相対評価（偏差値50を基準）を別々に点数化して合算し、誤答率・改善傾向・ばらつきも加味します。必修80%基準は、4教科偏差値の条件を満たすまでは到達時期を考慮して優先度への影響を抑え、条件達成後に重みを上げます。部分模試は250問に対する試験規模で影響を調整します。総合点との相関は順位づけには使わず参考値として表示します。低学年で4教科が未実施の場合は、実施済みの基礎科目（例：解剖・生理・柔整理論）と必修を対象にします。関連過去問には部分模試の誤答も含みます。
                                         </div>
@@ -5272,7 +5275,7 @@
                             </CollapsibleResultSection>
 
                             {user.isTeacher && aiGuidance && (
-                                <StudyGuidanceAI guidance={aiGuidance} hideCorrectAnswer={hideCorrectAnswer} title="AI学習ナビ（教員用・試作）" isTeacher />
+                                <StudyGuidanceAI guidance={aiGuidance} hideCorrectAnswer={hideCorrectAnswer} title="AI学習ナビ（教員用）" isTeacher />
                             )}
 
                             {!user.isTeacher && aiGuidance && (
@@ -5285,7 +5288,7 @@
                                 <HighRateWrongQuestions
                                     analysis={highRateWrongAnalysis}
                                     hideCorrectAnswer={hideCorrectAnswer}
-                                    title="正答率50%以上で誤答した問題一覧"
+                                    title="正答率50%以上で誤答した問題一覧（全試験統計）"
                                 />
                             )}
 
