@@ -2543,9 +2543,61 @@
             const enrollmentYear = Number(student?.enrollmentYear);
             const courseYears = Number(student?.courseYears);
             if (!Number.isInteger(enrollmentYear) || ![3, 4].includes(courseYears)) return null;
-            const march = new Date(enrollmentYear + courseYears, 2, 1);
-            march.setDate(1 + ((7 - march.getDay()) % 7));
-            return march;
+            const examDateParts = String(student?.nationalExamSchedule?.examDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!examDateParts) return null;
+
+            const [, yearText, monthText, dayText] = examDateParts;
+            const year = Number(yearText);
+            const month = Number(monthText);
+            const day = Number(dayText);
+            if (year !== enrollmentYear + courseYears) return null;
+
+            const date = new Date(year, month - 1, day);
+            return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+                ? date
+                : null;
+        }
+
+        function getDaysUntil(date, today = new Date()) {
+            const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+            const targetUtc = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+            return Math.round((targetUtc - todayUtc) / 86400000);
+        }
+
+        function NationalExamCountdown({ user, academicInfo, nationalExamSchedule, scheduleLoadError }) {
+            const grade = getStudentGrade(academicInfo);
+            const courseYears = Number(academicInfo?.courseYears);
+            if (user.role !== 'student' || grade === null || grade !== courseYears) return null;
+
+            const examDate = getNationalExamDate({ ...academicInfo, nationalExamSchedule });
+            const daysRemaining = examDate ? getDaysUntil(examDate) : null;
+            const message = scheduleLoadError
+                ? '厚生労働省の試験日程を取得できませんでした。公式情報をご確認ください。'
+                : !nationalExamSchedule
+                    ? '厚生労働省の試験日程を確認しています。'
+                    : !examDate
+                        ? '今年度の試験日を確認できません。厚生労働省の公式情報をご確認ください。'
+                        : daysRemaining < 0
+                            ? '今年度の国家試験は終了しました。'
+                            : daysRemaining === 0
+                                ? `本日は第${nationalExamSchedule.examNumber}回柔道整復師国家試験です。`
+                                : `国家試験まであと ${daysRemaining} 日`;
+
+            return (
+                <div style={{ maxWidth: '1200px', margin: '16px auto 0', padding: '14px 18px', background: '#fff8e1', border: '1px solid #ffe082', borderRadius: '8px', color: '#5d4037' }}>
+                    <strong style={{ fontSize: '18px' }}>{message}</strong>
+                    {examDate && daysRemaining >= 0 && (
+                        <span style={{ marginLeft: '10px' }}>
+                            （{new Intl.DateTimeFormat('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }).format(examDate)}）
+                        </span>
+                    )}
+                    <div style={{ marginTop: '6px', fontSize: '13px' }}>
+                        <a href="https://www.mhlw.go.jp/kouseiroudoushou/shikaku_shiken/judouseihukushi/" target="_blank" rel="noreferrer" style={{ color: '#1565c0' }}>
+                            厚生労働省の公式情報
+                        </a>
+                    </div>
+                </div>
+            );
         }
 
         function getTeacherGradeOptions(studentMaster, schoolId) {
@@ -4762,7 +4814,7 @@
             );
         }
 
-        function ExamResultView({ user, onLogout, onOpenUpload, onOpenPasswordChange, onOpenSupabaseConfig, onOpenMaintenanceNotices, onOpenQuestionOverrides, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange, teacherGradeOptions, selectedGrade, onGradeChange }) {
+        function ExamResultView({ user, academicInfo, nationalExamSchedule, scheduleLoadError, onLogout, onOpenUpload, onOpenPasswordChange, onOpenSupabaseConfig, onOpenMaintenanceNotices, onOpenQuestionOverrides, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange, teacherGradeOptions, selectedGrade, onGradeChange }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
                 return (
@@ -4813,6 +4865,12 @@
                                     }}>ログアウト</button>
                                 </div>
                             </div>
+                            <NationalExamCountdown
+                                user={user}
+                                academicInfo={academicInfo}
+                                nationalExamSchedule={nationalExamSchedule}
+                                scheduleLoadError={scheduleLoadError}
+                            />
                             <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
                                 <p style={{ fontSize: '18px', marginBottom: '20px' }}>
                                     {user.isTeacher
@@ -5119,6 +5177,12 @@
                             )}
                         </div>
                     </div>
+                    <NationalExamCountdown
+                        user={user}
+                        academicInfo={academicInfo}
+                        nationalExamSchedule={nationalExamSchedule}
+                        scheduleLoadError={scheduleLoadError}
+                    />
                     {user.isTeacher && viewMode === 'list' ? (
                         <div id="list-print-area">
                             <AllStudentsView allResults={allResults} onSelectStudent={handleSelectStudent} sourceMapping={sourceMapping} />
@@ -5840,7 +5904,7 @@
             return entries;
         }
 
-        function buildParentGuidance(result, previousResult, academicInfo) {
+        function buildParentGuidance(result, previousResult, academicInfo, nationalExamSchedule) {
             const th = getNationalExamThresholds(result);
             const requiredOk = th.requiredMax > 0 && result.requiredScore >= th.requiredPass;
             const generalOk = th.generalMax > 0 && result.generalScore >= th.generalPass;
@@ -5872,7 +5936,7 @@
 
             const paragraphs = [];
             const grade = getStudentGrade(academicInfo);
-            const nationalExamDate = getNationalExamDate(academicInfo);
+            const nationalExamDate = getNationalExamDate({ ...academicInfo, nationalExamSchedule });
             const isNationalExamYear = grade !== null && grade === Number(academicInfo?.courseYears);
             const dev = result.totalStats?.deviation;
             const prevDev = previousResult?.totalStats?.deviation;
@@ -5946,13 +6010,16 @@
                     day: 'numeric',
                     weekday: 'long'
                 }).format(nationalExamDate);
-                paragraphs.push(`現在は国家試験の受験学年です。国家試験は例年3月第1週の日曜日に実施されるため、${dateLabel}ごろを目安に、これまでの模擬試験結果を振り返りながら本番に向けた総仕上げを進めます。正式な試験日は公表後に学校からご案内します。ご家庭では、学習時間の確保に加え、睡眠や体調管理も温かく見守っていただけますと幸いです。`);
+                const examStatus = getDaysUntil(nationalExamDate) < 0 ? '実施されました' : '実施予定です';
+                paragraphs.push(`現在は国家試験の受験学年です。厚生労働省の発表では、第${nationalExamSchedule.examNumber}回柔道整復師国家試験は${dateLabel}に${examStatus}。この日程に向けて、これまでの模擬試験結果を振り返りながら本番に向けた総仕上げを進めます。ご家庭では、学習時間の確保に加え、睡眠や体調管理も温かく見守っていただけますと幸いです。`);
+            } else if (isNationalExamYear) {
+                paragraphs.push('現在は国家試験の受験学年です。最新の試験日は厚生労働省の公式情報をご確認ください。ご家庭では、学習時間の確保に加え、睡眠や体調管理も温かく見守っていただけますと幸いです。');
             }
 
             return { th, requiredOk, generalOk, requiredGap, generalGap, improved, needsEffort, paragraphs, hasPrevious: !!previousResult, isNationalExamYear };
         }
 
-        function ParentView({ user, exams, onLogout, academicInfo }) {
+        function ParentView({ user, exams, onLogout, academicInfo, nationalExamSchedule }) {
             const childExams = exams.filter(exam => (exam.students || []).some(student => student.studentId === user.studentId));
             const [examIndex, setExamIndex] = useState(Math.max(0, childExams.length - 1));
             const safeIndex = Math.min(examIndex, Math.max(0, childExams.length - 1));
@@ -5995,7 +6062,7 @@
             }
 
             const previousResult = safeIndex > 0 ? resultOf(childExams[safeIndex - 1]) : null;
-            const guidance = buildParentGuidance(result, previousResult, academicInfo);
+            const guidance = buildParentGuidance(result, previousResult, academicInfo, nationalExamSchedule);
             const { th } = guidance;
             const cardStyle = { background: 'white', padding: '18px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '20px' };
             const judgeBadge = (ok) => (
@@ -6124,6 +6191,13 @@
                             {guidance.paragraphs.map((text, index) => (
                                 <p key={index} style={{ margin: '0 0 12px 0', lineHeight: 1.8, fontSize: '15px', color: '#333' }}>{text}</p>
                             ))}
+                            {guidance.isNationalExamYear && (
+                                <p style={{ margin: 0, fontSize: '14px' }}>
+                                    <a href="https://www.mhlw.go.jp/kouseiroudoushou/shikaku_shiken/judouseihukushi/" target="_blank" rel="noreferrer" style={{ color: '#1565c0' }}>
+                                        厚生労働省の柔道整復師国家試験に関する公式情報
+                                    </a>
+                                </p>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -6143,6 +6217,8 @@
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
             const [selectedGrade, setSelectedGrade] = useState('');
             const [studentAcademicInfo, setStudentAcademicInfo] = useState(null);
+            const [nationalExamSchedule, setNationalExamSchedule] = useState(null);
+            const [nationalExamScheduleLoadError, setNationalExamScheduleLoadError] = useState('');
             const [dataRefreshToken, setDataRefreshToken] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
             const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -6164,6 +6240,45 @@
                 if (error.hint) parts.push(`hint: ${error.hint}`);
                 return parts.join(' | ');
             };
+
+            useEffect(() => {
+                let isMounted = true;
+
+                async function loadNationalExamSchedule() {
+                    try {
+                        const response = await fetch('./national-exam-date.json', { cache: 'no-store' });
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        const schedule = await response.json();
+                        const examDateParts = String(schedule?.examDate || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                        if (!Number.isInteger(schedule?.examNumber) || !examDateParts) {
+                            throw new Error('試験日程データの形式が正しくありません');
+                        }
+
+                        const [, yearText, monthText, dayText] = examDateParts;
+                        const year = Number(yearText);
+                        const month = Number(monthText);
+                        const day = Number(dayText);
+                        const parsedDate = new Date(year, month - 1, day);
+                        if (parsedDate.getFullYear() !== year || parsedDate.getMonth() !== month - 1 || parsedDate.getDate() !== day) {
+                            throw new Error('試験日程データの日付が正しくありません');
+                        }
+
+                        if (isMounted) {
+                            setNationalExamSchedule({
+                                examNumber: schedule.examNumber,
+                                examDate: schedule.examDate
+                            });
+                            setNationalExamScheduleLoadError('');
+                        }
+                    } catch (error) {
+                        console.error('National exam schedule load error:', error);
+                        if (isMounted) setNationalExamScheduleLoadError(error.message || '試験日程を読み込めませんでした');
+                    }
+                }
+
+                loadNationalExamSchedule();
+                return () => { isMounted = false; };
+            }, []);
 
             useEffect(() => {
                 let isMounted = true;
@@ -6848,6 +6963,7 @@
                         user={loggedInUser}
                         exams={publishedExams.filter(exam => exam.schoolId === loggedInUser.schoolId)}
                         academicInfo={studentAcademicInfo || studentMaster[studentMasterKey(loggedInUser.schoolId, loggedInUser.studentId)]}
+                        nationalExamSchedule={nationalExamSchedule}
                         onLogout={async () => {
                             await supabase.auth.signOut();
                             setLoggedInUser(null);
@@ -6860,6 +6976,9 @@
                 <>
                     <ExamResultView
                         user={loggedInUser}
+                        academicInfo={studentAcademicInfo}
+                        nationalExamSchedule={nationalExamSchedule}
+                        scheduleLoadError={nationalExamScheduleLoadError}
                         onLogout={async () => {
                             await supabase.auth.signOut();
                             setLoggedInUser(null);
