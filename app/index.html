@@ -1974,7 +1974,7 @@
         function downloadSampleAnswers() {
             const content = `模範解答前半,Q1,Q2,Q3,Q4,Q5,Q51,Q52,Q81,Q82,,模範解答後半,Q1,Q2,Q3,Q4
 ,3,1,3,4,4,4,3,1,4,,後半,2,3,1,2`;
-            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const blob = new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
             link.download = '模範解答サンプル.csv';
@@ -1984,7 +1984,7 @@
         function downloadSampleSources() {
             const content = `出題基準前半,Q1,Q2,Q3,Q4,Q5,Q51,Q52,Q81,Q82,,出題基準後半,Q1,Q2,Q3,Q4
 ,1,1,3,3,6,2,2,1,3,,後半,1,2,2,2`;
-            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const blob = new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
             link.download = '出題基準サンプル.csv';
@@ -1996,7 +1996,7 @@
 216030,山田太郎,password123,2024,3
 216062,佐藤花子,password456,2024,4
 216099,鈴木一郎,,2024,3`;
-            const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+            const blob = new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
             link.download = '学生氏名マスターサンプル.csv';
