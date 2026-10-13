@@ -2859,6 +2859,71 @@
             );
         }
 
+        function PasswordChangeDialog({ onClose }) {
+            const [password, setPassword] = useState('');
+            const [confirmation, setConfirmation] = useState('');
+            const [error, setError] = useState('');
+            const [isLoading, setIsLoading] = useState(false);
+            const [isComplete, setIsComplete] = useState(false);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                setError('');
+                if (password.length < 6) {
+                    setError('パスワードは6文字以上で入力してください');
+                    return;
+                }
+                if (password !== confirmation) {
+                    setError('パスワードが一致していません');
+                    return;
+                }
+
+                setIsLoading(true);
+                try {
+                    const { error: updateError } = await supabase.auth.updateUser({ password });
+                    if (updateError) {
+                        setError(updateError.message || 'パスワードの変更に失敗しました');
+                        return;
+                    }
+                    setIsComplete(true);
+                } catch (updateError) {
+                    setError(updateError instanceof Error ? updateError.message : 'パスワードの変更に失敗しました');
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            return (
+                <div role="presentation" onClick={() => { if (!isLoading) onClose(); }} style={{ position: 'fixed', inset: 0, zIndex: 2200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.5)', padding: '20px' }}>
+                    <section role="dialog" aria-modal="true" aria-labelledby="password-change-title" onClick={(e) => e.stopPropagation()} style={{ background: 'white', padding: '28px', borderRadius: '10px', width: '100%', maxWidth: '420px', boxShadow: '0 4px 18px rgba(0,0,0,0.2)' }}>
+                        {isComplete ? (
+                            <>
+                                <h2 id="password-change-title" style={{ margin: '0 0 12px', color: '#2e7d32' }}>パスワードを変更しました</h2>
+                                <p style={{ color: '#555', lineHeight: 1.7 }}>次回から新しいパスワードでログインしてください。</p>
+                                <button type="button" onClick={onClose} style={{ width: '100%', padding: '12px', background: '#1565c0', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>閉じる</button>
+                            </>
+                        ) : (
+                            <>
+                                <h2 id="password-change-title" style={{ margin: '0 0 10px', color: '#333' }}>パスワード変更</h2>
+                                <p style={{ margin: '0 0 20px', color: '#666', fontSize: '13px' }}>新しいパスワードを入力してください（6文字以上）。</p>
+                                <form onSubmit={handleSubmit}>
+                                    <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="新しいパスワード" autoComplete="new-password" required
+                                        style={{ width: '100%', padding: '12px', marginBottom: '12px', border: '1px solid #bbb', borderRadius: '5px', boxSizing: 'border-box' }} />
+                                    <input type="password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} placeholder="新しいパスワード（確認）" autoComplete="new-password" required
+                                        style={{ width: '100%', padding: '12px', marginBottom: '16px', border: '1px solid #bbb', borderRadius: '5px', boxSizing: 'border-box' }} />
+                                    {error && <div role="alert" style={{ padding: '10px', marginBottom: '14px', background: '#ffebee', color: '#c62828', borderRadius: '5px', fontSize: '13px' }}>{error}</div>}
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+                                        <button type="button" onClick={onClose} disabled={isLoading} style={{ padding: '11px 16px', background: '#eee', color: '#333', border: 'none', borderRadius: '5px', cursor: isLoading ? 'not-allowed' : 'pointer' }}>キャンセル</button>
+                                        <button type="submit" disabled={isLoading} style={{ padding: '11px 16px', background: isLoading ? '#aaa' : '#1565c0', color: 'white', border: 'none', borderRadius: '5px', cursor: isLoading ? 'not-allowed' : 'pointer' }}>{isLoading ? '変更中...' : '変更する'}</button>
+                                    </div>
+                                </form>
+                            </>
+                        )}
+                    </section>
+                </div>
+            );
+        }
+
         function buildStudentAiGuidance(allExams, currentExam, studentId, sourceMapping) {
             const trackedSubjects = ['必修', ...subjectNames];
             const fourCoreSubjects = ['解剖学', '生理学', '一般臨床', '柔整理論'];
@@ -4588,7 +4653,7 @@
             );
         }
 
-        function ExamResultView({ user, onLogout, onOpenUpload, onOpenSupabaseConfig, onOpenMaintenanceNotices, onOpenQuestionOverrides, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
+        function ExamResultView({ user, onLogout, onOpenUpload, onOpenPasswordChange, onOpenSupabaseConfig, onOpenMaintenanceNotices, onOpenQuestionOverrides, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
                 return (
@@ -4622,6 +4687,10 @@
                                         background: '#2e7d32', color: 'white', border: 'none',
                                         borderRadius: '6px', cursor: 'pointer'
                                     }}>CSVアップロード</button>}
+                                    {user.role === 'teacher' && <button onClick={onOpenPasswordChange} style={{
+                                        padding: '10px 12px', fontSize: '13px', background: '#e3f2fd', color: '#1565c0',
+                                        border: 'none', borderRadius: '5px', cursor: 'pointer'
+                                    }}>パスワード変更</button>}
                                     <button onClick={onLogout} style={{
                                         padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                         background: '#f44336', color: 'white', border: 'none',
@@ -4804,6 +4873,10 @@
                                             padding: '10px 15px', fontSize: '14px', color: 'white', background: '#2e7d32',
                                             border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
                                         }}>CSVアップロード</button>}
+                                        {user.role === 'teacher' && <button onClick={onOpenPasswordChange} style={{
+                                            padding: '10px 12px', fontSize: '13px', color: '#1565c0', background: 'white',
+                                            border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
+                                        }}>パスワード変更</button>}
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
                                         <button onClick={onLogout} style={{
                                             padding: '10px 20px', fontSize: '14px', color: '#1976d2', background: 'white',
@@ -5931,6 +6004,7 @@
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
             const [dataRefreshToken, setDataRefreshToken] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
+            const [showPasswordChange, setShowPasswordChange] = useState(false);
             const [isMaintenanceManagerOpen, setIsMaintenanceManagerOpen] = useState(false);
             const [isQuestionOverrideManagerOpen, setIsQuestionOverrideManagerOpen] = useState(false);
             const [pendingMaintenanceAnnouncements, setPendingMaintenanceAnnouncements] = useState([]);
@@ -6601,6 +6675,7 @@
                             setLoggedInUser(null);
                         }}
                         onOpenUpload={handleCSVUploadClick}
+                        onOpenPasswordChange={() => setShowPasswordChange(true)}
                         onOpenSupabaseConfig={handleSupabaseConfigClick}
                         onOpenMaintenanceNotices={() => setIsMaintenanceManagerOpen(true)}
                         onOpenQuestionOverrides={() => setIsQuestionOverrideManagerOpen(true)}
@@ -6618,6 +6693,9 @@
                             setSelectedExamIndex(0);
                         }}
                     />
+                    {loggedInUser.role === 'teacher' && showPasswordChange && (
+                        <PasswordChangeDialog onClose={() => setShowPasswordChange(false)} />
+                    )}
                     {supabaseConfigDialog}
                     {maintenanceNoticeManager}
                     {questionOverrideManager}
