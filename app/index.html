@@ -1992,12 +1992,10 @@
         }
 
         function downloadSampleStudentMaster() {
-            const content = `学籍番号,氏名
-216030,山田太郎
-216062,佐藤花子
-226005,鈴木一郎
-226055,田中美咲
-227015,高橋健`;
+            const content = `学籍番号,氏名,初期パスワード,入学年度,課程年数
+216030,山田太郎,password123,2024,3
+216062,佐藤花子,password456,2024,4
+216099,鈴木一郎,,2024,3`;
             const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
             const link = document.createElement('a');
             link.href = URL.createObjectURL(blob);
