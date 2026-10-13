@@ -1197,19 +1197,13 @@
                 
                 try {
                     const arrayBuffer = await studentMasterFile.arrayBuffer();
-                    let text;
-                    try {
-                        text = new TextDecoder('utf-8').decode(arrayBuffer);
-                        if (text.includes('�')) throw new Error('UTF-8 decode failed');
-                    } catch {
-                        text = new TextDecoder('shift-jis').decode(arrayBuffer);
-                    }
+                    let text = decodeStudentMasterCsv(arrayBuffer);
                     text = text.replace(/^\uFEFF/, '');
                     const lines = text.split('\n').filter(line => line.trim());
                     const master = {};
                     
                     const promises = lines.slice(1).map(async (line) => {
-                        const cols = line.split(',').map(s => s.trim());
+                        const cols = parseCsvLine(line);
                         const studentId = cols[0];
                         const name = cols[1];
                         const password = (cols[2] || '').length >= 6
@@ -1740,11 +1734,13 @@
                                 </label>
                                 <input type="file" accept=".csv" onChange={(e) => setStudentMasterFile(e.target.files[0])}
                                     style={{ width: '100%', padding: '10px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px', marginBottom: '10px' }} />
-                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-                                    形式: 学籍番号,氏名,初期パスワード,入学年度,課程年数<br/>
-                                    例: 216030,山田太郎,password123,2024,3<br/>
-                                    ※ 入学年度・課程年数は両方入力します。課程年数は専門学校なら3、大学なら4です。空欄で再登録した場合は登録済みの値を保持します。<br/>
-                                    ※ 初期パスワードは6文字以上で入力します。省略時は6桁の数字を自動生成します
+                                <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px', lineHeight: 1.7 }}>
+                                    CSVの1行目は見出し、2行目以降に学生を入力してください。列の順番は固定です。<br/>
+                                    A列: 学籍番号 ／ B列: 氏名 ／ C列: 初期パスワード（任意） ／ D列: 入学年度 ／ E列: 課程年数<br/>
+                                    例: <code>216030,山田太郎,password123,2024,3</code><br/>
+                                    パスワードを省略して学年情報を登録するときも、C列を空欄にしてカンマを残します: <code>216030,山田太郎,,2024,3</code><br/>
+                                    ※ D列・E列は両方入力します。課程年数は専門学校なら3、大学なら4です。空欄で再登録した場合は登録済みの値を保持します。<br/>
+                                    ※ 初期パスワードは6文字以上で入力します。C列が空欄の場合は6桁の数字を自動生成します。文字化けを避けるため「CSV UTF-8」形式で保存してください（Shift-JIS・UTF-16も読み込みます）。
                                 </div>
                                 <button type="button" onClick={handleMasterUpload} disabled={isLoading || !studentMasterFile} style={{
                                     width: '100%', padding: '10px', fontSize: '14px', fontWeight: '600',
@@ -2570,6 +2566,61 @@
                 options.push({ value: 'unassigned', label: '学年未設定' });
             }
             return options;
+        }
+
+        function decodeStudentMasterCsv(arrayBuffer) {
+            const bytes = new Uint8Array(arrayBuffer);
+            const hasPrefix = (...prefix) => prefix.every((value, index) => bytes[index] === value);
+            if (hasPrefix(0xef, 0xbb, 0xbf)) return new TextDecoder('utf-8').decode(bytes);
+            if (hasPrefix(0xff, 0xfe)) return new TextDecoder('utf-16le').decode(bytes);
+            if (hasPrefix(0xfe, 0xff)) return new TextDecoder('utf-16be').decode(bytes);
+
+            const sampleLength = Math.min(bytes.length, 200);
+            let evenNulls = 0;
+            let oddNulls = 0;
+            for (let index = 0; index < sampleLength; index++) {
+                if (bytes[index] === 0) {
+                    if (index % 2 === 0) evenNulls++;
+                    else oddNulls++;
+                }
+            }
+            if (oddNulls > sampleLength / 8) return new TextDecoder('utf-16le').decode(bytes);
+            if (evenNulls > sampleLength / 8) return new TextDecoder('utf-16be').decode(bytes);
+
+            try {
+                return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+            } catch {
+                try {
+                    return new TextDecoder('shift_jis', { fatal: true }).decode(bytes);
+                } catch {
+                    throw new Error('CSVの文字コードを判別できません。Excelで「CSV UTF-8」形式にして保存してください。');
+                }
+            }
+        }
+
+        function parseCsvLine(line) {
+            const columns = [];
+            let value = '';
+            let quoted = false;
+            for (let index = 0; index < line.length; index++) {
+                const character = line[index];
+                if (character === '"') {
+                    if (quoted && line[index + 1] === '"') {
+                        value += '"';
+                        index++;
+                    } else {
+                        quoted = !quoted;
+                    }
+                } else if (character === ',' && !quoted) {
+                    columns.push(value.trim());
+                    value = '';
+                } else {
+                    value += character;
+                }
+            }
+            if (quoted) throw new Error('CSVの引用符の形式が正しくありません。');
+            columns.push(value.trim());
+            return columns;
         }
 
         // ログインコンポーネント
