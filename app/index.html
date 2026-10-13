@@ -3086,8 +3086,16 @@
         }
 
         function buildStudentAiGuidance(allExams, currentExam, studentId, sourceMapping) {
-            const trackedSubjects = ['必修', ...subjectNames];
             const fourCoreSubjects = ['解剖学', '生理学', '一般臨床', '柔整理論'];
+            const currentQuestionCounts = getQuestionCounts(
+                normalizeQuestionLayout(currentExam?.questionLayout),
+                currentExam?.questionOverrides
+            );
+            const trackedSubjects = ['必修', ...subjectNames]
+                .filter(subjectName => currentQuestionCounts[subjectName] > 0);
+            if (trackedSubjects.length === 0) return null;
+
+            const usesCoreSubjectGate = fourCoreSubjects.every(subjectName => trackedSubjects.includes(subjectName));
             const subjectAnalytics = {};
             const examHistory = [];
             const fourSubjectsRateHistory = [];
@@ -3132,6 +3140,10 @@
             examList.forEach(exam => {
                 if (!exam || !exam.students || exam.students.length === 0) return;
 
+                const examQuestionCounts = getQuestionCounts(
+                    normalizeQuestionLayout(exam.questionLayout),
+                    exam.questionOverrides
+                );
                 const examResults = generateExamResults(exam.students, exam.questionLayout, exam.questionOverrides);
                 const studentResult = examResults.find(item => item.studentId === studentId);
                 if (!studentResult) return;
@@ -3165,6 +3177,8 @@
                 }
 
                 trackedSubjects.forEach(subjectName => {
+                    if (examQuestionCounts[subjectName] === 0) return;
+
                     const analytics = subjectAnalytics[subjectName];
                     const subjectStats = subjectName === '必修'
                         ? studentResult.required
@@ -3280,8 +3294,11 @@
                 fourSubjectExamDeviations.slice(-3).every(deviation => deviation >= 50);
             const hasThreeCoreScorePasses = fourSubjectsRecent.length >= 3 && fourSubjectsScorePassCount >= 3;
             const hasSingleHighCorePass = fourSubjectExamDeviations.some(deviation => deviation >= 60);
-            const otherSubjectsUnlocked = hasThreeConsecutiveCorePasses || hasThreeCoreScorePasses || hasSingleHighCorePass;
-            const priorityStage = otherSubjectsUnlocked ? '科目拡張' : '基礎固め';
+            const otherSubjectsUnlocked = !usesCoreSubjectGate ||
+                hasThreeConsecutiveCorePasses || hasThreeCoreScorePasses || hasSingleHighCorePass;
+            const priorityStage = !usesCoreSubjectGate
+                ? '科目別'
+                : otherSubjectsUnlocked ? '科目拡張' : '基礎固め';
 
             const totalTrend = examHistorySorted.length >= 2
                 ? Math.round((examHistorySorted[examHistorySorted.length - 1].scoreRate - examHistorySorted[0].scoreRate) * 10) / 10
@@ -3328,7 +3345,7 @@
                     const weightedRecentMidCorrectRateMisses = recentPerformance.reduce((sum, record) => sum + record.midCorrectRateMisses * record.examWeight, 0);
                     const weightedWrongCount = examPerformance.reduce((sum, record) => sum + record.wrongCount * record.examWeight, 0);
                     const weightedQuestionCount = examPerformance.reduce((sum, record) => sum + record.questionCount * record.examWeight, 0);
-                    const isFourCoreSubject = fourCoreSubjects.includes(item.subjectName);
+                    const isFourCoreSubject = usesCoreSubjectGate && fourCoreSubjects.includes(item.subjectName);
                     const dominantSources = Object.entries(item.sourceCounts)
                         .sort((a, b) => b[1] - a[1])
                         .slice(0, 3)
@@ -3426,7 +3443,7 @@
                     };
                 })
                 .sort((a, b) => {
-                    if (!otherSubjectsUnlocked) {
+                    if (usesCoreSubjectGate && !otherSubjectsUnlocked) {
                         const aIsRequired = a.subjectName === '必修';
                         const bIsRequired = b.subjectName === '必修';
                         if (aIsRequired !== bIsRequired) return aIsRequired ? 1 : -1;
@@ -3436,7 +3453,7 @@
 
             const foundationalSubjects = new Set(['必修', ...fourCoreSubjects]);
             const eligiblePriorities = priorities.filter(priority =>
-                otherSubjectsUnlocked || foundationalSubjects.has(priority.subjectName)
+                !usesCoreSubjectGate || otherSubjectsUnlocked || foundationalSubjects.has(priority.subjectName)
             );
             const topPriorities = eligiblePriorities.slice(0, 5);
             const recommendedQuestionMap = new Map();
@@ -3482,9 +3499,11 @@
             let summary = '問題別データが不足しているため、科目別の得点率から優先順位を出しています。';
             if (topPriorities.length > 0) {
                 summary = `優先して取り組む科目は次の${topPriorities.length}科目です。`;
-                summary += otherSubjectsUnlocked
-                    ? ' 4教科偏差値の条件を満たしたため、全科目を対象にしています。'
-                    : ' 4教科偏差値の条件に届くまでは、必修より4教科を優先する補正を加えて見ています。';
+                if (usesCoreSubjectGate) {
+                    summary += otherSubjectsUnlocked
+                        ? ' 4教科偏差値の条件を満たしたため、全科目を対象にしています。'
+                        : ' 4教科偏差値の条件に届くまでは、必修より4教科を優先する補正を加えて見ています。';
+                }
                 const highRateMissTotal = topPriorities.reduce((sum, item) => sum + item.recentHighCorrectRateMisses, 0);
                 const highRateQuestionTotal = topPriorities.reduce((sum, item) => sum + item.recentHighCorrectRateQuestionCount, 0);
                 const midBandMissTotal = topPriorities.reduce((sum, item) => sum + item.recentMidCorrectRateMisses, 0);
@@ -3560,7 +3579,7 @@
                         ? ''
                         : (priority.requiredThresholdRisk > 0
                             ? '総合偏差値45未満・必修80%基準未達'
-                            : (priority.coreSubjectRisk > 0 || priority.coreGroupRisk > 0
+                            : (usesCoreSubjectGate && (priority.coreSubjectRisk > 0 || priority.coreGroupRisk > 0)
                                 ? '総合偏差値45未満・4教科の弱さ'
                                 : ''))
                 };
@@ -3597,6 +3616,7 @@
                 subjectProfiles,
                 recommendedQuestions,
                 recommendedQuestionsByPriority,
+                usesCoreSubjectGate,
                 priorityStage,
                 otherSubjectsUnlocked,
                 fourSubjectsDeviationHistoryCount: fourSubjectExamDeviations.length,
@@ -3675,11 +3695,16 @@
                                             解析対象試験数: {guidance.analyzedExamCount}件
                                         </div>
                                         <div style={{ marginTop: '8px', fontSize: '12px', opacity: 0.8 }}>
-                                            判定段階: {guidance.priorityStage}（4教科がそろい、受験者5人以上の試験 {guidance.fourSubjectsDeviationHistoryCount}回）
-                                            {guidance.otherSubjectsUnlocked
-                                                ? `。4教科偏差値50以上が3回連続、4教科合計得点率60%以上（80点相当）が直近3回すべて、または偏差値60以上が1回あったため、全科目を優先順位の対象にしています。`
-                                                : '。条件を満たすまでは、実施済みの4教科を必修より優先する補正を加えて順位づけします。'}
-                                            {' '}優先度は絶対評価（得点率70%を基準）と相対評価（偏差値50を基準）を別々に点数化して合算し、誤答率・改善傾向・ばらつきも加味します。必修80%基準は、4教科偏差値の条件を満たすまでは到達時期を考慮して優先度への影響を抑え、条件達成後に重みを上げます。部分模試は250問に対する試験規模で影響を調整します。総合点との相関は順位づけには使わず参考値として表示します。低学年で4教科が未実施の場合は、実施済みの基礎科目（例：解剖・生理・柔整理論）と必修を対象にします。関連過去問には部分模試の誤答も含みます。
+                                            {guidance.usesCoreSubjectGate && (
+                                                <>
+                                                    判定段階: {guidance.priorityStage}（4教科がそろい、受験者5人以上の試験 {guidance.fourSubjectsDeviationHistoryCount}回）
+                                                    {guidance.otherSubjectsUnlocked
+                                                        ? `。4教科偏差値50以上が3回連続、4教科合計得点率60%以上（80点相当）が直近3回すべて、または偏差値60以上が1回あったため、全科目を優先順位の対象にしています。`
+                                                        : '。条件を満たすまでは、4教科を優先して順位づけします。'}
+                                                    {' '}
+                                                </>
+                                            )}
+                                            優先度は、登録済み科目の得点率・偏差値・誤答率・改善傾向・ばらつきから算出します。部分模試は250問に対する試験規模で影響を調整し、総合点との相関は参考値として表示します。関連過去問には部分模試の誤答も含みます。
                                         </div>
                                     </>
                                 )}
