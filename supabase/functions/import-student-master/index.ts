@@ -5,6 +5,8 @@ type StudentInput = {
   studentId: string;
   name: string;
   password: string;
+  enrollmentYear?: number | null;
+  courseYears?: number | null;
 };
 
 function generateParentPassword() {
@@ -58,6 +60,13 @@ Deno.serve(async (request) => {
     if (students.some((student) => typeof student.password !== 'string' || student.password.length < 6)) {
       throw new Error('パスワードは6文字以上で入力してください');
     }
+    if (students.some((student) =>
+      (student.enrollmentYear != null && (!Number.isInteger(student.enrollmentYear) || student.enrollmentYear < 1900 || student.enrollmentYear > 2200)) ||
+      (student.courseYears != null && ![3, 4].includes(student.courseYears)) ||
+      ((student.enrollmentYear == null) !== (student.courseYears == null))
+    )) {
+      throw new Error('入学年度と課程年数は両方入力してください（課程年数は3または4）');
+    }
 
     const { data: school, error: schoolError } = await adminClient
       .from('schools')
@@ -94,6 +103,15 @@ Deno.serve(async (request) => {
         .not('student_id', 'in', `(${ids.map((id) => `"${id}"`).join(',')})`);
       if (deleteParentError) throw deleteParentError;
     }
+
+    const { data: existingMasterRows, error: existingMasterError } = await adminClient
+      .from('student_master')
+      .select('student_id, enrollment_year, course_years')
+      .eq('school_id', targetSchoolId);
+    if (existingMasterError) throw existingMasterError;
+    const existingAcademicInfo = new Map(
+      (existingMasterRows || []).map((row) => [row.student_id, row])
+    );
 
     stage = 'Authユーザー一覧取得';
     const existingUsers = [];
@@ -138,10 +156,13 @@ Deno.serve(async (request) => {
       }
 
       stage = `学生 ${student.studentId} の学生マスター登録`;
+      const existingAcademic = existingAcademicInfo.get(student.studentId);
       const { error: masterError } = await adminClient.from('student_master').upsert({
         student_id: student.studentId,
         name: student.name,
-        school_id: targetSchoolId
+        school_id: targetSchoolId,
+        enrollment_year: student.enrollmentYear ?? existingAcademic?.enrollment_year ?? null,
+        course_years: student.courseYears ?? existingAcademic?.course_years ?? null
       }, { onConflict: 'school_id,student_id' });
       if (masterError) throw masterError;
 

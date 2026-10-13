@@ -27,8 +27,13 @@ CREATE TABLE student_master (
   student_id TEXT NOT NULL,
   school_id UUID NOT NULL REFERENCES schools(id) ON DELETE RESTRICT,
   name TEXT NOT NULL,
+  enrollment_year INTEGER,
+  course_years INTEGER,
   created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
-  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  CONSTRAINT student_master_course_years_valid CHECK (course_years IS NULL OR course_years IN (3, 4)),
+  CONSTRAINT student_master_academic_info_pair CHECK ((enrollment_year IS NULL) = (course_years IS NULL)),
+  CONSTRAINT student_master_enrollment_year_valid CHECK (enrollment_year IS NULL OR enrollment_year BETWEEN 1900 AND 2200)
 );
 
 CREATE TABLE exams (

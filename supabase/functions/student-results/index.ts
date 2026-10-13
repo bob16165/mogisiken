@@ -361,7 +361,24 @@ Deno.serve(async (request) => {
       };
     });
 
-    return new Response(JSON.stringify({ exams: visibleExams }), {
+    let studentAcademicInfo = null;
+    if (isStudentLike && operator.student_id) {
+      const { data: student, error: studentError } = await adminClient
+        .from('student_master')
+        .select('enrollment_year, course_years')
+        .eq('school_id', operator.school_id)
+        .eq('student_id', operator.student_id)
+        .maybeSingle();
+      if (studentError) throw studentError;
+      if (student) {
+        studentAcademicInfo = {
+          enrollmentYear: student.enrollment_year,
+          courseYears: student.course_years
+        };
+      }
+    }
+
+    return new Response(JSON.stringify({ exams: visibleExams, studentAcademicInfo }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200
     });

@@ -43,6 +43,14 @@
             .parent-header-actions { width: 100%; }
             .parent-header-actions select { flex: 1 1 100%; min-width: 0; max-width: 100%; min-height: 44px; }
             .parent-header-actions button { flex: 1 1 100%; min-height: 44px; }
+            .student-logout-button {
+                min-height: 44px;
+                padding: 8px 16px !important;
+                font-size: 13px !important;
+                background: #f44336 !important;
+                color: white !important;
+                white-space: nowrap;
+            }
             .parent-content { padding: 12px !important; }
             .parent-content h3 { font-size: 17px; }
             .parent-grid { grid-template-columns: 1fr !important; }
@@ -1174,7 +1182,7 @@
             const handleDelete = async (index) => {
                 const exam = existingExams[index];
                 if (window.confirm(`「${exam.examName}」を削除してもよろしいですか？`)) {
-                    await onDeleteExam(index);
+                    await onDeleteExam(exam.id);
                 }
             };
 
@@ -1207,9 +1215,16 @@
                         const password = (cols[2] || '').length >= 6
                             ? cols[2]
                             : String(Math.floor(100000 + Math.random() * 900000));
-                        
+                        const enrollmentYear = cols[3] ? Number(cols[3]) : null;
+                        const courseYears = cols[4] ? Number(cols[4]) : null;
+
+                        if ((cols[3] || cols[4]) &&
+                            (!Number.isInteger(enrollmentYear) || enrollmentYear < 1900 || enrollmentYear > 2200 ||
+                                ![3, 4].includes(courseYears))) {
+                            throw new Error(`${studentId || '学生'}の入学年度・課程年数を確認してください（課程年数は3または4）`);
+                        }
                         if (studentId && name && password) {
-                            master[studentId] = { name, password };
+                            master[studentId] = { name, password, enrollmentYear, courseYears };
                         }
                     });
                     
@@ -1726,7 +1741,9 @@
                                 <input type="file" accept=".csv" onChange={(e) => setStudentMasterFile(e.target.files[0])}
                                     style={{ width: '100%', padding: '10px', fontSize: '14px', border: '2px solid #e0e0e0', borderRadius: '6px', marginBottom: '10px' }} />
                                 <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
-                                    形式: 学籍番号,氏名,初期パスワード（例: 216030,山田太郎,password123）<br/>
+                                    形式: 学籍番号,氏名,初期パスワード,入学年度,課程年数<br/>
+                                    例: 216030,山田太郎,password123,2024,3<br/>
+                                    ※ 入学年度・課程年数は両方入力します。課程年数は専門学校なら3、大学なら4です。空欄で再登録した場合は登録済みの値を保持します。<br/>
                                     ※ 初期パスワードは6文字以上で入力します。省略時は6桁の数字を自動生成します
                                 </div>
                                 <button type="button" onClick={handleMasterUpload} disabled={isLoading || !studentMasterFile} style={{
@@ -2510,6 +2527,49 @@
                 isTeacher: profile.role === 'teacher' || profile.role === 'admin',
                 isParent: profile.role === 'parent'
             };
+        }
+
+        function getJapaneseAcademicYear(date = new Date()) {
+            return date.getFullYear() - (date.getMonth() < 3 ? 1 : 0);
+        }
+
+        function getStudentGrade(student, date = new Date()) {
+            const enrollmentYear = Number(student?.enrollmentYear);
+            const courseYears = Number(student?.courseYears);
+            if (!Number.isInteger(enrollmentYear) || ![3, 4].includes(courseYears)) return null;
+            const grade = getJapaneseAcademicYear(date) - enrollmentYear + 1;
+            return grade >= 1 && grade <= courseYears ? grade : null;
+        }
+
+        function studentMasterKey(schoolId, studentId) {
+            return `${schoolId}:${studentId}`;
+        }
+
+        function getNationalExamDate(student) {
+            const enrollmentYear = Number(student?.enrollmentYear);
+            const courseYears = Number(student?.courseYears);
+            if (!Number.isInteger(enrollmentYear) || ![3, 4].includes(courseYears)) return null;
+            const march = new Date(enrollmentYear + courseYears, 2, 1);
+            march.setDate(1 + ((7 - march.getDay()) % 7));
+            return march;
+        }
+
+        function getTeacherGradeOptions(studentMaster, schoolId) {
+            const courseYears = Object.values(studentMaster || {})
+                .filter(student => !schoolId || student.schoolId === schoolId)
+                .map(student => Number(student.courseYears))
+                .filter(years => [3, 4].includes(years));
+            const highestGrade = courseYears.length > 0 ? Math.max(...courseYears) : 0;
+            const options = Array.from({ length: highestGrade }, (_, index) => ({
+                value: String(index + 1),
+                label: `${index + 1}年`
+            }));
+            if (Object.values(studentMaster || {}).some(student =>
+                (!schoolId || student.schoolId === schoolId) && getStudentGrade(student) === null
+            )) {
+                options.push({ value: 'unassigned', label: '学年未設定' });
+            }
+            return options;
         }
 
         // ログインコンポーネント
@@ -4653,7 +4713,7 @@
             );
         }
 
-        function ExamResultView({ user, onLogout, onOpenUpload, onOpenPasswordChange, onOpenSupabaseConfig, onOpenMaintenanceNotices, onOpenQuestionOverrides, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange }) {
+        function ExamResultView({ user, onLogout, onOpenUpload, onOpenPasswordChange, onOpenSupabaseConfig, onOpenMaintenanceNotices, onOpenQuestionOverrides, currentExam, allExams, selectedExamIndex, onExamChange, onDeleteExam, onPublishToggle, sourceMapping, schools, selectedSchoolId, onSchoolChange, teacherGradeOptions, selectedGrade, onGradeChange }) {
             // 試験データが無い場合の処理
             if (!currentExam || !currentExam.students || currentExam.students.length === 0) {
                 return (
@@ -4664,6 +4724,12 @@
                                     {user.isTeacher ? `ようこそ、${user.name}先生` : `ようこそ、${user.name}さん`}
                                 </h2>
                                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    {user.isTeacher && (
+                                        <select aria-label="学年を選択" value={selectedGrade} onChange={(e) => onGradeChange(e.target.value)} style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }}>
+                                            <option value="">先に学年を選択</option>
+                                            {teacherGradeOptions.map(grade => <option key={grade.value} value={grade.value}>{grade.label}</option>)}
+                                        </select>
+                                    )}
                                     {user.role === 'admin' && (
                                         <select value={selectedSchoolId || ''} onChange={(e) => onSchoolChange(e.target.value)} style={{ padding: '10px', borderRadius: '6px', border: '1px solid #ddd' }}>
                                             <option value="">{schools.length > 0 ? '学校を選択' : '学校未登録'}</option>
@@ -4691,7 +4757,7 @@
                                         padding: '10px 12px', fontSize: '13px', background: '#e3f2fd', color: '#1565c0',
                                         border: 'none', borderRadius: '5px', cursor: 'pointer'
                                     }}>パスワード変更</button>}
-                                    <button onClick={onLogout} style={{
+                                    <button onClick={onLogout} className={user.role === 'student' ? 'student-logout-button' : undefined} style={{
                                         padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                         background: '#f44336', color: 'white', border: 'none',
                                         borderRadius: '6px', cursor: 'pointer'
@@ -4700,10 +4766,14 @@
                             </div>
                             <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
                                 <p style={{ fontSize: '18px', marginBottom: '20px' }}>
-                                    {user.isTeacher ? '試験データがまだアップロードされていません。' : '公開中の試験がありません。'}
+                                    {user.isTeacher
+                                        ? (!selectedGrade ? '試験を表示する学年を先に選択してください。' : '選択した学年の試験データがありません。')
+                                        : '公開中の試験がありません。'}
                                 </p>
                                 <p style={{ fontSize: '14px' }}>
-                                    {user.isTeacher ? 'CSVアップロードボタンから試験データを登録してください。' : '管理者が試験を公開すると閲覧できるようになります。'}
+                                    {user.isTeacher
+                                        ? (!selectedGrade ? '学年を選ぶと、その学年の学生が受験した試験だけが表示されます。' : 'CSVアップロードボタンから試験データを登録してください。')
+                                        : '管理者が試験を公開すると閲覧できるようになります。'}
                                 </p>
                             </div>
                         </div>
@@ -4827,6 +4897,13 @@
                                     {currentExam && <p style={{ margin: '5px 0 0 0', fontSize: '14px', opacity: 0.9 }}>📋 {currentExam.examName}</p>}
                                 </div>
                                 <div className="result-header-actions" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                    {user.isTeacher && (
+                                        <select aria-label="学年を選択" value={selectedGrade} onChange={(e) => onGradeChange(e.target.value)}
+                                            style={{ padding: '10px 15px', fontSize: '14px', borderRadius: '6px', border: 'none', fontWeight: '600' }}>
+                                            <option value="">学年を選択</option>
+                                            {teacherGradeOptions.map(grade => <option key={grade.value} value={grade.value}>{grade.label}</option>)}
+                                        </select>
+                                    )}
                                     {user.role === 'admin' && (
                                         <select value={selectedSchoolId || ''} onChange={(e) => onSchoolChange(e.target.value)}
                                             style={{ padding: '10px 15px', fontSize: '14px', borderRadius: '6px', border: 'none', fontWeight: '600' }}>
@@ -4857,7 +4934,7 @@
                                             {user.isTeacher && allExams.length > 0 && (
                                                 <button onClick={() => {
                                                     if (window.confirm(`「${currentExam.examName}」を削除してもよろしいですか？\n\nこの操作は取り消せません。`)) {
-                                                        onDeleteExam(selectedExamIndex);
+                                                        onDeleteExam(currentExam.id);
                                                     }
                                                 }} style={{
                                                     padding: '10px 15px', fontSize: '14px', background: '#f44336', color: 'white',
@@ -4878,7 +4955,7 @@
                                             border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
                                         }}>パスワード変更</button>}
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                                        <button onClick={onLogout} style={{
+                                        <button onClick={onLogout} className={user.role === 'student' ? 'student-logout-button' : undefined} style={{
                                             padding: '10px 20px', fontSize: '14px', color: '#1976d2', background: 'white',
                                             border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
                                         }}>ログアウト</button>
@@ -4969,7 +5046,7 @@
                                                     <input
                                                         type="checkbox"
                                                         checked={!!exam.isPublished}
-                                                        onChange={(e) => onPublishToggle(idx, e.target.checked)}
+                                                        onChange={(e) => onPublishToggle(exam.id, e.target.checked)}
                                                         style={{ display: 'none' }}
                                                     />
                                                     <span style={{
@@ -5714,7 +5791,7 @@
             return entries;
         }
 
-        function buildParentGuidance(result, previousResult) {
+        function buildParentGuidance(result, previousResult, academicInfo) {
             const th = getNationalExamThresholds(result);
             const requiredOk = th.requiredMax > 0 && result.requiredScore >= th.requiredPass;
             const generalOk = th.generalMax > 0 && result.generalScore >= th.generalPass;
@@ -5745,6 +5822,9 @@
                 .slice(0, 3);
 
             const paragraphs = [];
+            const grade = getStudentGrade(academicInfo);
+            const nationalExamDate = getNationalExamDate(academicInfo);
+            const isNationalExamYear = grade !== null && grade === Number(academicInfo?.courseYears);
             const dev = result.totalStats?.deviation;
             const prevDev = previousResult?.totalStats?.deviation;
             const devDiff = dev !== undefined && prevDev !== undefined ? Math.round((dev - prevDev) * 10) / 10 : null;
@@ -5810,10 +5890,20 @@
             }
             paragraphs.push('学習の成果は、日々の積み重ねで少しずつ現れます。結果に一喜一憂せず、学校とご家庭で連携しながら、本人が前向きに取り組める環境を整えていきましょう。');
 
-            return { th, requiredOk, generalOk, requiredGap, generalGap, improved, needsEffort, paragraphs, hasPrevious: !!previousResult };
+            if (isNationalExamYear && nationalExamDate) {
+                const dateLabel = new Intl.DateTimeFormat('ja-JP', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                    weekday: 'long'
+                }).format(nationalExamDate);
+                paragraphs.push(`現在は国家試験の受験学年です。国家試験は例年3月第1週の日曜日に実施されるため、${dateLabel}ごろを目安に、これまでの模擬試験結果を振り返りながら本番に向けた総仕上げを進めます。正式な試験日は公表後に学校からご案内します。ご家庭では、学習時間の確保に加え、睡眠や体調管理も温かく見守っていただけますと幸いです。`);
+            }
+
+            return { th, requiredOk, generalOk, requiredGap, generalGap, improved, needsEffort, paragraphs, hasPrevious: !!previousResult, isNationalExamYear };
         }
 
-        function ParentView({ user, exams, onLogout }) {
+        function ParentView({ user, exams, onLogout, academicInfo }) {
             const childExams = exams.filter(exam => (exam.students || []).some(student => student.studentId === user.studentId));
             const [examIndex, setExamIndex] = useState(Math.max(0, childExams.length - 1));
             const safeIndex = Math.min(examIndex, Math.max(0, childExams.length - 1));
@@ -5856,7 +5946,7 @@
             }
 
             const previousResult = safeIndex > 0 ? resultOf(childExams[safeIndex - 1]) : null;
-            const guidance = buildParentGuidance(result, previousResult);
+            const guidance = buildParentGuidance(result, previousResult, academicInfo);
             const { th } = guidance;
             const cardStyle = { background: 'white', padding: '18px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)', marginBottom: '20px' };
             const judgeBadge = (ok) => (
@@ -6002,6 +6092,8 @@
             const [sourceMapping, setSourceMapping] = useState(null);
             const [isLoading, setIsLoading] = useState(false);
             const [selectedExamIndex, setSelectedExamIndex] = useState(0);
+            const [selectedGrade, setSelectedGrade] = useState('');
+            const [studentAcademicInfo, setStudentAcademicInfo] = useState(null);
             const [dataRefreshToken, setDataRefreshToken] = useState(0);
             const [showUpload, setShowUpload] = useState(false);
             const [showPasswordChange, setShowPasswordChange] = useState(false);
@@ -6138,6 +6230,7 @@
                         setSelectedSchoolId('');
                         setStudentMaster({});
                         setStudentCounts({});
+                        setStudentAcademicInfo(null);
                         setSourceMapping(null);
                         setIsLoading(false);
                         return;
@@ -6169,6 +6262,11 @@
                             throw resultsError;
                         }
                         const examsData = resultsResponse?.exams || [];
+                        setStudentAcademicInfo(
+                            ['student', 'parent'].includes(loggedInUser.role)
+                                ? resultsResponse?.studentAcademicInfo || null
+                                : null
+                        );
 
                         // データ変換: Supabaseスキーマ → ローカル形式
                         const formattedExams = (examsData || []).map(exam => ({
@@ -6204,15 +6302,19 @@
                         loadStage = '学生マスター';
                         const { data: studentsData, error: studentsError } = await supabase
                             .from('student_master')
-                            .select('student_id, name, school_id');
+                            .select('student_id, name, school_id, enrollment_year, course_years');
 
                         if (studentsError) throw studentsError;
 
                         const masterObj = {};
                         const counts = {};
                         (studentsData || []).forEach(student => {
-                            masterObj[student.student_id] = {
-                                name: student.name
+                            masterObj[studentMasterKey(student.school_id, student.student_id)] = {
+                                studentId: student.student_id,
+                                name: student.name,
+                                schoolId: student.school_id,
+                                enrollmentYear: student.enrollment_year,
+                                courseYears: student.course_years
                             };
                             if (student.school_id) counts[student.school_id] = (counts[student.school_id] || 0) + 1;
                         });
@@ -6270,7 +6372,9 @@
                     }
 
                     // 同名の試験が既に存在するかチェック
-                    const existingExamIndex = allExams.findIndex(exam => exam.examName === examData.examName);
+                    const existingExamIndex = allExams.findIndex(exam =>
+                        exam.schoolId === targetSchoolId && exam.examName === examData.examName
+                    );
                     
                     if (existingExamIndex !== -1) {
                         const shouldOverwrite = window.confirm(
@@ -6321,14 +6425,13 @@
                         // 上書きの場合：既存位置に新データを配置
                         updatedExams = [...allExams];
                         updatedExams[existingExamIndex] = { ...examData, id: examRecord.id };
-                        setSelectedExamIndex(existingExamIndex);
                     } else {
                         // 新規追加の場合：末尾に追加
                         updatedExams = [...allExams, { ...examData, id: examRecord.id }];
-                        setSelectedExamIndex(updatedExams.length - 1);
                     }
                     
                     setAllExams(updatedExams);
+                    setSelectedExamIndex(0);
                     setShowUpload(false);
                     alert(`「${examData.examName}」のデータを${existingExamIndex !== -1 ? '上書き' : '読み込み'}ました！（${examData.students.length}名）`);
                 } catch (err) {
@@ -6357,7 +6460,9 @@
                     const students = Object.entries(master).map(([studentId, info]) => ({
                         studentId,
                         name: info.name,
-                        password: info.password
+                        password: info.password,
+                        enrollmentYear: info.enrollmentYear,
+                        courseYears: info.courseYears
                     }));
                     const { data, error: functionError } = await supabase.functions.invoke('import-student-master', {
                         body: { schoolId: targetSchoolId, students, replace: shouldReplace, resetParentPasswords }
@@ -6365,7 +6470,20 @@
                     if (functionError) throw functionError;
                     if (data?.error) throw new Error(data.error);
 
-                    const updatedMaster = shouldReplace ? master : { ...studentMaster, ...master };
+                    const updatedMaster = shouldReplace
+                        ? Object.fromEntries(Object.entries(studentMaster).filter(([, student]) => student.schoolId !== targetSchoolId))
+                        : { ...studentMaster };
+                    Object.entries(master).forEach(([studentId, info]) => {
+                        const key = studentMasterKey(targetSchoolId, studentId);
+                        const previous = studentMaster[key];
+                        updatedMaster[key] = {
+                            ...info,
+                            studentId,
+                            schoolId: targetSchoolId,
+                            enrollmentYear: info.enrollmentYear ?? previous?.enrollmentYear,
+                            courseYears: info.courseYears ?? previous?.courseYears
+                        };
+                    });
                     setStudentMaster(updatedMaster);
                     const count = Object.keys(master).length;
                     alert(`学籍マスタを${shouldReplace ? '上書き' : '追加'}登録しました（${count}件）`);
@@ -6400,7 +6518,8 @@
                 }
             };
 
-            const handleDeleteExam = async (indexToDelete) => {
+            const handleDeleteExam = async (examId) => {
+                const indexToDelete = allExams.findIndex(exam => exam.id === examId);
                 const examToDelete = allExams[indexToDelete];
                 if (!examToDelete) return;
 
@@ -6416,13 +6535,7 @@
                     // ローカルステートを更新
                     const updatedExams = allExams.filter((_, idx) => idx !== indexToDelete);
                     setAllExams(updatedExams);
-                    
-                    // 削除後のインデックス調整
-                    if (updatedExams.length === 0) {
-                        setSelectedExamIndex(0);
-                    } else if (indexToDelete <= selectedExamIndex) {
-                        setSelectedExamIndex(Math.max(0, selectedExamIndex - 1));
-                    }
+                    setSelectedExamIndex(0);
                     
                     alert('試験データを削除しました');
                 } catch (err) {
@@ -6431,7 +6544,8 @@
                 }
             };
 
-            const handlePublishToggle = async (indexToUpdate, nextValue) => {
+            const handlePublishToggle = async (examId, nextValue) => {
+                const indexToUpdate = allExams.findIndex(exam => exam.id === examId);
                 const targetExam = allExams[indexToUpdate];
                 if (!targetExam) return;
 
@@ -6493,6 +6607,27 @@
             };
 
             const publishedExams = allExams.filter(exam => exam.isPublished);
+            const schoolExams = !loggedInUser ? [] : loggedInUser.role === 'admin'
+                ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
+                : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId);
+            const teacherGradeOptions = getTeacherGradeOptions(
+                studentMaster,
+                loggedInUser?.role === 'admin' ? selectedSchoolId : loggedInUser?.schoolId
+            );
+            const teacherGradeExams = selectedGrade
+                ? schoolExams.map(exam => ({
+                    ...exam,
+                    students: (exam.students || []).filter(student => {
+                        const academicInfo = studentMaster[studentMasterKey(exam.schoolId, student.studentId)];
+                        const grade = academicInfo?.schoolId === exam.schoolId
+                            ? getStudentGrade(academicInfo)
+                            : null;
+                        return selectedGrade === 'unassigned'
+                            ? grade === null
+                            : grade === Number(selectedGrade);
+                    })
+                })).filter(exam => exam.students.length > 0)
+                : [];
 
             useEffect(() => {
                 if (!loggedInUser) {
@@ -6500,7 +6635,7 @@
                     return;
                 }
 
-                const visibleExams = loggedInUser.isTeacher ? allExams : publishedExams;
+                const visibleExams = loggedInUser.isTeacher ? teacherGradeExams : publishedExams;
                 if (visibleExams.length === 0) {
                     if (selectedExamIndex !== 0) setSelectedExamIndex(0);
                     return;
@@ -6508,7 +6643,7 @@
                 if (selectedExamIndex >= visibleExams.length) {
                     setSelectedExamIndex(0);
                 }
-            }, [loggedInUser, allExams, publishedExams, selectedExamIndex]);
+            }, [loggedInUser, allExams, publishedExams, teacherGradeExams, selectedExamIndex]);
 
             if (isLoading) {
                 return (
@@ -6574,9 +6709,7 @@
             const questionOverrideManager = loggedInUser?.isTeacher && (
                 <QuestionOverrideManager
                     isOpen={isQuestionOverrideManagerOpen}
-                    exam={(loggedInUser.role === 'admin'
-                        ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
-                        : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId))[selectedExamIndex] || null}
+                    exam={teacherGradeExams[selectedExamIndex] || null}
                     onClose={() => setIsQuestionOverrideManagerOpen(false)}
                     onApply={async (examId, overrides) => {
                         const { data, error: regradeError } = await supabase.functions.invoke('regrade-exam', {
@@ -6607,11 +6740,21 @@
             );
 
             if (showUpload) {
+                const uploadSchoolId = loggedInUser.role === 'admin' ? selectedSchoolId : loggedInUser.schoolId;
                 const uploadExams = loggedInUser.role === 'admin'
                     ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
                     : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId);
+                const uploadStudentMaster = Object.fromEntries(
+                    Object.values(studentMaster)
+                        .filter(student => student.schoolId === uploadSchoolId)
+                        .map(student => [student.studentId, student])
+                );
                 return <>
-                    <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} onOpenSupabaseConfig={handleSupabaseConfigClick} existingExams={uploadExams} studentMaster={studentMaster} studentCounts={studentCounts} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={handleSourceMappingUpdate} onDeleteExam={handleDeleteExam} isAdmin={loggedInUser.role === 'admin'} schools={schools} selectedSchoolId={selectedSchoolId} onSchoolChange={(schoolId) => setSelectedSchoolId(schoolId)} />
+                    <CSVUpload onUpload={handleCSVUpload} onLogout={() => setShowUpload(false)} onOpenSupabaseConfig={handleSupabaseConfigClick} existingExams={uploadExams} studentMaster={uploadStudentMaster} studentCounts={studentCounts} onStudentMasterUpload={handleStudentMasterUpload} onSourceMappingUpdate={handleSourceMappingUpdate} onDeleteExam={handleDeleteExam} isAdmin={loggedInUser.role === 'admin'} schools={schools} selectedSchoolId={selectedSchoolId} onSchoolChange={(schoolId) => {
+                        setSelectedSchoolId(schoolId);
+                        setSelectedGrade('');
+                        setSelectedExamIndex(0);
+                    }} />
                     {supabaseConfigDialog}
                     {maintenanceNoticeManager}
                 </>;
@@ -6647,10 +6790,7 @@
                 />;
             }
 
-            const schoolExams = loggedInUser.role === 'admin'
-                ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
-                : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId);
-            const visibleExams = loggedInUser.isTeacher ? schoolExams : publishedExams;
+            const visibleExams = loggedInUser.isTeacher ? teacherGradeExams : publishedExams;
             const currentExam = visibleExams[selectedExamIndex] || null;
 
             if (loggedInUser.isParent) {
@@ -6658,6 +6798,7 @@
                     <ParentView
                         user={loggedInUser}
                         exams={publishedExams.filter(exam => exam.schoolId === loggedInUser.schoolId)}
+                        academicInfo={studentAcademicInfo || studentMaster[studentMasterKey(loggedInUser.schoolId, loggedInUser.studentId)]}
                         onLogout={async () => {
                             await supabase.auth.signOut();
                             setLoggedInUser(null);
@@ -6688,8 +6829,15 @@
                         sourceMapping={sourceMapping}
                         schools={schools}
                         selectedSchoolId={selectedSchoolId}
+                        teacherGradeOptions={teacherGradeOptions}
+                        selectedGrade={selectedGrade}
+                        onGradeChange={(grade) => {
+                            setSelectedGrade(grade);
+                            setSelectedExamIndex(0);
+                        }}
                         onSchoolChange={(schoolId) => {
                             setSelectedSchoolId(schoolId);
+                            setSelectedGrade('');
                             setSelectedExamIndex(0);
                         }}
                     />
