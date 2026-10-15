@@ -4286,7 +4286,8 @@
             const [awaitingFocusSubject, setAwaitingFocusSubject] = React.useState(false);
             const [focusDrill, setFocusDrill] = React.useState(null);
             const loadedRef = React.useRef(false);
-            const focusSubjects = guidance?.actionPlan || [];
+            const focusSubjects = Object.keys(guidance?.subjectProfiles || {})
+                .map(subjectName => ({ subjectName }));
 
             React.useEffect(() => {
                 const loadHistory = async () => {
@@ -6645,6 +6646,19 @@
                         }));
 
                         if (!isMounted) return;
+                        if (loggedInUser.role === 'student') {
+                            const currentGrade = getStudentGrade(resultsResponse?.studentAcademicInfo);
+                            const gradeExams = formattedExams.filter(exam =>
+                                exam.isPublished &&
+                                currentGrade !== null &&
+                                exam.studentGrades.includes(currentGrade)
+                            );
+                            const latestStudentExam = gradeExams.filter(exam => exam.students.length > 0).at(-1);
+                            const latestStudentExamIndex = latestStudentExam
+                                ? gradeExams.findIndex(exam => exam.id === latestStudentExam.id)
+                                : -1;
+                            setSelectedExamIndex(Math.max(0, latestStudentExamIndex));
+                        }
                         setAllExams(formattedExams);
 
                         loadStage = '学生マスター';
