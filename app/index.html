@@ -3617,6 +3617,9 @@
                 subjectProfiles,
                 recommendedQuestions,
                 recommendedQuestionsByPriority,
+                missedQuestions: priorities.flatMap(priority =>
+                    priority.relatedQuestions.filter(question => question.isNotAfterSelectedExam)
+                ),
                 usesCoreSubjectGate,
                 priorityStage,
                 otherSubjectsUnlocked,
@@ -3848,7 +3851,7 @@
         }
 
         function normalizeText(text) {
-            return (text || '').toLowerCase().replace(/\s+/g, '');
+            return (text || '').normalize('NFKC').toLowerCase().replace(/\s+/g, '');
         }
 
         function findSubjectInQuestion(text) {
@@ -3863,6 +3866,12 @@
             return allSubjects.filter(subject => normalized.includes(normalizeText(subject)));
         }
 
+        function getCorrectRateFilter(question) {
+            const match = normalizeText(question).match(/(\d+(?:\.\d+)?)%(以上|以下|未満|超|より上|より下)/);
+            if (!match) return null;
+            return { threshold: Number(match[1]), comparison: match[2] };
+        }
+
         function buildLocalChatReply(question, guidance, result, hideCorrectAnswer) {
             const normalized = normalizeText(question);
             const selectedSubject = findSubjectInQuestion(question);
@@ -3870,9 +3879,78 @@
             const plans = guidance?.actionPlan || [];
             const topPlan = plans[0];
             const relatedQuestions = guidance?.recommendedQuestions || [];
+            const correctRateFilter = getCorrectRateFilter(question);
+            const asksForWeakAreaQuestions = selectedSubject &&
+                !correctRateFilter &&
+                /(弱点|集中領域|取りこぼ|誤答|問題|どの試験)/.test(normalized);
 
             if (plans.length === 0) {
                 return 'まだ分析対象データが少ないため、対話分析ができませんでした。まずは試験結果を1件以上取り込んでください。';
+            }
+
+            if (correctRateFilter && hideCorrectAnswer && /(問題|取りこぼ|誤答|一覧)/.test(normalized)) {
+                return 'この試験では正答率が非表示のため、正答率を条件にした問題一覧は表示できません。';
+            }
+
+            if (asksForWeakAreaQuestions) {
+                const subjectQuestions = (guidance?.missedQuestions || [])
+                    .filter(question =>
+                        question.subjectName === selectedSubject &&
+                        Number.isFinite(Number(question.correctRate)) &&
+                        Number(question.correctRate) >= 50
+                    );
+                const matchingSources = Array.from(new Set(
+                    subjectQuestions
+                        .map(question => question.displaySource)
+                        .filter(source => source && normalized.includes(normalizeText(source)))
+                ));
+                const focusedQuestions = matchingSources.length > 0
+                    ? subjectQuestions.filter(question => matchingSources.includes(question.displaySource))
+                    : subjectQuestions;
+
+                if (focusedQuestions.length === 0) {
+                    return `${selectedSubject}は、選択中の試験までの受験分に確認できる誤答がありません。`;
+                }
+
+                const countsBySource = new Map();
+                focusedQuestions.forEach(question => {
+                    const source = question.displaySource || '領域未設定';
+                    countsBySource.set(source, (countsBySource.get(source) || 0) + 1);
+                });
+                const sourceSummary = Array.from(countsBySource.entries())
+                    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                    .map(([source, count]) => `${source}（${count}問）`)
+                    .join('、');
+                const examGroups = new Map();
+                focusedQuestions.forEach(question => {
+                    const examName = question.examName || '試験名未設定';
+                    if (!examGroups.has(examName)) examGroups.set(examName, []);
+                    examGroups.get(examName).push(question);
+                });
+                const listedQuestions = focusedQuestions.slice(0, 40);
+                const lines = [];
+                let listedCount = 0;
+                for (const [examName, questions] of examGroups) {
+                    if (listedCount >= listedQuestions.length) break;
+                    const examQuestions = questions.slice(0, listedQuestions.length - listedCount);
+                    lines.push(`【${examName}】`);
+                    examQuestions.forEach(question => {
+                        const sourcePart = hideCorrectAnswer ? '' : ` / 集中領域:${question.displaySource || '領域未設定'}`;
+                        const ratePart = hideCorrectAnswer || !Number.isFinite(Number(question.correctRate))
+                            ? ''
+                            : ` / 正答率:${question.correctRate}%`;
+                        lines.push(`- ${question.subjectName} ${question.questionNumber}${sourcePart}${ratePart}`);
+                    });
+                    listedCount += examQuestions.length;
+                }
+                const omittedCount = focusedQuestions.length - listedCount;
+                const heading = matchingSources.length > 0
+                    ? `「${matchingSources.join('、')}」の問題`
+                    : `${selectedSubject}の弱点問題`;
+                const focusSummary = hideCorrectAnswer
+                    ? 'この試験では集中領域の詳細は表示されません。'
+                    : sourceSummary;
+                return `${heading}を、選択中の試験までの受験分から一覧にしました（${focusedQuestions.length}問）。\n\n【集中領域】\n${focusSummary}\n\n【出題試験と問題】\n${lines.join('\n')}${omittedCount > 0 ? `\n\n残り${omittedCount}問は表示を省略しました。集中領域を指定すると絞り込めます。` : ''}`;
             }
 
             if (normalized.includes('何') && normalized.includes('勉強')) {
@@ -3938,6 +4016,35 @@
             }
 
             if (normalized.includes('過去問') || normalized.includes('問題') || normalized.includes('出典')) {
+                if (correctRateFilter && (normalized.includes('一覧') || normalized.includes('取りこぼ') || normalized.includes('誤答'))) {
+                    const { threshold, comparison } = correctRateFilter;
+                    const matchesRate = rate => {
+                        if (comparison === '以上') return rate >= threshold;
+                        if (comparison === '以下') return rate <= threshold;
+                        if (comparison === '未満' || comparison === 'より下') return rate < threshold;
+                        return rate > threshold;
+                    };
+                    const missedQuestions = (guidance?.missedQuestions || [])
+                        .filter(q => (!selectedSubject || q.subjectName === selectedSubject) &&
+                            Number.isFinite(Number(q.correctRate)) &&
+                            matchesRate(Number(q.correctRate)));
+                    const comparatorLabel = comparison === '以上'
+                        ? '以上'
+                        : comparison === '以下'
+                            ? '以下'
+                            : comparison === '未満' || comparison === 'より下' ? '未満' : '超';
+
+                    if (missedQuestions.length === 0) {
+                        return `正答率${threshold}%${comparatorLabel}で、本人が誤答した問題は見つかりませんでした。`;
+                    }
+
+                    const lines = missedQuestions.map((q, idx) => {
+                        const answerPart = hideCorrectAnswer ? '' : ` / 正答: ${q.correctAnswer || '-'}`;
+                        return `${idx + 1}. ${q.examName} / ${q.subjectName} ${q.questionNumber}（${q.displaySource}） 正答率:${q.correctRate}% / 自分:${q.userAnswer || '-'}${answerPart}`;
+                    });
+                    return `正答率${threshold}%${comparatorLabel}で、本人が誤答した問題の一覧です（${missedQuestions.length}問）。\n${lines.join('\n')}`;
+                }
+
                 const bySubject = selectedSubject
                     ? relatedQuestions.filter(q => q.subjectName === selectedSubject)
                     : relatedQuestions;
@@ -4195,7 +4302,9 @@
             const [statusText, setStatusText] = React.useState('ローカル推論で応答中');
             const [chatStorageEnabled, setChatStorageEnabled] = React.useState(true);
             const [isExpanded, setIsExpanded] = React.useState(false);
+            const [awaitingFocusSubject, setAwaitingFocusSubject] = React.useState(false);
             const loadedRef = React.useRef(false);
+            const focusSubjects = guidance?.actionPlan || [];
 
             const quickPrompts = [
                 '今週の学習計画を作って',
@@ -4254,14 +4363,21 @@
                 const text = (rawText || '').trim();
                 if (!text || isResponding) return;
 
+                const focusSubject = awaitingFocusSubject ? findSubjectInQuestion(text) : null;
+                const requestText = focusSubject
+                    ? `${focusSubject}の集中領域の問題を試験別に一覧で教えて`
+                    : text;
                 const userMessage = { role: 'user', text };
                 setMessages(prev => [...prev, userMessage]);
                 setInput('');
+                setAwaitingFocusSubject(false);
                 setIsResponding(true);
                 await persistMessage('user', text, 'local');
 
                 try {
-                    let reply = buildLocalChatReply(text, guidance, result, hideCorrectAnswer);
+                    let reply = awaitingFocusSubject && !focusSubject
+                        ? '科目名を入力してください（例: 柔整理論）。'
+                        : buildLocalChatReply(requestText, guidance, result, hideCorrectAnswer);
                     const providerUsed = 'local';
 
                     if (shouldRegisterTaskFromQuestion(text)) {
@@ -4325,6 +4441,29 @@
                         ))}
                     </div>
 
+                    {focusSubjects.length > 0 && (
+                        <div style={{ padding: '12px 14px', borderBottom: '1px solid #edf2f7', background: '#f0fdfa' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setAwaitingFocusSubject(true);
+                                        setInput('');
+                                    }}
+                                    disabled={isResponding}
+                                    style={{ padding: '6px 9px', border: '1px solid #0f766e', borderRadius: '6px', background: '#0f766e', color: 'white', cursor: isResponding ? 'not-allowed' : 'pointer' }}
+                                >
+                                    集中領域の詳細
+                                </button>
+                                <span style={{ color: '#475569', fontSize: '12px' }}>
+                                    {awaitingFocusSubject
+                                        ? '下の入力欄に科目名を入力してください（例: 柔整理論）'
+                                        : '科目名を入力すると、正答率50%以上の誤答を試験別に表示します'}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
                     <div style={{ maxHeight: '320px', overflowY: 'auto', padding: '12px 14px', background: '#f8fafc' }}>
                         {messages.map((msg, idx) => (
                             <div key={idx} style={{
@@ -4357,7 +4496,7 @@
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            placeholder="例: 今週の学習計画を作って"
+                            placeholder={awaitingFocusSubject ? '科目名を入力（例: 柔整理論）' : '例: 今週の学習計画を作って'}
                             style={{
                                 flex: 1,
                                 padding: '10px 12px',
