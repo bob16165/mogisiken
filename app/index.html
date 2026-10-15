@@ -4145,18 +4145,26 @@
 
                     const plan = plans[dayIndex % plans.length];
                     const subject = plan.subjectName || '必修';
-                    const rankedSource = guidance?.subjectProfiles?.[subject]?.sources?.[weekIndex]?.displaySource;
-                    const sourceText = rankedSource
-                        ? `「${rankedSource}」領域`
-                        : (plan.sourceText && plan.sourceText !== '関連出典データなし'
-                            ? `「${plan.sourceText}」領域`
-                            : '重点領域');
+                    const sources = guidance?.subjectProfiles?.[subject]?.sources || [];
+                    const rankedSource = sources[weekIndex]?.displaySource;
+                    const fallbackSource = !sources.length && weekIndex === 0 &&
+                        plan.sourceText && plan.sourceText !== '関連出典データなし'
+                        ? plan.sourceText
+                        : null;
+                    const focusSource = rankedSource || fallbackSource;
+                    const task = focusSource
+                        ? `「${focusSource}」領域の問題を30問解き直す`
+                        : weekIndex === 0
+                            ? '科目全体の誤答問題を中心に復習し、苦手領域を整理する。'
+                            : weekIndex === 1
+                                ? '科目全体から誤答を中心に30問解き直す。'
+                                : '科目全体から問題を選んで30問解き、1・2週目の誤答も確認する。';
                     return {
                         key: week === 1 ? `d${dayIndex + 1}` : `w${week}-d${dayIndex + 1}`,
                         week,
                         day: `Day${dayIndex + 1}`,
                         subject,
-                        task: `${sourceText}の問題を30問解き直す`,
+                        task,
                         isHighCorrel: !!plan.isHighCorrelSubject
                     };
                 })
@@ -4164,7 +4172,7 @@
         }
 
         function WeeklyPlanTracker({ guidance, studentId, examId }) {
-            const TASK_TRACKER_SCHEMA_VERSION = 'v6';
+            const TASK_TRACKER_SCHEMA_VERSION = 'v7';
             const storageKey = `mogisiken_weekly_tasks_${studentId}_${examId || 'no_exam'}`;
             const storageMetaKey = `${storageKey}_meta`;
             const initFlagKey = `${storageKey}_init_${TASK_TRACKER_SCHEMA_VERSION}`;
