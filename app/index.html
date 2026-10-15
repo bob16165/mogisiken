@@ -4119,45 +4119,52 @@
             const plans = guidance?.actionPlan?.length
                 ? guidance.actionPlan
                 : [{ subjectName: '必修', sourceText: '直近の重点', isHighCorrelSubject: false }];
-            const weeklyPlans = Array.from({ length: 7 }, (_, index) => plans[index % plans.length]);
+            return Array.from({ length: 3 }, (_, weekIndex) =>
+                Array.from({ length: 7 }, (_, dayIndex) => {
+                    const week = weekIndex + 1;
+                    if (dayIndex === 5) {
+                        return {
+                            key: week === 1 ? 'd6' : `w${week}-d6`,
+                            week,
+                            day: 'Day6',
+                            subject: '自分で選ぶ2科目',
+                            task: '今週の重点領域や誤答を振り返り、特に確認したい2科目を自分で選んで合計約50問に取り組む。科目ごとの問題数も自分で決めて理解度をチェックする。',
+                            isHighCorrel: false
+                        };
+                    }
+                    if (dayIndex === 6) {
+                        return {
+                            key: week === 1 ? 'd7' : `w${week}-d7`,
+                            week,
+                            day: 'Day7',
+                            subject: '自分で選ぶ2科目',
+                            task: 'Day6の手応えや誤答を振り返り、1週間の総まとめにしたい2科目を自分で選んで合計約50問に取り組む。必要なら科目を選び直して定着度を確認する。',
+                            isHighCorrel: false
+                        };
+                    }
 
-            return weeklyPlans.map((plan, index) => {
-                if (index === 5) {
+                    const plan = plans[dayIndex % plans.length];
+                    const subject = plan.subjectName || '必修';
+                    const rankedSource = guidance?.subjectProfiles?.[subject]?.sources?.[weekIndex]?.displaySource;
+                    const sourceText = rankedSource
+                        ? `「${rankedSource}」領域`
+                        : (plan.sourceText && plan.sourceText !== '関連出典データなし'
+                            ? `「${plan.sourceText}」領域`
+                            : '重点領域');
                     return {
-                        key: 'd6',
-                        day: 'Day6',
-                        subject: '自分で選ぶ2科目',
-                        task: '今週の重点領域や誤答を振り返り、特に確認したい2科目を自分で選んで合計約50問に取り組む。科目ごとの問題数も自分で決めて理解度をチェックする。',
-                        isHighCorrel: false
+                        key: week === 1 ? `d${dayIndex + 1}` : `w${week}-d${dayIndex + 1}`,
+                        week,
+                        day: `Day${dayIndex + 1}`,
+                        subject,
+                        task: `${sourceText}の問題を30問解き直す`,
+                        isHighCorrel: !!plan.isHighCorrelSubject
                     };
-                }
-                if (index === 6) {
-                    return {
-                        key: 'd7',
-                        day: 'Day7',
-                        subject: '自分で選ぶ2科目',
-                        task: 'Day6の手応えや誤答を振り返り、1週間の総まとめにしたい2科目を自分で選んで合計約50問に取り組む。必要なら科目を選び直して定着度を確認する。',
-                        isHighCorrel: false
-                    };
-                }
-
-                const subject = plan.subjectName || '必修';
-                const sourceText = plan.sourceText && plan.sourceText !== '関連出典データなし'
-                    ? `「${plan.sourceText}」領域`
-                    : '重点領域';
-                const isHighCorrel = !!plan.isHighCorrelSubject;
-                return {
-                    key: `d${index + 1}`,
-                    day: `Day${index + 1}`,
-                    subject,
-                    task: `${sourceText}の問題を30問解き直す`,
-                    isHighCorrel
-                };
-            });
+                })
+            ).flat();
         }
 
         function WeeklyPlanTracker({ guidance, studentId, examId }) {
-            const TASK_TRACKER_SCHEMA_VERSION = 'v5';
+            const TASK_TRACKER_SCHEMA_VERSION = 'v6';
             const storageKey = `mogisiken_weekly_tasks_${studentId}_${examId || 'no_exam'}`;
             const storageMetaKey = `${storageKey}_meta`;
             const initFlagKey = `${storageKey}_init_${TASK_TRACKER_SCHEMA_VERSION}`;
@@ -4236,8 +4243,13 @@
                     <div style={{ height: '10px', borderRadius: '999px', background: '#e2e8f0', overflow: 'hidden', marginBottom: '12px' }}>
                         <div style={{ width: `${progressRate}%`, height: '100%', background: 'linear-gradient(90deg, #0284c7, #0ea5e9)' }} />
                     </div>
-                    <div style={{ display: 'grid', gap: '8px' }}>
-                        {tasks.map(task => {
+                    {[1, 2, 3].map(week => {
+                        const weekTasks = tasks.filter(task => (task.week || 1) === week);
+                        if (weekTasks.length === 0) return null;
+                        return <section key={week} style={{ marginBottom: '14px' }}>
+                        <h4 style={{ margin: '0 0 8px', fontSize: '14px', color: '#0f172a' }}>第{week}週</h4>
+                        <div style={{ display: 'grid', gap: '8px' }}>
+                        {weekTasks.map(task => {
                             const isHighCorrelTask = task.isHighCorrel ||
                                 (guidance?.actionPlan || []).find(p => p.subjectName === task.subject)?.isHighCorrelSubject || false;
                             return (
@@ -4270,6 +4282,8 @@
                             );
                         })}
                     </div>
+                    </section>;
+                    })}
                     </>}
                 </div>
             );
