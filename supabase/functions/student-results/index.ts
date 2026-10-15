@@ -106,6 +106,19 @@ function stats(score: number, maxScore: number, allScores: number[]) {
   };
 }
 
+function getJapaneseAcademicYear(date = new Date()) {
+  const japanTime = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+  return japanTime.getUTCFullYear() - (japanTime.getUTCMonth() < 3 ? 1 : 0);
+}
+
+function getStudentGrade(student: Record<string, unknown>, date = new Date()) {
+  const enrollmentYear = Number(student.enrollment_year);
+  const courseYears = Number(student.course_years);
+  if (!Number.isInteger(enrollmentYear) || ![3, 4].includes(courseYears)) return null;
+  const grade = getJapaneseAcademicYear(date) - enrollmentYear + 1;
+  return grade >= 1 && grade <= courseYears ? grade : null;
+}
+
 function sanitizeQuestion(question: Record<string, unknown>, exposeAnswers: boolean) {
   if (exposeAnswers) return question;
   const { correctAnswer: _correctAnswer, correctRate: _correctRate, correlWithTotal: _correl, gradingOverride: _gradingOverride, isCorrect: _isCorrect, ...safeQuestion } = question;
@@ -320,11 +333,29 @@ Deno.serve(async (request) => {
     const { data: exams, error: examsError } = await examsQuery;
     if (examsError) throw examsError;
 
+    const studentMasterById = new Map<string, Record<string, unknown>>();
+    if (isStudentLike) {
+      const { data: students, error: studentsError } = await adminClient
+        .from('student_master')
+        .select('student_id, enrollment_year, course_years')
+        .eq('school_id', operator.school_id);
+      if (studentsError) throw studentsError;
+      (students || []).forEach((student) => studentMasterById.set(student.student_id, student));
+    }
+
     const visibleExams = (exams || []).map((exam: any) => {
       const allRows = (exam.student_exam_results || []) as Record<string, any>[];
       const visibleRows = isStudentLike
         ? allRows.filter((row) => row.school_id === operator.school_id && row.student_id === operator.student_id)
         : allRows;
+      const studentGrades = operator.role === 'student'
+        ? Array.from(new Set<number>(allRows.flatMap((row) => {
+          if (row.school_id !== exam.school_id) return [];
+          const student = studentMasterById.get(row.student_id);
+          const grade = student ? getStudentGrade(student) : null;
+          return grade === null ? [] : [grade];
+        })))
+        : undefined;
       // 正答を隠すのは卒業判定試験(hide_correct_answer)だけ。通常試験は学生にも正答を返す
       // 保護者には問題単位の詳細（設問・正答）を返さず、科目別の集計だけを返す
       const isParent = operator.role === 'parent';
@@ -348,6 +379,7 @@ Deno.serve(async (request) => {
         hide_correct_answer: exam.hide_correct_answer,
         is_published: exam.is_published,
         created_at: exam.created_at,
+        student_grades: studentGrades,
         student_exam_results: visibleRows.map((row) => ({
           ...row,
           question_details: isParent ? {} : Object.fromEntries(Object.entries(row.question_details || {}).map(([subject, questions]) => [
@@ -363,13 +395,7 @@ Deno.serve(async (request) => {
 
     let studentAcademicInfo = null;
     if (isStudentLike && operator.student_id) {
-      const { data: student, error: studentError } = await adminClient
-        .from('student_master')
-        .select('enrollment_year, course_years')
-        .eq('school_id', operator.school_id)
-        .eq('student_id', operator.student_id)
-        .maybeSingle();
-      if (studentError) throw studentError;
+      const student = studentMasterById.get(operator.student_id);
       if (student) {
         studentAcademicInfo = {
           enrollmentYear: student.enrollment_year,

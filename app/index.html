@@ -2524,7 +2524,8 @@
         }
 
         function getJapaneseAcademicYear(date = new Date()) {
-            return date.getFullYear() - (date.getMonth() < 3 ? 1 : 0);
+            const japanTime = new Date(date.getTime() + 9 * 60 * 60 * 1000);
+            return japanTime.getUTCFullYear() - (japanTime.getUTCMonth() < 3 ? 1 : 0);
         }
 
         function getStudentGrade(student, date = new Date()) {
@@ -4900,7 +4901,9 @@
                                 <p style={{ fontSize: '18px', marginBottom: '20px' }}>
                                     {user.isTeacher
                                         ? (!selectedGrade ? '試験を表示する学年を先に選択してください。' : '選択した学年の試験データがありません。')
-                                        : '公開中の試験がありません。'}
+                                        : user.role === 'student' && getStudentGrade(academicInfo) === null
+                                            ? '学年情報が登録されていないため、試験を表示できません。学校にお問い合わせください。'
+                                            : user.role === 'student' ? '公開中の同学年の試験がありません。' : '公開中の試験がありません。'}
                                 </p>
                                 <p style={{ fontSize: '14px' }}>
                                     {user.isTeacher
@@ -6462,6 +6465,7 @@
                             id: exam.id, // 試験IDを保持
                             schoolId: exam.school_id,
                             examName: exam.exam_name,
+                            studentGrades: exam.student_grades || [],
                             questionLayout: normalizeQuestionLayout(exam.question_layout),
                             questionOverrides: exam.question_overrides || {},
                             hideCorrectAnswer: exam.hide_correct_answer || false,
@@ -6796,6 +6800,10 @@
             };
 
             const publishedExams = allExams.filter(exam => exam.isPublished);
+            const studentGrade = getStudentGrade(studentAcademicInfo);
+            const studentGradeExams = studentGrade === null
+                ? []
+                : publishedExams.filter(exam => exam.studentGrades.includes(studentGrade));
             const schoolExams = !loggedInUser ? [] : loggedInUser.role === 'admin'
                 ? allExams.filter(exam => !selectedSchoolId || !exam.schoolId || exam.schoolId === selectedSchoolId)
                 : allExams.filter(exam => exam.schoolId === loggedInUser.schoolId);
@@ -6824,7 +6832,9 @@
                     return;
                 }
 
-                const visibleExams = loggedInUser.isTeacher ? teacherGradeExams : publishedExams;
+                const visibleExams = loggedInUser.isTeacher
+                    ? teacherGradeExams
+                    : loggedInUser.role === 'student' ? studentGradeExams : publishedExams;
                 if (visibleExams.length === 0) {
                     if (selectedExamIndex !== 0) setSelectedExamIndex(0);
                     return;
@@ -6832,7 +6842,7 @@
                 if (selectedExamIndex >= visibleExams.length) {
                     setSelectedExamIndex(0);
                 }
-            }, [loggedInUser, allExams, publishedExams, teacherGradeExams, selectedExamIndex]);
+            }, [loggedInUser, allExams, publishedExams, teacherGradeExams, studentGradeExams, selectedExamIndex]);
 
             if (isLoading) {
                 return (
@@ -6979,7 +6989,9 @@
                 />;
             }
 
-            const visibleExams = loggedInUser.isTeacher ? teacherGradeExams : publishedExams;
+            const visibleExams = loggedInUser.isTeacher
+                ? teacherGradeExams
+                : loggedInUser.role === 'student' ? studentGradeExams : publishedExams;
             const currentExam = visibleExams[selectedExamIndex] || null;
 
             if (loggedInUser.isParent) {
