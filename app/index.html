@@ -3927,30 +3927,24 @@
                     if (!examGroups.has(examName)) examGroups.set(examName, []);
                     examGroups.get(examName).push(question);
                 });
-                const listedQuestions = focusedQuestions.slice(0, 40);
                 const lines = [];
-                let listedCount = 0;
                 for (const [examName, questions] of examGroups) {
-                    if (listedCount >= listedQuestions.length) break;
-                    const examQuestions = questions.slice(0, listedQuestions.length - listedCount);
                     lines.push(`【${examName}】`);
-                    examQuestions.forEach(question => {
+                    questions.forEach(question => {
                         const sourcePart = hideCorrectAnswer ? '' : ` / 集中領域:${question.displaySource || '領域未設定'}`;
                         const ratePart = hideCorrectAnswer || !Number.isFinite(Number(question.correctRate))
                             ? ''
                             : ` / 正答率:${question.correctRate}%`;
                         lines.push(`- ${question.subjectName} ${question.questionNumber}${sourcePart}${ratePart}`);
                     });
-                    listedCount += examQuestions.length;
                 }
-                const omittedCount = focusedQuestions.length - listedCount;
                 const heading = matchingSources.length > 0
                     ? `「${matchingSources.join('、')}」の問題`
                     : `${selectedSubject}の弱点問題`;
                 const focusSummary = hideCorrectAnswer
                     ? 'この試験では集中領域の詳細は表示されません。'
                     : sourceSummary;
-                return `${heading}を、選択中の試験までの受験分から一覧にしました（${focusedQuestions.length}問）。\n\n【集中領域】\n${focusSummary}\n\n【出題試験と問題】\n${lines.join('\n')}${omittedCount > 0 ? `\n\n残り${omittedCount}問は表示を省略しました。集中領域を指定すると絞り込めます。` : ''}`;
+                return `${heading}を、選択中の試験までの受験分から一覧にしました（${focusedQuestions.length}問）。\n\n【集中領域】\n${focusSummary}\n\n【出題試験と問題】\n${lines.join('\n')}`;
             }
 
             if (normalized.includes('何') && normalized.includes('勉強')) {
@@ -4162,7 +4156,7 @@
             });
         }
 
-        function WeeklyPlanTracker({ guidance, studentId, examId, addedTasks }) {
+        function WeeklyPlanTracker({ guidance, studentId, examId }) {
             const TASK_TRACKER_SCHEMA_VERSION = 'v5';
             const storageKey = `mogisiken_weekly_tasks_${studentId}_${examId || 'no_exam'}`;
             const storageMetaKey = `${storageKey}_meta`;
@@ -4186,17 +4180,6 @@
             React.useEffect(() => {
                 localStorage.setItem(storageKey, JSON.stringify(tasks));
             }, [storageKey, tasks]);
-
-            React.useEffect(() => {
-                if (!addedTasks?.length) return;
-                setTasks(prev => {
-                    const taskMap = new Map(prev.map(task => [task.key, task]));
-                    addedTasks.forEach(task => {
-                        if (!taskMap.has(task.key)) taskMap.set(task.key, task);
-                    });
-                    return Array.from(taskMap.values());
-                });
-            }, [addedTasks]);
 
             React.useEffect(() => {
                 const previousMetaRaw = localStorage.getItem(storageMetaKey);
@@ -4292,10 +4275,8 @@
             );
         }
 
-        function StudyChatAssistant({ guidance, result, hideCorrectAnswer, studentId, schoolId, examId, onTaskAdded }) {
-            const initialText = guidance?.actionPlan?.[0]
-                ? `対話学習モードです。まずは ${guidance.actionPlan[0].subjectName} から着手するのが効果的です。`
-                : '対話学習モードです。質問を入力してください。';
+        function StudyChatAssistant({ guidance, hideCorrectAnswer, studentId, schoolId, examId }) {
+            const initialText = '「対策」を押して、科目ごとの集中領域と該当問題を確認できます。';
             const [messages, setMessages] = React.useState([{ role: 'assistant', text: initialText }]);
             const [input, setInput] = React.useState('');
             const [isResponding, setIsResponding] = React.useState(false);
@@ -4303,15 +4284,9 @@
             const [chatStorageEnabled, setChatStorageEnabled] = React.useState(true);
             const [isExpanded, setIsExpanded] = React.useState(false);
             const [awaitingFocusSubject, setAwaitingFocusSubject] = React.useState(false);
+            const [focusDrill, setFocusDrill] = React.useState(null);
             const loadedRef = React.useRef(false);
             const focusSubjects = guidance?.actionPlan || [];
-
-            const quickPrompts = [
-                '今週の学習計画を作って',
-                '優先して解く過去問を出して',
-                '柔整理論の対策を教えて',
-                '今の弱点を一言で教えて'
-            ];
 
             React.useEffect(() => {
                 const loadHistory = async () => {
@@ -4364,36 +4339,96 @@
                 if (!text || isResponding) return;
 
                 const focusSubject = awaitingFocusSubject ? findSubjectInQuestion(text) : null;
-                const requestText = focusSubject
-                    ? `${focusSubject}の集中領域の問題を試験別に一覧で教えて`
-                    : text;
+                const focusQuestions = focusSubject && !hideCorrectAnswer
+                    ? (guidance?.missedQuestions || []).filter(question =>
+                        question.subjectName === focusSubject &&
+                        Number.isFinite(Number(question.correctRate)) &&
+                        Number(question.correctRate) >= 50
+                    )
+                    : [];
+                const focusSources = Array.from(new Set(
+                    focusQuestions.map(question => question.displaySource).filter(Boolean)
+                ));
+                const selectedFocusSource = focusDrill?.sources.find(source =>
+                    normalizeText(source) === normalizeText(text) ||
+                    normalizeText(text).includes(normalizeText(source))
+                );
                 const userMessage = { role: 'user', text };
                 setMessages(prev => [...prev, userMessage]);
                 setInput('');
-                setAwaitingFocusSubject(false);
                 setIsResponding(true);
                 await persistMessage('user', text, 'local');
 
                 try {
-                    let reply = awaitingFocusSubject && !focusSubject
-                        ? '科目名を入力してください（例: 柔整理論）。'
-                        : buildLocalChatReply(requestText, guidance, result, hideCorrectAnswer);
-                    const providerUsed = 'local';
-
-                    if (shouldRegisterTaskFromQuestion(text)) {
-                        const tasks = buildTasksFromQuestion(text, guidance);
-                        if (onTaskAdded) onTaskAdded(tasks);
-                        const listText = tasks.map(task => `- ${task.subject} / ${task.task}`).join('\n');
-                        reply += `\n\n✅ 分析結果を反映して、このブラウザーの課題トラッカーに追加しました。\n${listText}`;
+                    let reply;
+                    if (awaitingFocusSubject && !focusSubject) {
+                        reply = `科目名を入力してください（${focusSubjects.map(plan => plan.subjectName).join('、')}）。`;
+                    } else if (awaitingFocusSubject && focusSubject) {
+                        setAwaitingFocusSubject(false);
+                        setFocusDrill({ subject: focusSubject, sources: focusSources });
+                        if (focusSources.length === 0) {
+                            setFocusDrill(null);
+                            reply = hideCorrectAnswer
+                                ? `${focusSubject}は正答率や集中領域が非表示の試験のため、深掘りできる領域情報がありません。`
+                                : `${focusSubject}には、正答率50%以上の誤答に該当する集中領域がありません。`;
+                        } else {
+                            const sourceCounts = new Map();
+                            focusQuestions.forEach(question => {
+                                const source = question.displaySource;
+                                sourceCounts.set(source, (sourceCounts.get(source) || 0) + 1);
+                            });
+                            const sourceLines = Array.from(sourceCounts.entries())
+                                .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+                                .map(([source, count]) => `- ${source}（${count}問）`);
+                            reply = `${focusSubject}の集中領域は次のとおりです（正答率50%以上の誤答）。\n${sourceLines.join('\n')}\n\nどの領域をさらに深掘りしますか？領域名を入力してください。`;
+                        }
+                    } else if (focusDrill) {
+                        if (!selectedFocusSource) {
+                            reply = `領域名を入力してください。選べる領域:\n${focusDrill.sources.map(source => `- ${source}`).join('\n')}`;
+                        } else {
+                            const sourceQuestions = (guidance?.missedQuestions || [])
+                                .filter(question =>
+                                    question.subjectName === focusDrill.subject &&
+                                    question.displaySource === selectedFocusSource &&
+                                    Number.isFinite(Number(question.correctRate)) &&
+                                    Number(question.correctRate) >= 50
+                                );
+                            const questionsByExam = new Map();
+                            sourceQuestions.forEach(question => {
+                                const examName = question.examName || '試験名未設定';
+                                if (!questionsByExam.has(examName)) questionsByExam.set(examName, []);
+                                questionsByExam.get(examName).push(question);
+                            });
+                            const lines = [];
+                            for (const [examName, questions] of questionsByExam) {
+                                lines.push(`【${examName}】`);
+                                questions.forEach(question => {
+                                    const rateText = Number.isFinite(Number(question.correctRate))
+                                        ? ` / 正答率:${question.correctRate}%`
+                                        : '';
+                                    lines.push(`- ${question.subjectName} ${question.questionNumber}${rateText}`);
+                                });
+                            }
+                            reply = sourceQuestions.length > 0
+                                ? `「${selectedFocusSource}」の正答率50%以上の誤答問題を、出題試験ごとにすべて表示します（${sourceQuestions.length}問）。\n${lines.join('\n')}`
+                                : `「${selectedFocusSource}」に正答率50%以上の誤答問題はありません。`;
+                            setFocusDrill(null);
+                        }
+                    } else {
+                        reply = '科目ごとの対策を確認するには「対策」を押してください。';
                     }
+                    const providerUsed = 'local';
 
                     setMessages(prev => [...prev, { role: 'assistant', text: reply }]);
                     await persistMessage('assistant', reply, providerUsed);
                 } catch (e) {
-                    const fallback = buildLocalChatReply(text, guidance, result, hideCorrectAnswer);
-                    const errorNotice = `回答生成でエラーが発生したため、簡易回答に切り替えました。\n理由: ${e?.message || e}`;
-                    setMessages(prev => [...prev, { role: 'assistant', text: `${errorNotice}\n\n${fallback}` }]);
-                    await persistMessage('assistant', `${errorNotice}\n\n${fallback}`, 'local-fallback');
+                    console.error('Study coach response error:', e);
+                    setAwaitingFocusSubject(false);
+                    setFocusDrill(null);
+                    setMessages(prev => [...prev, {
+                        role: 'assistant',
+                        text: `対策を表示できませんでした。もう一度「対策」からやり直してください。\n理由: ${e?.message || e}`
+                    }]);
                 } finally {
                     setIsResponding(false);
                 }
@@ -4420,27 +4455,6 @@
                                 {statusText} / 会話履歴はサーバーに保存されます
                             </p>
                         </div>
-                    <div style={{ padding: '12px 14px', borderBottom: '1px solid #edf2f7', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                        {quickPrompts.map(prompt => (
-                            <button
-                                key={prompt}
-                                onClick={() => sendMessage(prompt)}
-                                disabled={isResponding}
-                                style={{
-                                    padding: '6px 10px',
-                                    fontSize: '12px',
-                                    border: '1px solid #cbd5e1',
-                                    borderRadius: '999px',
-                                    background: '#f8fafc',
-                                    cursor: isResponding ? 'not-allowed' : 'pointer',
-                                    opacity: isResponding ? 0.6 : 1
-                                }}
-                            >
-                                {prompt}
-                            </button>
-                        ))}
-                    </div>
-
                     {focusSubjects.length > 0 && (
                         <div style={{ padding: '12px 14px', borderBottom: '1px solid #edf2f7', background: '#f0fdfa' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' }}>
@@ -4448,17 +4462,24 @@
                                     type="button"
                                     onClick={() => {
                                         setAwaitingFocusSubject(true);
+                                        setFocusDrill(null);
                                         setInput('');
+                                        setMessages(prev => [...prev, {
+                                            role: 'assistant',
+                                            text: `どの科目の対策をしますか？科目名を入力してください（${focusSubjects.map(plan => plan.subjectName).join('、')}）。`
+                                        }]);
                                     }}
                                     disabled={isResponding}
                                     style={{ padding: '6px 9px', border: '1px solid #0f766e', borderRadius: '6px', background: '#0f766e', color: 'white', cursor: isResponding ? 'not-allowed' : 'pointer' }}
                                 >
-                                    集中領域の詳細
+                                    対策
                                 </button>
                                 <span style={{ color: '#475569', fontSize: '12px' }}>
                                     {awaitingFocusSubject
-                                        ? '下の入力欄に科目名を入力してください（例: 柔整理論）'
-                                        : '科目名を入力すると、正答率50%以上の誤答を試験別に表示します'}
+                                        ? '科目名を入力してください'
+                                        : focusDrill
+                                            ? '深掘りしたい集中領域名を入力してください'
+                                            : '科目の集中領域と、その領域の問題を順に確認します'}
                                 </span>
                             </div>
                         </div>
@@ -4496,7 +4517,11 @@
                             type="text"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
-                            placeholder={awaitingFocusSubject ? '科目名を入力（例: 柔整理論）' : '例: 今週の学習計画を作って'}
+                            placeholder={awaitingFocusSubject
+                                ? '対策したい科目名を入力'
+                                : focusDrill
+                                    ? '深掘りしたい集中領域を入力'
+                                    : '「対策」から始めてください'}
                             style={{
                                 flex: 1,
                                 padding: '10px 12px',
@@ -5062,7 +5087,6 @@
             const [expandedSubject, setExpandedSubject] = useState(null);
             const [showAllQuestions, setShowAllQuestions] = useState(false);
             const [downloadMode, setDownloadMode] = useState('list');
-            const [chatAddedTasks, setChatAddedTasks] = useState({});
             const activeExamTaskKey = currentExam?.id || 'no_exam';
             
             // 正答は卒業判定試験(hide_correct_answer)の場合のみ非表示。それ以外の試験は学生にも正答を表示する
@@ -5605,17 +5629,10 @@
                             {!user.isTeacher && aiGuidance && result && (
                                 <StudyChatAssistant
                                     guidance={aiGuidance}
-                                    result={result}
                                     hideCorrectAnswer={hideCorrectAnswer}
                                     studentId={user.studentId}
                                     schoolId={user.schoolId}
                                     examId={currentExam?.id || null}
-                                    onTaskAdded={(tasks) => {
-                                        setChatAddedTasks(prev => ({
-                                            ...prev,
-                                            [activeExamTaskKey]: [...(prev[activeExamTaskKey] || []), ...tasks]
-                                        }));
-                                    }}
                                 />
                             )}
 
@@ -5625,7 +5642,6 @@
                                     guidance={aiGuidance}
                                     studentId={user.studentId}
                                     examId={currentExam?.id || null}
-                                    addedTasks={chatAddedTasks[activeExamTaskKey] || []}
                                 />
                             )}
 
