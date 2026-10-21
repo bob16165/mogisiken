@@ -17,6 +17,8 @@ type TrackData = {
   students: { id: string; name: string }[];
   picks: number[][];
   displayPicks?: number[];
+  overrides?: Record<string, { mode: string; answers?: number[] }>;
+  regrade?: { questions: TrackData['questions']; overrides: NonNullable<TrackData['overrides']> };
 };
 
 function json(body: unknown, status = 200) {
@@ -72,6 +74,43 @@ function validateTrack(value: any): TrackData {
     students: cleanStudents,
     picks: cleanPicks
   };
+}
+
+const overrideKey = (question: { section: string; no: number }) => `${question.section}${question.no}`;
+
+// 採点訂正: 採点除外は問題ごと取り除き、全員加点・正答候補の追加は解答を模範解答に置き換えて再集計する。
+function applyOverrides(track: TrackData): TrackData {
+  const overrides = track.overrides || {};
+  if (Object.keys(overrides).length === 0) return track;
+  const keep: number[] = [];
+  track.questions.forEach((question, index) => {
+    if (overrides[overrideKey(question)]?.mode !== 'excluded') keep.push(index);
+  });
+  const questions = keep.map((index) => track.questions[index]);
+  const picks = track.picks.map((row) => keep.map((index) => {
+    const question = track.questions[index];
+    const override = overrides[overrideKey(question)];
+    if (override?.mode === 'full_credit') return question.key;
+    if (override?.mode === 'accepted_answers' && (override.answers || []).includes(row[index])) return question.key;
+    return row[index];
+  }));
+  return { ...track, questions, picks, subjects: [...new Set(questions.map((question) => question.subject))] };
+}
+
+function cleanOverrides(value: any): NonNullable<TrackData['overrides']> {
+  const result: NonNullable<TrackData['overrides']> = {};
+  if (!value || typeof value !== 'object') return result;
+  for (const [key, item] of Object.entries(value as Record<string, any>)) {
+    const mode = item?.mode;
+    if (!/^(前半|後半)\d{1,3}$/.test(key)) throw new Error('採点設定が不正です');
+    if (mode === 'full_credit' || mode === 'excluded') result[key] = { mode };
+    else if (mode === 'accepted_answers') {
+      const answers = (Array.isArray(item.answers) ? item.answers : []).map(Number).filter((n: number) => Number.isInteger(n) && n >= 1 && n <= 4);
+      if (answers.length === 0) throw new Error(`${key} の正答候補を1〜4で入力してください`);
+      result[key] = { mode, answers: [...new Set<number>(answers)] };
+    } else if (mode !== 'normal') throw new Error('採点設定が不正です');
+  }
+  return result;
 }
 
 // 卒業判定試験: 学生には正答を悟られないよう、設問ごとに選択肢番号をランダムに入れ替えて返す。
@@ -149,7 +188,8 @@ Deno.serve(async (request) => {
         const stored = Array.isArray(row.qualification_exam_data) ? row.qualification_exam_data[0] : row.qualification_exam_data;
         if (!stored || !allowed.includes(row.qualification)) continue;
         if (!isTeacherLike && !row.is_published) continue;
-        const track = stored.data as TrackData;
+        const rawTrack = stored.data as TrackData;
+        const track = applyOverrides(rawTrack);
         let ownIndex = -1;
         if (!isTeacherLike) {
           ownIndex = track.students.findIndex((student) => student.id === operator.student_id);
@@ -157,10 +197,15 @@ Deno.serve(async (request) => {
         }
         let visible: TrackData;
         if (isTeacherLike) {
-          visible = { ...track, students: track.students.map((student) => ({ id: student.id, name: names.get(student.id) || student.name || '' })) };
+          visible = {
+            ...track,
+            students: track.students.map((student) => ({ id: student.id, name: names.get(student.id) || student.name || '' })),
+            regrade: { questions: rawTrack.questions, overrides: rawTrack.overrides || {} }
+          };
         } else {
           const base: TrackData = {
             ...track,
+            overrides: undefined,
             students: track.students.map((student, index) => index === ownIndex
               ? { id: student.id, name: names.get(student.id) || student.name || '' }
               : { id: `#${index + 1}`, name: '' })
@@ -247,6 +292,35 @@ Deno.serve(async (request) => {
         if (error) throw error;
       }
       return json({ ok: true });
+    }
+
+    if (action === 'regrade') {
+      const batchId = String(body.batchId || '');
+      const requested = body.overrides && typeof body.overrides === 'object' ? body.overrides : {};
+      const { data: members, error: memberError } = await adminClient
+        .from('qualification_exam_data')
+        .select('exam_id, data')
+        .eq('school_id', schoolId)
+        .eq('batch_id', batchId);
+      if (memberError) throw memberError;
+      if (!members || members.length === 0) throw new Error('試験が見つかりません');
+      const { data: examRows, error: examError } = await adminClient
+        .from('exams')
+        .select('id, qualification')
+        .in('id', members.map((member) => member.exam_id))
+        .eq('school_id', schoolId);
+      if (examError) throw examError;
+      const qualificationOf = new Map((examRows || []).map((row) => [row.id, row.qualification]));
+      let updated = 0;
+      for (const member of members) {
+        const qualification = qualificationOf.get(member.exam_id);
+        if (!qualification || !(qualification in requested)) continue;
+        const data = { ...(member.data as TrackData), overrides: cleanOverrides(requested[qualification]) };
+        const { error } = await adminClient.from('qualification_exam_data').update({ data }).eq('exam_id', member.exam_id);
+        if (error) throw error;
+        updated += (member.data as TrackData).students.length;
+      }
+      return json({ updatedResults: updated });
     }
 
     throw new Error('不明な操作です');

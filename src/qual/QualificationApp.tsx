@@ -4,6 +4,8 @@ import type { FormEvent, ReactNode } from 'react';
 import { buildTrackFromFiles, decodeCsvFile, parseCsv } from '../prototypeCsv';
 import { SAMPLE_DOWNLOADS } from './samples';
 import type { TrackFiles } from '../prototypeCsv';
+import { RegradeDialog } from './RegradeDialog';
+import type { RegradeOverrides, RegradeTrack } from './RegradeDialog';
 import { DeviationTrend } from './DeviationTrend';
 import { StudyCoach, WeeklyPlanTracker } from './StudyTools';
 import { HighRateWrongPanel, StudyGuidance, studentHighRateHits, TeacherReview, WeakAreasPanel } from '../prototypeAnalysisViews';
@@ -31,6 +33,7 @@ export interface ServerTrack {
   students: TrackData['students'];
   picks: number[][];
   displayPicks?: number[];
+  regrade?: { questions: TrackData['questions']; overrides: RegradeOverrides };
 }
 
 export interface ServerExam {
@@ -67,6 +70,8 @@ export interface QualificationAppProps {
   onSave: (input: SaveExamInput) => Promise<void>;
   onUpdate: (batchId: string, patch: { isPublished?: boolean }) => Promise<void>;
   onDelete: (batchId: string) => Promise<void>;
+  onRegrade: (batchId: string, overrides: Partial<Record<TrackId, RegradeOverrides>>) => Promise<void>;
+  onOpenPasswordChange: () => void;
   onLogout: () => void;
   studentCount: number;
   onStudentMasterUpload: (
@@ -175,6 +180,7 @@ export default function QualificationApp(props: QualificationAppProps) {
   const [viewMode, setViewMode] = useState<'student' | 'teacher' | 'trend' | 'registration' | 'students'>(isStudent ? 'student' : 'teacher');
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
+  const [showRegrade, setShowRegrade] = useState(false);
   const allExams = exams.map((item) => ({ server: item, data: toExamData(item) }));
   const visibleEntries = allExams.filter(({ data }) =>
     data.tracks.acupuncture || (group.hasMassage && data.tracks.massage));
@@ -203,7 +209,28 @@ export default function QualificationApp(props: QualificationAppProps) {
           {!isStudent && <p style={styles.subtitle}>教員モード: {props.userName}</p>}
           {exam && <p style={styles.subtitle}>📋 {exam.name}</p>}
         </div>
-        <button type="button" onClick={onLogout} style={styles.logoutButton}>ログアウト</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {!isStudent && currentEntry && (
+            <button type="button" onClick={() => setShowRegrade(true)} style={{ ...styles.headerButton, background: '#e8eaf6', color: '#283593' }}>採点訂正・再集計</button>
+          )}
+          {role === 'teacher' && (
+            <button type="button" onClick={props.onOpenPasswordChange} style={{ ...styles.headerButton, background: '#fff', color: '#1565c0' }}>パスワード変更</button>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+            <button type="button" onClick={onLogout} style={styles.logoutButton}>ログアウト</button>
+            {!isStudent && (
+              <>
+                <div style={{ marginTop: 8, fontSize: 12, color: 'rgba(255,255,255,0.9)' }}>お問い合わせはコチラから</div>
+                <a
+                  href="mailto:inoue@mea-analysis.jp?subject=%E6%A8%A1%E6%93%AC%E8%A9%A6%E9%A8%93%E7%B5%90%E6%9E%9C%E9%96%B2%E8%A6%A7%E3%82%B7%E3%82%B9%E3%83%86%E3%83%A0%E3%81%AE%E3%81%8A%E5%95%8F%E3%81%84%E5%90%88%E3%82%8F%E3%81%9B"
+                  style={{ marginTop: 5, padding: '7px 12px', fontSize: 12, color: '#fff', background: '#1565c0', border: '1px solid rgba(255,255,255,0.7)', borderRadius: 5, fontWeight: 600, textDecoration: 'none' }}
+                >
+                  メールで問い合わせる
+                </a>
+              </>
+            )}
+          </div>
+        </div>
       </div>
     </header>
   );
@@ -278,6 +305,17 @@ export default function QualificationApp(props: QualificationAppProps) {
   return (
     <main style={styles.page}>
       {toolbarHeader}
+      {showRegrade && currentEntry && (
+        <RegradeDialog
+          examName={currentEntry.server.name}
+          tracks={(Object.keys(currentEntry.server.tracks) as TrackId[]).flatMap((trackKey): RegradeTrack[] => {
+            const regrade = currentEntry.server.tracks[trackKey]?.regrade;
+            return regrade ? [{ trackId: trackKey, questions: regrade.questions, overrides: regrade.overrides }] : [];
+          })}
+          onClose={() => setShowRegrade(false)}
+          onApply={(overrides) => props.onRegrade(currentEntry.server.batchId, overrides)}
+        />
+      )}
 
       <div style={styles.content}>
         {props.role === 'admin' && props.schools.length > 0 && (
@@ -1380,6 +1418,7 @@ function QuestionDetailTable({ rows, hideAnswers = false }: { rows: QuestionDeta
 }
 
 const styles: Record<string, React.CSSProperties> = {
+  headerButton: { padding: '10px 12px', fontSize: 13, border: 'none', borderRadius: 5, cursor: 'pointer', fontWeight: 600 },
   logoutButton: { padding: '8px 16px', border: '1px solid rgba(255,255,255,0.6)', borderRadius: 6, background: 'transparent', color: '#fff', cursor: 'pointer', fontSize: 14 },
   examActions: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, margin: '0 0 16px', padding: '10px 14px', background: '#f5f7fa', borderRadius: 6 },
   deleteButton: { padding: '6px 14px', border: '1px solid #c62828', borderRadius: 6, background: '#fff', color: '#c62828', cursor: 'pointer', fontSize: 13 },

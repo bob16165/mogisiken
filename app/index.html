@@ -6418,7 +6418,7 @@
             if (!qualificationBundlePromise) {
                 qualificationBundlePromise = new Promise((resolve, reject) => {
                     const script = document.createElement('script');
-                    script.src = './qual/qualification-app.js?v=5';
+                    script.src = './qual/qualification-app.js?v=6';
                     script.onload = resolve;
                     script.onerror = () => {
                         qualificationBundlePromise = null;
@@ -6445,6 +6445,7 @@
             const [loading, setLoading] = useState(true);
             const [loadError, setLoadError] = useState('');
             const [bundleReady, setBundleReady] = useState(!!window.mountQualificationApp);
+            const [showPasswordChange, setShowPasswordChange] = useState(false);
             const schoolId = user.role === 'admin' ? selectedSchoolId : user.schoolId;
 
             const reload = async () => {
@@ -6495,6 +6496,12 @@
                         await invokeQualificationExams({ action: 'delete', schoolId, batchId });
                         await reload();
                     },
+                    onRegrade: async (batchId, overrides) => {
+                        const data = await invokeQualificationExams({ action: 'regrade', schoolId, batchId, overrides });
+                        await reload();
+                        alert(`採点設定を保存し、${data?.updatedResults ?? 0}名分を再集計しました。`);
+                    },
+                    onOpenPasswordChange: () => setShowPasswordChange(true),
                     onLogout,
                     studentCount,
                     onStudentMasterUpload
@@ -6508,7 +6515,12 @@
                 }
             }, []);
 
-            return <div ref={containerRef} />;
+            return (
+                <>
+                    <div ref={containerRef} />
+                    {showPasswordChange && <PasswordChangeDialog onClose={() => setShowPasswordChange(false)} />}
+                </>
+            );
         }
 
         function App() {

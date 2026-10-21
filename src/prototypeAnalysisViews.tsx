@@ -303,12 +303,6 @@ export function TeacherReview({ track, examName = '' }: { track: HistoryEntry['t
           </div>
         ))}
       </div>
-      <HighRateWrongPanel
-        hits={review.wrongPairs}
-        title="正答率50%以上で誤答した問題（全体・科目別TOP5）"
-        showWrongCount
-        key={track.questions.length}
-      />
     </section>
   );
 }
