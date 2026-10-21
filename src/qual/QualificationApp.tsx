@@ -1,6 +1,7 @@
 import { Fragment, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { buildTrackFromFiles } from '../prototypeCsv';
+import { buildTrackFromFiles, decodeCsvFile, parseCsv } from '../prototypeCsv';
+import { SAMPLE_DOWNLOADS } from './samples';
 import type { TrackFiles } from '../prototypeCsv';
 import { HighRateWrongPanel, StudyGuidance, studentHighRateHits, TeacherReview, WeakAreasPanel } from '../prototypeAnalysisViews';
 import type { HistoryEntry } from '../prototypeAnalysis';
@@ -64,6 +65,28 @@ export interface QualificationAppProps {
   onUpdate: (batchId: string, patch: { isPublished?: boolean }) => Promise<void>;
   onDelete: (batchId: string) => Promise<void>;
   onLogout: () => void;
+  studentCount: number;
+  onStudentMasterUpload: (
+    master: Record<string, StudentMasterInput>,
+    replace: boolean,
+    resetParentPasswords: boolean,
+  ) => Promise<StudentCredential[] | null>;
+}
+
+export interface StudentMasterInput {
+  name: string;
+  password: string;
+  enrollmentYear: number | null;
+  courseYears: number | null;
+}
+
+export interface StudentCredential {
+  loginId: string;
+  studentId: string;
+  name: string;
+  password: string;
+  parentLoginId?: string;
+  parentPassword?: string;
 }
 
 interface AppGroup {
@@ -146,7 +169,7 @@ export default function QualificationApp(props: QualificationAppProps) {
   const [examId, setExamId] = useState('');
   const [fromTeacher, setFromTeacher] = useState(false);
   const [trackId, setTrackId] = useState<TrackId>('acupuncture');
-  const [viewMode, setViewMode] = useState<'student' | 'teacher' | 'registration'>(isStudent ? 'student' : 'teacher');
+  const [viewMode, setViewMode] = useState<'student' | 'teacher' | 'registration' | 'students'>(isStudent ? 'student' : 'teacher');
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const allExams = exams.map((item) => ({ server: item, data: toExamData(item) }));
@@ -195,7 +218,8 @@ export default function QualificationApp(props: QualificationAppProps) {
             <p style={{ textAlign: 'center', color: '#555', margin: '40px 0' }}>公開されている試験結果はまだありません。</p>
           ) : (
             <>
-              <p style={{ color: '#555' }}>登録済みの試験がありません。CSVを登録してください。</p>
+              <p style={{ color: '#555' }}>登録済みの試験がありません。学生を登録してから、試験のCSVを登録してください。</p>
+              <StudentMasterView count={props.studentCount} onUpload={props.onStudentMasterUpload} />
               <RegistrationView key={group.id} group={group} onRegister={registerExam} />
             </>
           )}
@@ -281,7 +305,7 @@ export default function QualificationApp(props: QualificationAppProps) {
                 id="view-mode"
                 value={viewMode}
                 onChange={(event) => {
-                  if (event.target.value === 'student' || event.target.value === 'teacher' || event.target.value === 'registration') {
+                  if (event.target.value === 'student' || event.target.value === 'teacher' || event.target.value === 'registration' || event.target.value === 'students') {
                     setFromTeacher(false);
                     setViewMode(event.target.value);
                   }
@@ -291,6 +315,7 @@ export default function QualificationApp(props: QualificationAppProps) {
                 <option value="teacher">教員用成績一覧</option>
                 <option value="student">学生用結果画面</option>
                 <option value="registration">CSV登録</option>
+                <option value="students">学生登録</option>
               </select>
             </label>
           )}
@@ -357,7 +382,9 @@ export default function QualificationApp(props: QualificationAppProps) {
           </div>
         )}
 
-        {viewMode === 'registration' ? (
+        {viewMode === 'students' ? (
+          <StudentMasterView count={props.studentCount} onUpload={props.onStudentMasterUpload} />
+        ) : viewMode === 'registration' ? (
           <RegistrationView key={group.id} group={group} onRegister={registerExam} />
         ) : viewMode === 'teacher' ? (
           <>
@@ -885,6 +912,124 @@ function RegistrationView({ group, onRegister }: { group: AppGroup; onRegister: 
           </p>
         </section>
       )}
+      <SampleLinks />
+    </form>
+  );
+}
+
+function SampleLinks() {
+  return (
+    <div style={{ marginTop: 25, padding: 15, background: '#f5f5f5', borderRadius: 6, fontSize: 12, color: '#666' }}>
+      <strong>📝 CSVサンプルをダウンロード:</strong>
+      <div style={{ marginTop: 10, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+        {SAMPLE_DOWNLOADS.map((sample) => (
+          <a
+            key={sample.label}
+            href="#"
+            onClick={(event) => { event.preventDefault(); sample.run(); }}
+            style={{ color: '#1976d2', textDecoration: 'underline', cursor: 'pointer' }}
+          >
+            {sample.label}
+          </a>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StudentMasterView({ count, onUpload }: { count: number; onUpload: QualificationAppProps['onStudentMasterUpload'] }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [replace, setReplace] = useState(false);
+  const [resetParent, setResetParent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError('');
+    setMessage('');
+    if (!file) {
+      setError('学生マスターファイルを選択してください');
+      return;
+    }
+    setBusy(true);
+    try {
+      const [, ...rows] = parseCsv(await decodeCsvFile(file));
+      const master: Record<string, StudentMasterInput> = {};
+      for (const cells of rows) {
+        const studentId = (cells[0] ?? '').trim();
+        const name = (cells[1] ?? '').trim();
+        const given = (cells[2] ?? '').trim();
+        const password = given.length >= 6 ? given : String(Math.floor(100000 + Math.random() * 900000));
+        const year = (cells[3] ?? '').trim();
+        const course = (cells[4] ?? '').trim();
+        const enrollmentYear = year ? Number(year) : null;
+        const courseYears = course ? Number(course) : null;
+        if ((year || course) && (!Number.isInteger(enrollmentYear) || (enrollmentYear as number) < 1900 ||
+            (enrollmentYear as number) > 2200 || ![3, 4].includes(courseYears as number))) {
+          throw new Error(`${studentId || '学生'}の入学年度・課程年数を確認してください（課程年数は3または4）`);
+        }
+        if (studentId && name) master[studentId] = { name, password, enrollmentYear, courseYears };
+      }
+      if (Object.keys(master).length === 0) throw new Error('登録できる学生がありません。1行目は見出し、2行目以降に学生を入力してください。');
+      const credentials = await onUpload(master, replace, resetParent);
+      if (!credentials) throw new Error('学生アカウントの保存に失敗しました。');
+      if (credentials.length > 0) {
+        const lines = ['ログインID,学籍番号,氏名,初期パスワード,保護者ログインID,保護者初期パスワード',
+          ...credentials.map((item) => [item.loginId, item.studentId, item.name, item.password,
+            item.parentLoginId ?? '', item.parentPassword ?? '（登録済み・変更なし）'].join(','))];
+        const blob = new Blob([`\uFEFF${lines.join('\n')}`], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = '学生ログイン情報.csv';
+        link.click();
+        URL.revokeObjectURL(link.href);
+      }
+      setMessage(`${Object.keys(master).length}名の学生アカウントを${replace ? '上書き' : '追加'}しました。ログイン情報CSVを保存しました。`);
+      setFile(null);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '学生マスターの保存に失敗しました。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} style={styles.registrationPanel}>
+      <p style={styles.sectionLabel}>学生登録</p>
+      <h2 style={styles.sectionTitle}>学生氏名マスター登録</h2>
+      <p style={{ fontSize: 13, color: '#666' }}>
+        現在 {count} 名が登録されています。学籍番号と氏名を登録すると、学生のログインアカウントと氏名表示が作成されます。
+      </p>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', margin: '12px 0' }}>
+        <label style={styles.choiceOption}>
+          <input type="radio" checked={!replace} onChange={() => setReplace(false)} /> 追加登録（既存データに追加）
+        </label>
+        <label style={{ ...styles.choiceOption, color: '#d32f2f' }}>
+          <input type="radio" checked={replace} onChange={() => setReplace(true)} /> 上書き登録（年度更新時）
+        </label>
+      </div>
+      <label style={{ ...styles.choiceOption, marginBottom: 10 }}>
+        <input type="checkbox" checked={resetParent} onChange={(event) => setResetParent(event.target.checked)} />
+        登録済みの保護者パスワードも再発行する（未登録の保護者は常に自動発行）
+      </label>
+      <input
+        type="file"
+        accept=".csv"
+        onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+        style={{ width: '100%', padding: 10, fontSize: 14, border: '2px solid #e0e0e0', borderRadius: 6, marginBottom: 10, boxSizing: 'border-box' }}
+      />
+      <div style={{ fontSize: 12, color: '#666', marginBottom: 10, lineHeight: 1.7 }}>
+        CSVの1行目は見出し、2行目以降に学生を入力してください。列の順番は固定です。<br />
+        学籍番号,氏名,初期パスワード(空欄なら自動発行),入学年度,課程年数(3または4)
+      </div>
+      {error && <p role="alert" style={{ ...styles.formError, whiteSpace: 'pre-line' }}>{error}</p>}
+      {message && <p style={{ color: '#2e7d32', fontSize: 14 }}>{message}</p>}
+      <div style={styles.submitRow}>
+        <button type="submit" disabled={busy} style={styles.submitButton}>{busy ? '登録中…' : '学生を登録'}</button>
+      </div>
+      <SampleLinks />
     </form>
   );
 }

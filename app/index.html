@@ -6439,7 +6439,7 @@
             return data;
         }
 
-        function QualificationHost({ user, groupId, schools, selectedSchoolId, onSchoolChange, onLogout }) {
+        function QualificationHost({ user, groupId, schools, selectedSchoolId, onSchoolChange, onLogout, studentCount, onStudentMasterUpload }) {
             const containerRef = useRef(null);
             const [exams, setExams] = useState([]);
             const [loading, setLoading] = useState(true);
@@ -6495,7 +6495,9 @@
                         await invokeQualificationExams({ action: 'delete', schoolId, batchId });
                         await reload();
                     },
-                    onLogout
+                    onLogout,
+                    studentCount,
+                    onStudentMasterUpload
                 });
                 return undefined;
             });
@@ -7291,6 +7293,8 @@
                     schools={schools}
                     selectedSchoolId={selectedSchoolId}
                     onSchoolChange={(schoolId) => { setSelectedSchoolId(schoolId); setSelectedGrade(''); setSelectedExamIndex(0); }}
+                    studentCount={loggedInUser.role === 'admin' ? (studentCounts?.[selectedSchoolId] || 0) : (studentCounts?.__currentSchool || 0)}
+                    onStudentMasterUpload={handleStudentMasterUpload}
                     onLogout={async () => {
                         await supabase.auth.signOut();
                         setLoggedInUser(null);
