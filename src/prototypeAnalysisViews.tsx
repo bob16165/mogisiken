@@ -245,6 +245,7 @@ export function TeacherReview({ track, examName = '' }: { track: HistoryEntry['t
   const areas = (groups: typeof review.lecture, remedial: boolean) => groups.map((group) => (
     <div key={group.subject} style={{ marginBottom: 14 }}>
       <h4 style={{ margin: '0 0 6px', color: '#263238' }}>{group.subject}</h4>
+      {group.rows.length === 0 && <p style={{ margin: 0, paddingLeft: 24, fontSize: 12, color: '#777' }}>{remedial ? '補習対象に該当する問題領域がありません。' : '集計できる問題領域がありません。'}</p>}
       <ol style={{ margin: 0, paddingLeft: 24 }}>
         {group.rows.map((row) => (
           <li key={row.area} style={{ padding: '4px 0', color: '#37474f' }}>
@@ -281,7 +282,7 @@ export function TeacherReview({ track, examName = '' }: { track: HistoryEntry['t
         <div style={{ background: '#fff3e0', padding: 15, borderRadius: 8, border: '1px solid #ffcc80' }}>
           <h3 style={{ margin: '0 0 12px', color: '#e65100' }}>低学力者の補習向け</h3>
           <p style={{ margin: '0 0 12px', fontSize: 12, color: '#6d4c41' }}>下位30%を対象に、平均識別係数0.2以上の領域</p>
-          {review.remedial.length === 0 ? <p style={{ margin: 0, color: '#666' }}>補習対象に該当する問題領域がありません。</p> : areas(review.remedial, true)}
+          {areas(review.remedial, true)}
         </div>
       </div>
       <div style={{ marginTop: 15, background: '#f3e5f5', padding: 15, borderRadius: 8, border: '1px solid #ce93d8' }}>

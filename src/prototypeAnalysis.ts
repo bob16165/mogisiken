@@ -205,8 +205,8 @@ export function buildClassReview(track: TrackData, examName = '') {
   const totals = totalScores(track);
   const n = totals.length;
   const order = totals.map((score, student) => ({ score, student })).sort((a, b) => b.score - a.score);
-  const lowCount = Math.max(1, Math.round(n * 0.3));
-  const highCount = Math.max(1, Math.round(n * 0.3));
+  const lowCount = Math.max(1, Math.ceil(n * 0.3));
+  const highCount = Math.ceil(n * 0.3);
   const lower = order.slice(n - lowCount).map((item) => item.student);
   const middle = order.slice(highCount, n - lowCount).map((item) => item.student);
   const rates = questionRates(track);
@@ -234,11 +234,12 @@ export function buildClassReview(track: TrackData, examName = '') {
   const bySubject = <T extends { subject: string }>(rows: T[]) =>
     track.subjects.map((subject) => ({ subject, rows: rows.filter((row) => row.subject === subject) }));
 
-  const lecture = bySubject(groupAreas(middle).sort((a, b) => b.wrong - a.wrong).slice(0, 12))
-    .map((group) => ({ ...group, rows: group.rows.slice(0, 3) }))
-    .filter((group) => group.rows.length > 0);
-  const remedial = bySubject(groupAreas(lower).filter((row) => row.averageDisc >= 0.2).sort((a, b) => b.averageDisc - a.averageDisc))
-    .filter((group) => group.rows.length > 0);
+  // 柔整版と同じく、全科目について科目ごとに上位3領域を出す。
+  const lecture = bySubject(groupAreas(middle).sort((a, b) => b.wrong - a.wrong || a.averageRate - b.averageRate))
+    .map((group) => ({ ...group, rows: group.rows.slice(0, 3) }));
+  const remedial = bySubject(groupAreas(lower).filter((row) => row.averageDisc >= 0.2)
+    .sort((a, b) => b.averageDisc - a.averageDisc || a.averageRate - b.averageRate))
+    .map((group) => ({ ...group, rows: group.rows.slice(0, 3) }));
   const discQuestions = track.questions.flatMap((question, i) =>
     disc[i] >= 0.3
       ? [{
