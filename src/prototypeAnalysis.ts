@@ -1,4 +1,4 @@
-import type { ExamData, TrackData } from './qualificationPrototypeData';
+import type { ExamData, TrackData } from './qualCore';
 
 export interface HistoryEntry {
   exam: ExamData;

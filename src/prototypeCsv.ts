@@ -1,5 +1,5 @@
-import type { PrototypeStudent, TrackData, TrackId, TrackQuestion } from './qualificationPrototypeData';
-import { TRACK_LABELS, QUALIFICATION_RULES } from './qualificationPrototypeData';
+import type { PrototypeStudent, TrackData, TrackId, TrackQuestion } from './qualCore';
+import { TRACK_LABELS, QUALIFICATION_RULES } from './qualCore';
 
 export interface RangeInput {
   section: '前半' | '後半';

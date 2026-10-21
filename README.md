@@ -450,3 +450,10 @@ Excelで以下の形式で作成し、CSV形式で保存：
 # 📞 サポート
 
 技術的な問題が発生した場合は、システム管理者に連絡してください。
+
+## 鍼灸・あん摩の本番組み込み
+
+- 学校（学科）の `schools.qualification_group` が `acupuncture` / `acupuncture_massage` の場合、ログイン後に `app/qual/qualification-app.js`（`src/qual/` をビルドしたもの）の画面を表示します。柔整の学校は従来の画面のままです。
+- データは `exams`（資格ごとに1行）と `qualification_exam_data` に保存し、Edge Function `qualification-exams` 経由でのみ読み書きします（学生には他の学生を匿名化して返し、卒業判定試験は選択肢番号を入れ替えて返します）。
+- `src/qual/` や `src/qualMaster.ts` を変更したら `npm run build:qual` を実行し、`app/qual/` も一緒にコミットしてください。
+- SQL: `supabase-qualification-groups.sql` → `supabase-qualification-data.sql`。学校の追加は `supabase-add-school.sql`。

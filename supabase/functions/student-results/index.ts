@@ -326,6 +326,8 @@ Deno.serve(async (request) => {
       `)
       .order('created_at', { ascending: true });
 
+    // 鍼灸・あん摩の試験は qualification-exams が扱う。柔整の集計には含めない
+    examsQuery = examsQuery.eq('qualification', 'judo');
     if (requestedSchoolId) examsQuery = examsQuery.eq('school_id', requestedSchoolId);
     const isStudentLike = operator.role === 'student' || operator.role === 'parent';
     if (isStudentLike) examsQuery = examsQuery.eq('is_published', true);
@@ -404,7 +406,17 @@ Deno.serve(async (request) => {
       }
     }
 
-    return new Response(JSON.stringify({ exams: visibleExams, studentAcademicInfo }), {
+    let qualificationGroup = null;
+    if (operator.role !== 'admin' && operator.school_id) {
+      const { data: ownSchool } = await adminClient
+        .from('schools')
+        .select('qualification_group')
+        .eq('id', operator.school_id)
+        .single();
+      qualificationGroup = ownSchool?.qualification_group ?? null;
+    }
+
+    return new Response(JSON.stringify({ exams: visibleExams, studentAcademicInfo, qualificationGroup }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200
     });

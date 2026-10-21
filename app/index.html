@@ -134,7 +134,7 @@
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect } = React;
+        const { useState, useEffect, useRef } = React;
         
         // Supabaseクライアント初期化
         const DEFAULT_SUPABASE_URL = 'https://ftyujxyzsxmferladhyr.supabase.co';
@@ -6410,12 +6410,112 @@
             );
         }
 
+
+        // 鍼灸・あん摩の学科(学校)用画面。別ファイルのバンドルを必要になった時だけ読み込む。柔整の画面には影響しない。
+        let qualificationBundlePromise = null;
+        function loadQualificationBundle() {
+            if (window.mountQualificationApp) return Promise.resolve();
+            if (!qualificationBundlePromise) {
+                qualificationBundlePromise = new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = './qual/qualification-app.js?v=1';
+                    script.onload = resolve;
+                    script.onerror = () => {
+                        qualificationBundlePromise = null;
+                        reject(new Error('画面の読み込みに失敗しました。再読み込みしてください'));
+                    };
+                    document.head.appendChild(script);
+                });
+            }
+            return qualificationBundlePromise;
+        }
+
+        async function invokeQualificationExams(body) {
+            const { data, error } = await supabase.functions.invoke('qualification-exams', { body });
+            if (error) {
+                const detail = await error.context?.json?.().catch(() => null);
+                throw new Error(detail?.error || error.message);
+            }
+            return data;
+        }
+
+        function QualificationHost({ user, groupId, schools, selectedSchoolId, onSchoolChange, onLogout }) {
+            const containerRef = useRef(null);
+            const [exams, setExams] = useState([]);
+            const [loading, setLoading] = useState(true);
+            const [loadError, setLoadError] = useState('');
+            const [bundleReady, setBundleReady] = useState(!!window.mountQualificationApp);
+            const schoolId = user.role === 'admin' ? selectedSchoolId : user.schoolId;
+
+            const reload = async () => {
+                setLoadError('');
+                try {
+                    const data = await invokeQualificationExams({ action: 'list', schoolId });
+                    setExams(data?.exams || []);
+                } catch (error) {
+                    setLoadError(error.message || '試験データを読み込めませんでした');
+                }
+            };
+
+            useEffect(() => {
+                let active = true;
+                setLoading(true);
+                setExams([]);
+                reload().finally(() => { if (active) setLoading(false); });
+                return () => { active = false; };
+            }, [schoolId]);
+
+            useEffect(() => {
+                loadQualificationBundle().then(() => setBundleReady(true)).catch(error => setLoadError(error.message));
+            }, []);
+
+            useEffect(() => {
+                const container = containerRef.current;
+                if (!bundleReady || !container) return undefined;
+                window.mountQualificationApp(container, {
+                    role: user.role,
+                    userName: user.name || '',
+                    studentId: user.studentId || '',
+                    groupId,
+                    schools: user.role === 'admin' ? schools : [],
+                    selectedSchoolId,
+                    onSchoolChange,
+                    exams,
+                    loading,
+                    loadError,
+                    onSave: async ({ examName, hideCorrectAnswer, tracks }) => {
+                        await invokeQualificationExams({ action: 'save', schoolId, examName, hideCorrectAnswer, tracks });
+                        await reload();
+                    },
+                    onUpdate: async (batchId, patch) => {
+                        await invokeQualificationExams({ action: 'update', schoolId, batchId, ...patch });
+                        await reload();
+                    },
+                    onDelete: async (batchId) => {
+                        await invokeQualificationExams({ action: 'delete', schoolId, batchId });
+                        await reload();
+                    },
+                    onLogout
+                });
+                return undefined;
+            });
+
+            useEffect(() => () => {
+                if (containerRef.current && window.unmountQualificationApp) {
+                    window.unmountQualificationApp(containerRef.current);
+                }
+            }, []);
+
+            return <div ref={containerRef} />;
+        }
+
         function App() {
             const [loggedInUser, setLoggedInUser] = useState(null);
             const [pendingAdminMfaUser, setPendingAdminMfaUser] = useState(null);
             const [allExams, setAllExams] = useState([]);
             const [schools, setSchools] = useState([]);
             const [selectedSchoolId, setSelectedSchoolId] = useState('');
+            const [qualificationGroup, setQualificationGroup] = useState(null);
             const [studentMaster, setStudentMaster] = useState({});
             const [studentCounts, setStudentCounts] = useState({});
             const [sourceMapping, setSourceMapping] = useState(null);
@@ -6612,7 +6712,7 @@
                         if (loggedInUser.role === 'admin') {
                             const { data: schoolsData, error: schoolsError } = await supabase
                                 .from('schools')
-                                .select('id, name')
+                                .select('id, name, qualification_group')
                                 .order('name');
                             if (schoolsError) throw schoolsError;
                             setSchools(schoolsData || []);
@@ -6632,6 +6732,7 @@
                             throw resultsError;
                         }
                         const examsData = resultsResponse?.exams || [];
+                        setQualificationGroup(resultsResponse?.qualificationGroup || null);
                         setStudentAcademicInfo(
                             ['student', 'parent'].includes(loggedInUser.role)
                                 ? resultsResponse?.studentAcademicInfo || null
@@ -7177,6 +7278,23 @@
                 return <LoginForm
                     onLogin={setLoggedInUser}
                     onAdminMfaRequired={setPendingAdminMfaUser}
+                />;
+            }
+
+            const activeQualificationGroup = loggedInUser.role === 'admin'
+                ? schools.find(school => school.id === selectedSchoolId)?.qualification_group
+                : qualificationGroup;
+            if (!loggedInUser.isParent && ['acupuncture', 'acupuncture_massage'].includes(activeQualificationGroup)) {
+                return <QualificationHost
+                    user={loggedInUser}
+                    groupId={activeQualificationGroup}
+                    schools={schools}
+                    selectedSchoolId={selectedSchoolId}
+                    onSchoolChange={(schoolId) => { setSelectedSchoolId(schoolId); setSelectedGrade(''); setSelectedExamIndex(0); }}
+                    onLogout={async () => {
+                        await supabase.auth.signOut();
+                        setLoggedInUser(null);
+                    }}
                 />;
             }
 
