@@ -14,3 +14,6 @@ supabase/.temp
 *.njsproj
 *.sln
 *.sw?
+
+# 学生データを含む試作用データ（公開しない）
+src/prototypeExamData.ts
