@@ -3,6 +3,8 @@ import type { FormEvent, ReactNode } from 'react';
 import { buildTrackFromFiles, decodeCsvFile, parseCsv } from '../prototypeCsv';
 import { SAMPLE_DOWNLOADS } from './samples';
 import type { TrackFiles } from '../prototypeCsv';
+import { DeviationTrend } from './DeviationTrend';
+import { StudyCoach, WeeklyPlanTracker } from './StudyTools';
 import { HighRateWrongPanel, StudyGuidance, studentHighRateHits, TeacherReview, WeakAreasPanel } from '../prototypeAnalysisViews';
 import type { HistoryEntry } from '../prototypeAnalysis';
 import {
@@ -169,7 +171,7 @@ export default function QualificationApp(props: QualificationAppProps) {
   const [examId, setExamId] = useState('');
   const [fromTeacher, setFromTeacher] = useState(false);
   const [trackId, setTrackId] = useState<TrackId>('acupuncture');
-  const [viewMode, setViewMode] = useState<'student' | 'teacher' | 'registration' | 'students'>(isStudent ? 'student' : 'teacher');
+  const [viewMode, setViewMode] = useState<'student' | 'teacher' | 'trend' | 'registration' | 'students'>(isStudent ? 'student' : 'teacher');
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const allExams = exams.map((item) => ({ server: item, data: toExamData(item) }));
@@ -305,7 +307,7 @@ export default function QualificationApp(props: QualificationAppProps) {
                 id="view-mode"
                 value={viewMode}
                 onChange={(event) => {
-                  if (event.target.value === 'student' || event.target.value === 'teacher' || event.target.value === 'registration' || event.target.value === 'students') {
+                  if (event.target.value === 'student' || event.target.value === 'teacher' || event.target.value === 'trend' || event.target.value === 'registration' || event.target.value === 'students') {
                     setFromTeacher(false);
                     setViewMode(event.target.value);
                   }
@@ -313,6 +315,7 @@ export default function QualificationApp(props: QualificationAppProps) {
                 style={styles.select}
               >
                 <option value="teacher">教員用成績一覧</option>
+                <option value="trend">偏差値推移</option>
                 <option value="student">学生用結果画面</option>
                 <option value="registration">CSV登録</option>
                 <option value="students">学生登録</option>
@@ -386,6 +389,22 @@ export default function QualificationApp(props: QualificationAppProps) {
           <StudentMasterView count={props.studentCount} onUpload={props.onStudentMasterUpload} />
         ) : viewMode === 'registration' ? (
           <RegistrationView key={group.id} group={group} onRegister={registerExam} />
+        ) : viewMode === 'trend' ? (
+          <DeviationTrend
+            key={track.id}
+            exams={visibleExams}
+            trackId={track.id}
+            currentExamId={exam.id}
+            onOpenStudent={(studentId, targetExamId) => {
+              const target = visibleExams.find((item) => item.id === targetExamId)?.tracks[track.id];
+              const found = target ? target.students.findIndex((item) => item.id === studentId) : -1;
+              setExamId(targetExamId);
+              setStudentIndex(found >= 0 ? found : 0);
+              setExpandedSubject(null);
+              setFromTeacher(true);
+              setViewMode('student');
+            }}
+          />
         ) : viewMode === 'teacher' ? (
           <>
           <TeacherClassView
@@ -401,7 +420,7 @@ export default function QualificationApp(props: QualificationAppProps) {
               setViewMode('student');
             }}
           />
-          <TeacherReview track={track} />
+          <TeacherReview track={track} examName={exam.name} />
           </>
         ) : (
           <>
@@ -411,8 +430,6 @@ export default function QualificationApp(props: QualificationAppProps) {
           <p style={{ margin: '5px 0' }}><strong>受験番号:</strong> {student.id}</p>
           <p style={{ margin: '5px 0' }}><strong>氏名:</strong> {student.name}</p>
         </div>
-
-        {history.length > 0 && <StudyGuidance history={history} hideAnswers={hideAnswers} isTeacher={fromTeacher} />}
 
         <CollapsibleSection title="総合成績" initialExpanded>
           <div style={{ background: '#e3f2fd', padding: 15, borderRadius: 8 }}>
@@ -507,10 +524,15 @@ export default function QualificationApp(props: QualificationAppProps) {
 
         {history.length > 0 && (
           <>
+            <StudyGuidance history={history} hideAnswers={hideAnswers} isTeacher={fromTeacher} />
             <WeakAreasPanel history={history} hideAnswers={hideAnswers} />
             {!hideAnswers && (
               <HighRateWrongPanel hits={studentHighRateHits(history)} title="正答率50%以上で誤答した問題" />
             )}
+            <div style={{ marginTop: 20 }}>
+              <StudyCoach hits={hideAnswers ? [] : studentHighRateHits(history)} subjects={track.subjects} hideAnswers={hideAnswers} />
+              <WeeklyPlanTracker history={history} hideAnswers={hideAnswers} storageId={`${student.id}_${exam.id}_${track.id}`} />
+            </div>
           </>
         )}
           </>

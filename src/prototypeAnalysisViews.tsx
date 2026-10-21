@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { buildClassReview, buildGuidance, buildWeakAreas, countBy, wrongHighRate } from './prototypeAnalysis';
+import { buildClassReview, buildGuidance, buildWeakAreas, countBy, RECENT_EXAM_COUNT, wrongHighRate } from './prototypeAnalysis';
 import type { HistoryEntry, QuestionHit } from './prototypeAnalysis';
 
 const card = { marginBottom: 20, padding: 15, borderRadius: 8, border: '1px solid #bbdefb', background: '#f8fbff' } as const;
@@ -108,21 +108,55 @@ export function StudyGuidance({ history, hideAnswers, isTeacher }: {
 }
 
 export function WeakAreasPanel({ history, hideAnswers }: { history: HistoryEntry[]; hideAnswers: boolean }) {
-  const weak = buildWeakAreas(history);
+  const groups = buildWeakAreas(history, hideAnswers);
+  const recent = Math.min(RECENT_EXAM_COUNT, history.length);
+  const hasWeak = groups.length > 0;
+  const border = '1px solid #ffb74d';
+  const th = { padding: 8, border } as const;
+  const td = { padding: 8, border, textAlign: 'center' } as const;
+  const percent = (wrong: number, asked: number) => (asked > 0 ? `${Math.round((wrong / asked) * 100)}%` : '—');
   return (
-    <Panel title={`苦手領域分析（直近${history.length}回の誤答）`} style={{ marginTop: 20 }}>
-      {weak.map((group) => (
-        <div key={group.subject} style={{ marginBottom: 14 }}>
-          <h4 style={{ margin: '0 0 6px', color: '#263238' }}>{group.subject}<span style={{ marginLeft: 8, fontSize: 12, color: '#c62828' }}>誤答 {group.total}問</span></h4>
-          {!hideAnswers && (
-            <ol style={{ margin: 0, paddingLeft: 24 }}>
-              {group.areas.map(([area, count]) => (
-                <li key={area} style={{ padding: '3px 0', color: '#37474f' }}>{area}<span style={{ marginLeft: 8, fontSize: 12, color: '#c62828' }}>{count}回</span></li>
-              ))}
-            </ol>
-          )}
+    <Panel
+      title={`📚 苦手領域分析（全試験累積 / 直近${recent}回）`}
+      color={hasWeak ? '#e65100' : '#2e7d32'}
+      style={{ marginTop: 0, background: hasWeak ? '#fff3e0' : '#e8f5e9', border: hasWeak ? border : '1px solid #a5d6a7' }}
+    >
+      {!hasWeak ? <p style={{ margin: 0, color: '#555' }}>間違えた問題はありません！</p> : (
+        <div>
+          {groups.map((group) => (
+            <div key={group.subject} style={{ marginBottom: 15 }}>
+              <h4 style={{ margin: '0 0 8px', color: '#f57c00', borderBottom: '2px solid #ffb74d', paddingBottom: 4 }}>{group.subject}</h4>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', minWidth: 620, borderCollapse: 'collapse', background: 'white' }}>
+                  <thead>
+                    <tr style={{ background: '#ffe0b2' }}>
+                      <th style={{ ...th, textAlign: 'left' }}>{hideAnswers ? '科目' : '出題領域'}</th>
+                      <th style={{ ...th, textAlign: 'center' }}>全累積 間違い回数</th>
+                      <th style={{ ...th, textAlign: 'center', width: 90 }}>全累積 誤答率</th>
+                      <th style={{ ...th, textAlign: 'center' }}>直近{recent}回 間違い回数</th>
+                      <th style={{ ...th, textAlign: 'center', width: 90 }}>直近{recent}回 誤答率</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {group.areas.map((row) => (
+                      <tr key={row.area}>
+                        <td style={{ padding: 8, border }}>{hideAnswers ? group.subject : row.area}</td>
+                        <td style={{ ...td, fontWeight: 'bold', color: row.wrong >= 3 ? '#c62828' : row.wrong >= 2 ? '#f57c00' : '#555' }}>{row.wrong}回/{row.asked}問</td>
+                        <td style={td}>{percent(row.wrong, row.asked)}</td>
+                        <td style={{ ...td, fontWeight: 'bold' }}>{row.recentWrong}回/{row.recentAsked}問</td>
+                        <td style={td}>{percent(row.recentWrong, row.recentAsked)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ))}
+          <p style={{ margin: '10px 0 0', fontSize: 12, color: '#666', fontStyle: 'italic' }}>
+            ※ 全試験累積と直近{recent}回分を表示しています。
+          </p>
         </div>
-      ))}
+      )}
     </Panel>
   );
 }
@@ -206,8 +240,8 @@ export function studentHighRateHits(history: HistoryEntry[]) {
   return history.flatMap((entry) => wrongHighRate(entry, 50));
 }
 
-export function TeacherReview({ track }: { track: HistoryEntry['track'] }) {
-  const review = buildClassReview(track);
+export function TeacherReview({ track, examName = '' }: { track: HistoryEntry['track']; examName?: string }) {
+  const review = buildClassReview(track, examName);
   const areas = (groups: typeof review.lecture, remedial: boolean) => groups.map((group) => (
     <div key={group.subject} style={{ marginBottom: 14 }}>
       <h4 style={{ margin: '0 0 6px', color: '#263238' }}>{group.subject}</h4>

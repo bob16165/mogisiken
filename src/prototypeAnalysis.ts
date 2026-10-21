@@ -159,22 +159,49 @@ export function buildGuidance(history: HistoryEntry[]) {
   };
 }
 
-export function buildWeakAreas(history: HistoryEntry[]) {
-  const wrong = history.flatMap(({ exam, track, index }) =>
-    track.questions.flatMap((question, i) => (isCorrect(track, index, i) ? [] : [{
-      examName: exam.name,
-      subject: question.subject,
-      area: areaOf(question.standardName),
-    }])));
-  const subjects = [...new Set(wrong.map((item) => item.subject))];
-  return subjects.map((subject) => ({
-    subject,
-    total: wrong.filter((item) => item.subject === subject).length,
-    areas: countBy(wrong.filter((item) => item.subject === subject), (item) => item.area).slice(0, 5),
-  })).sort((a, b) => b.total - a.total);
+export interface WeakAreaRow {
+  area: string;
+  wrong: number;
+  asked: number;
+  recentWrong: number;
+  recentAsked: number;
 }
 
-export function buildClassReview(track: TrackData) {
+export const RECENT_EXAM_COUNT = 3;
+
+// 領域ごとに、全試験累積と直近3回の誤答回数・出題数を集計する。
+export function buildWeakAreas(history: HistoryEntry[], bySubjectOnly = false) {
+  const recentStart = Math.max(0, history.length - RECENT_EXAM_COUNT);
+  const rows = new Map<string, Map<string, WeakAreaRow>>();
+  history.forEach(({ track, index }, position) => {
+    track.questions.forEach((question, i) => {
+      const area = bySubjectOnly ? '' : areaOf(question.standardName);
+      const bySubject = rows.get(question.subject) ?? new Map<string, WeakAreaRow>();
+      const row = bySubject.get(area) ?? { area, wrong: 0, asked: 0, recentWrong: 0, recentAsked: 0 };
+      const wrong = isCorrect(track, index, i) ? 0 : 1;
+      row.asked += 1;
+      row.wrong += wrong;
+      if (position >= recentStart) {
+        row.recentAsked += 1;
+        row.recentWrong += wrong;
+      }
+      bySubject.set(area, row);
+      rows.set(question.subject, bySubject);
+    });
+  });
+  const order = history[history.length - 1]?.track.subjects ?? [];
+  return [...rows.entries()]
+    .map(([subject, areas]) => ({
+      subject,
+      areas: [...areas.values()]
+        .filter((row) => row.wrong > 0)
+        .sort((x, y) => y.wrong - x.wrong || y.wrong / y.asked - x.wrong / x.asked || x.area.localeCompare(y.area, 'ja')),
+    }))
+    .filter((group) => group.areas.length > 0)
+    .sort((x, y) => order.indexOf(x.subject) - order.indexOf(y.subject));
+}
+
+export function buildClassReview(track: TrackData, examName = '') {
   const totals = totalScores(track);
   const n = totals.length;
   const order = totals.map((score, student) => ({ score, student })).sort((a, b) => b.score - a.score);
@@ -225,7 +252,7 @@ export function buildClassReview(track: TrackData) {
 
   const wrongPairs: QuestionHit[] = [];
   track.students.forEach((_s, student) => {
-    wrongHighRate({ exam: { id: '', name: '', tracks: {} }, track, index: student }, 50).forEach((hit) => wrongPairs.push(hit));
+    wrongHighRate({ exam: { id: '', name: examName, tracks: {} }, track, index: student }, 50).forEach((hit) => wrongPairs.push(hit));
   });
 
   return {
