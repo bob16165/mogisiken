@@ -1,3 +1,4 @@
+import { buildListCsv, downloadCsv, downloadStudentPdf, sanitizeFilename } from './exports';
 import { Fragment, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { buildTrackFromFiles, decodeCsvFile, parseCsv } from '../prototypeCsv';
@@ -361,14 +362,27 @@ export default function QualificationApp(props: QualificationAppProps) {
 
         {!isStudent && currentEntry && (
           <div style={styles.examActions}>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 14 }}>
-              <input
-                type="checkbox"
-                checked={currentEntry.server.isPublished}
-                onChange={(event) => runAction(() => onUpdate(currentEntry.server.batchId, { isPublished: event.target.checked }))}
-              />
-              学生に公開する
-            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, minWidth: 280 }}>
+              <strong style={{ fontSize: 14 }}>公開設定</strong>
+              {visibleEntries.map(({ server }) => (
+                <div key={server.batchId} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '6px 10px', background: '#fff', borderRadius: 4 }}>
+                  <span style={{ fontSize: 13 }}>{server.name}</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={server.isPublished}
+                    onClick={() => runAction(() => onUpdate(server.batchId, { isPublished: !server.isPublished }))}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: 'none', background: 'transparent', cursor: 'pointer', padding: 0 }}
+                  >
+                    <span style={{ position: 'relative', width: 40, height: 22, borderRadius: 11, background: server.isPublished ? '#4CAF50' : '#9E9E9E', transition: 'background .2s' }}>
+                      <span style={{ position: 'absolute', top: 2, left: server.isPublished ? 20 : 2, width: 18, height: 18, borderRadius: '50%', background: '#fff', transition: 'left .2s' }} />
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: server.isPublished ? '#2e7d32' : '#616161', minWidth: 36 }}>{server.isPublished ? '公開' : '非公開'}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <DownloadPanel exam={exam} track={track} />
             <button
               type="button"
               style={styles.deleteButton}
@@ -1073,6 +1087,45 @@ interface TeacherSubjectRow {
   scores: number[];
 }
 
+function DownloadPanel({ exam, track }: { exam: ExamData; track: TrackData }) {
+  const [kind, setKind] = useState<'csv' | 'pdf'>('csv');
+  const [target, setTarget] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    if (kind === 'csv') {
+      downloadCsv(buildListCsv(track), `一覧結果_${sanitizeFilename(exam.name)}.csv`);
+      return;
+    }
+    setBusy(true);
+    try {
+      await downloadStudentPdf(exam, track, Math.min(target, track.students.length - 1), Boolean(exam.hideCorrectAnswer));
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'PDFの作成に失敗しました');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <strong style={{ fontSize: 14 }}>ダウンロード</strong>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select value={kind} onChange={(event) => setKind(event.target.value === 'pdf' ? 'pdf' : 'csv')} style={styles.select} aria-label="ダウンロード種別">
+          <option value="csv">一覧結果CSV</option>
+          <option value="pdf">個別結果PDF</option>
+        </select>
+        {kind === 'pdf' && (
+          <select value={target} onChange={(event) => setTarget(Number(event.target.value))} style={styles.select} aria-label="対象学生">
+            {track.students.map((student, index) => (
+              <option key={student.id} value={index}>{student.id} {student.name}</option>
+            ))}
+          </select>
+        )}
+        <button type="button" onClick={run} disabled={busy} style={styles.detailButton}>{busy ? '作成中...' : 'ダウンロード'}</button>
+      </div>
+    </div>
+  );
+}
+
 function TeacherClassView({
   students,
   overallScores,
@@ -1126,6 +1179,14 @@ function TeacherClassView({
   };
   const indicator = (key: string) => sortKey === key ? (sortDirection === 'desc' ? ' ▼' : ' ▲') : '';
   const averageTotalRate = rateStats(overallScores, overallMax).average;
+  const byTotal = students.map((_, index) => index).sort((a, b) => overallScores[b] - overallScores[a]);
+  const lowCount = Math.max(1, Math.ceil(students.length * 0.3));
+  const topCount = Math.ceil(students.length * 0.3);
+  const groupOf = (index: number) => {
+    const position = byTotal.indexOf(index);
+    return position >= students.length - lowCount ? 'low' : position >= topCount ? 'middle' : 'top';
+  };
+  const middleCount = Math.max(0, students.length - lowCount - topCount);
 
   return (
     <section style={styles.teacherPanel}>
@@ -1174,7 +1235,16 @@ function TeacherClassView({
           <tbody>
             {sortedRows.map((row, index) => (
               <tr key={row.student.id} style={{ background: index % 2 === 0 ? '#fff' : '#f9f9f9' }}>
-                <td style={{ ...styles.teacherCell, fontWeight: 700 }}>{index + 1}</td>
+                <td style={{ ...styles.teacherCell, fontWeight: 700 }}>
+                  <div>{index + 1}</div>
+                  {groupOf(row.index) !== 'top' && (
+                    <span
+                      title={groupOf(row.index) === 'low' ? '補習対象' : '中間層'}
+                      aria-label={groupOf(row.index) === 'low' ? '補習対象' : '中間層'}
+                      style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: groupOf(row.index) === 'low' ? '#F44336' : '#9e9e9e' }}
+                    />
+                  )}
+                </td>
                 <td style={styles.teacherCell}>{row.student.id}</td>
                 <td style={{ ...styles.teacherCell, textAlign: 'left' }}>{row.student.name}</td>
                 <td style={{ ...styles.teacherCell, fontWeight: 700, color: '#1976d2' }}>
@@ -1193,6 +1263,12 @@ function TeacherClassView({
             ))}
           </tbody>
         </table>
+      </div>
+      <div style={{ margin: '12px 0', padding: '10px 14px', background: '#f5f7fa', borderRadius: 6, fontSize: 13, lineHeight: 1.8 }}>
+        <strong>順位欄の見方</strong>
+        <div>印なし：上位30%（{topCount}名）</div>
+        <div><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#9e9e9e', marginRight: 6 }} />中間層（{middleCount}名）</div>
+        <div><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#F44336', marginRight: 6 }} />下位30%・補習対象（{lowCount}名）</div>
       </div>
       <p style={styles.teacherFootnote}>列見出しを選ぶと、その項目の順に並べ替えできます。詳細から学生側の結果画面を確認できます。</p>
     </section>
