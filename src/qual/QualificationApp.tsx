@@ -464,7 +464,7 @@ export default function QualificationApp(props: QualificationAppProps) {
             students={STUDENTS}
             overallScores={overallScores}
             overallMax={overallMax}
-            qualifications={qualificationRows}
+            qualifications={track.id === 'massage' ? [] : qualificationRows}
             subjects={subjectRows.map(({ subject, max, scores }) => ({ name: subject.name, max, scores }))}
             onSelectStudent={(index) => {
               setStudentIndex(index);
@@ -503,31 +503,22 @@ export default function QualificationApp(props: QualificationAppProps) {
               average={overallRate.average}
             />
           </div>
-          {track.rules.map((rule) => {
+          {track.id === 'massage' ? (
+            <div style={{ marginTop: 12, fontSize: 13, color: '#555' }}>合格ライン {passLineOf(overallMax)}問（{overallScore >= passLineOf(overallMax) ? '到達' : `あと ${passLineOf(overallMax) - overallScore} 問`}）</div>
+          ) : track.rules.map((rule) => {
             const counted = (question: { subject: string }) => question.subject !== rule.excludedSubject;
             const max = maxOf(track, counted);
-            const scores = allStudentScores(track, counted);
-            const score = scores[activeIndex];
+            const score = allStudentScores(track, counted)[activeIndex];
             const passLine = passLineOf(max);
             const passed = score >= passLine;
-            const { average, stdDev } = rateStats(scores, max);
             return (
-              <div key={rule.qualification} style={{ marginTop: 20 }}>
-                <h4 style={{ margin: '0 0 10px 0', fontSize: 14 }}>
-                  {rule.label} 合計 {score}/{max}（合格ライン {passLine}問）
-                  <span style={{ ...styles.badge, ...(passed ? styles.badgePass : styles.badgeFail), marginLeft: 8 }}>
-                    {passed ? '合格ライン到達' : `あと ${passLine - score} 問`}
-                  </span>
-                </h4>
-                <BarChart scoreRate={scoreRate(score, max)} averageRate={average} stdDeviation={stdDev} />
-                <StatGrid
-                  rate={scoreRate(score, max)}
-                  rankText={`${rank(score, scores)}位`}
-                  dev={deviation(score, scores)}
-                  average={average}
-                />
+              <div key={rule.qualification} style={{ marginTop: 14, background: '#f5f5f5', padding: '10px 15px', borderRadius: 8 }}>
+                <strong>{rule.label} 合計:</strong> {score}/{max}（合格ライン {passLine}問）
+                <span style={{ ...styles.badge, ...(passed ? styles.badgePass : styles.badgeFail), marginLeft: 8 }}>
+                  {passed ? '合格ライン到達' : `あと ${passLine - score} 問`}
+                </span>
                 {rule.excludedSubject && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: '#666' }}>※ {rule.excludedSubject}を除く</div>
+                  <span style={{ marginLeft: 8, fontSize: 12, color: '#666' }}>※ {rule.excludedSubject}を除く</span>
                 )}
               </div>
             );

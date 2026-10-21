@@ -35,7 +35,7 @@ export function downloadCsv(rows: (string | number)[][], filename: string) {
 // 柔整版の一覧結果CSVと同じ並び（順位・学籍番号・氏名・総合点・資格別合計・科目別点）。
 export function buildListCsv(track: TrackData): (string | number)[][] {
   const total = allStudentScores(track, () => true);
-  const rules = track.rules.map((rule) => ({
+  const rules = (track.id === 'massage' ? [] : track.rules).map((rule) => ({
     rule,
     scores: allStudentScores(track, (question) => question.subject !== rule.excludedSubject),
   }));
@@ -143,7 +143,7 @@ function buildCover(track: TrackData, index: number, examName: string) {
     ['得点率', `${total.rate}%`],
     ['順位', `${total.rank}位 / ${track.students.length}名`],
     ['クラス平均', `${Math.round(total.averageRate * 10) / 10}%`],
-    ...ruleStats.map(({ rule, stats }): [string, string] => [`${rule.label}合計`, `${stats.score}/${stats.max} (${stats.rate}%)`]),
+    ...ruleStats.filter(() => track.id !== 'massage').map(({ rule, stats }): [string, string] => [`${rule.label}合計`, `${stats.score}/${stats.max} (${stats.rate}%)`]),
   ];
   const totals = el('div', { display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', marginBottom: '14px' });
   cards.forEach(([label, value]) => {
@@ -159,7 +159,6 @@ function buildCover(track: TrackData, index: number, examName: string) {
     const filter = (question: { subject: string }) => question.subject === subject;
     grid.appendChild(scoreItem(subject, statsOf(allStudentScores(track, filter), maxOf(track, filter), index)));
   });
-  ruleStats.forEach(({ rule, stats }) => grid.appendChild(scoreItem(`${rule.label}合計`, stats)));
   cover.appendChild(grid);
   return cover;
 }
