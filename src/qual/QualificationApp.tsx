@@ -198,8 +198,9 @@ export default function QualificationApp(props: QualificationAppProps) {
     <header style={styles.header}>
       <div style={{ ...styles.headerInner, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <h1 style={styles.title}>模擬試験結果閲覧システム</h1>
-          <p style={styles.subtitle}>{group.name} / {props.userName}</p>
+          <h1 style={styles.title}>模擬試験分析システム</h1>
+          {!isStudent && <p style={styles.subtitle}>教員モード: {props.userName}</p>}
+          {exam && <p style={styles.subtitle}>📋 {exam.name}</p>}
         </div>
         <button type="button" onClick={onLogout} style={styles.logoutButton}>ログアウト</button>
       </div>
@@ -1359,11 +1360,11 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#1c2733',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
-  header: { background: '#123b55', color: '#fff', padding: '28px 24px' },
+  header: { background: '#1976d2', color: '#fff', padding: 20, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' },
   headerInner: { width: 'min(100%, 1040px)', margin: '0 auto' },
   eyebrow: { margin: '0 0 8px', fontSize: 11, letterSpacing: 2, opacity: 0.75 },
-  title: { margin: 0, fontSize: 27, lineHeight: 1.3 },
-  subtitle: { margin: '9px 0 0', color: '#dceaf2', fontSize: 14 },
+  title: { margin: 0, fontSize: '2em' },
+  subtitle: { margin: '5px 0 0', fontSize: 14, opacity: 0.9 },
   content: { width: 'min(calc(100% - 32px), 1040px)', margin: '22px auto 48px' },
   notice: {
     marginBottom: 15,
