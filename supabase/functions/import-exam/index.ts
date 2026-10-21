@@ -80,8 +80,29 @@ Deno.serve(async (request) => {
     if (!schoolId) throw new Error('学校が指定されていません');
     if (!body.examName || !Array.isArray(students) || students.length === 0) throw new Error('試験データが不正です');
 
+    // 柔整（既定）は従来どおり。鍼灸・あん摩は学校の学科グループで許可された資格のみ登録できる。
+    const qualification = String(body.qualification || 'judo');
+    if (!['judo', 'acupuncture', 'massage'].includes(qualification)) throw new Error('資格の指定が不正です');
+    if (qualification !== 'judo') {
+      const { data: school, error: schoolError } = await adminClient
+        .from('schools')
+        .select('qualification_group')
+        .eq('id', schoolId)
+        .single();
+      if (schoolError || !school) throw new Error('学校の資格設定を取得できません');
+      const allowed: Record<string, string[]> = {
+        judo: ['judo'],
+        acupuncture: ['acupuncture'],
+        acupuncture_massage: ['acupuncture', 'massage']
+      };
+      if (!(allowed[school.qualification_group] || []).includes(qualification)) {
+        throw new Error('この学校では選択した資格の試験を登録できません');
+      }
+    }
+
     const { data: exam, error: examError } = await adminClient.from('exams').insert({
       school_id: schoolId,
+      ...(qualification === 'judo' ? {} : { qualification }),
       created_by: operator.id,
       exam_name: String(body.examName).trim(),
       question_layout: Array.isArray(body.questionLayout) ? body.questionLayout : [],
