@@ -1,6 +1,7 @@
 import { createRoot } from 'react-dom/client';
 import type { Root } from 'react-dom/client';
 import QualificationApp from './QualificationApp';
+import ParentView from './ParentView';
 import type { QualificationAppProps } from './QualificationApp';
 
 const roots = new WeakMap<Element, Root>();
@@ -12,7 +13,7 @@ function mountQualificationApp(container: Element, props: QualificationAppProps)
     root = createRoot(container);
     roots.set(container, root);
   }
-  root.render(<QualificationApp {...props} />);
+  root.render(props.role === 'parent' ? <ParentView exams={props.exams} onLogout={props.onLogout} /> : <QualificationApp {...props} />);
 }
 
 function unmountQualificationApp(container: Element) {

@@ -10,6 +10,13 @@ const GROUP_QUALIFICATIONS: Record<string, string[]> = {
 };
 const MAX_QUESTIONS = 250;
 const MAX_STUDENTS = 600;
+const RULES: Record<string, { label: string; excludedSubject: string }[]> = {
+  acupuncture: [
+    { label: 'はり師', excludedSubject: 'きゅう理論' },
+    { label: 'きゅう師', excludedSubject: 'はり理論' }
+  ],
+  massage: []
+};
 
 type TrackData = {
   questions: { section: string; no: number; subject: string; standardNo: number | null; standardName: string; key: number; accepted?: number[]; fullCredit?: boolean }[];
@@ -20,6 +27,24 @@ type TrackData = {
   overrides?: Record<string, { mode: string; answers?: number[] }>;
   regrade?: { questions: TrackData['questions']; overrides: NonNullable<TrackData['overrides']> };
 };
+
+const isRightPick = (question: TrackData['questions'][number], pick: number) =>
+  Boolean(question.fullCredit) || pick === question.key || Boolean(question.accepted?.includes(pick));
+
+// 保護者には問題単位の詳細(設問・正答)を返さず、全員分の点数だけを返す。氏名・学籍番号も含めない。
+function buildParentSummary(qualification: string, track: TrackData, ownIndex: number) {
+  const scoresFor = (filter: (question: TrackData['questions'][number]) => boolean) => ({
+    max: track.questions.filter(filter).length,
+    scores: track.picks.map((row) => track.questions.reduce((total, question, index) => total + (filter(question) && isRightPick(question, row[index]) ? 1 : 0), 0))
+  });
+  return {
+    ownIndex,
+    studentCount: track.students.length,
+    overall: scoresFor(() => true),
+    subjects: track.subjects.map((name) => ({ name, ...scoresFor((question) => question.subject === name) })),
+    rules: (RULES[qualification] || []).map((rule) => ({ label: rule.label, ...scoresFor((question) => question.subject !== rule.excludedSubject) }))
+  };
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -152,7 +177,7 @@ Deno.serve(async (request) => {
       .eq('id', authData.user.id)
       .single();
     if (operatorError || !operator) throw new Error('利用者情報が見つかりません');
-    if (!['teacher', 'admin', 'student'].includes(operator.role)) throw new Error('この操作は利用できません');
+    if (!['teacher', 'admin', 'student', 'parent'].includes(operator.role)) throw new Error('この操作は利用できません');
     const isTeacherLike = operator.role === 'teacher' || operator.role === 'admin';
     if (operator.role === 'admin') {
       const { data: claimsData, error: claimsError } = await adminClient.auth.getClaims(token);
@@ -200,8 +225,10 @@ Deno.serve(async (request) => {
           ownIndex = track.students.findIndex((student) => student.id === operator.student_id);
           if (ownIndex < 0) continue;
         }
-        let visible: TrackData;
-        if (isTeacherLike) {
+        let visible: TrackData | Record<string, unknown>;
+        if (operator.role === 'parent') {
+          visible = { parentSummary: { ...buildParentSummary(row.qualification, track, ownIndex), studentId: track.students[ownIndex].id, studentName: names.get(track.students[ownIndex].id) || track.students[ownIndex].name || '' } };
+        } else if (isTeacherLike) {
           visible = {
             ...track,
             students: track.students.map((student) => ({ id: student.id, name: names.get(student.id) || student.name || '' })),

@@ -27,12 +27,24 @@ import {
   SUBJECTS_MASSAGE,
 } from '../qualMaster';
 
+export interface ParentScoreSet { max: number; scores: number[] }
+export interface ParentSummary {
+  ownIndex: number;
+  studentId: string;
+  studentName: string;
+  studentCount: number;
+  overall: ParentScoreSet;
+  subjects: (ParentScoreSet & { name: string })[];
+  rules: (ParentScoreSet & { label: string })[];
+}
+
 export interface ServerTrack {
   questions: TrackData['questions'];
   subjects: string[];
   students: TrackData['students'];
   picks: number[][];
   displayPicks?: number[];
+  parentSummary?: ParentSummary;
   regrade?: { questions: TrackData['questions']; overrides: RegradeOverrides };
 }
 
@@ -57,7 +69,7 @@ export interface SchoolOption {
 }
 
 export interface QualificationAppProps {
-  role: 'student' | 'teacher' | 'admin';
+  role: 'student' | 'teacher' | 'admin' | 'parent';
   userName: string;
   studentId: string;
   groupId: 'acupuncture' | 'acupuncture_massage';
@@ -145,11 +157,11 @@ function defaultRangesFor(type: Exclude<RegistrationType, 'both'>): QuestionRang
 
 const BUILT_IN_STANDARD_NAMES = new Map<string, string>(STANDARD_NAMES);
 
-function scoreRate(score: number, maxScore: number) {
+export function scoreRate(score: number, maxScore: number) {
   return maxScore > 0 ? Math.round((score / maxScore) * 1000) / 10 : 0;
 }
 
-function deviation(score: number, scores: number[]) {
+export function deviation(score: number, scores: number[]) {
   const average = scores.reduce((sum, value) => sum + value, 0) / scores.length;
   const variance = scores.reduce((sum, value) => sum + (value - average) ** 2, 0) / scores.length;
   const standardDeviation = Math.sqrt(variance);
@@ -158,14 +170,14 @@ function deviation(score: number, scores: number[]) {
     : Math.round((((score - average) / standardDeviation) * 10 + 50) * 10) / 10;
 }
 
-function rateStats(scores: number[], max: number) {
+export function rateStats(scores: number[], max: number) {
   const rates = scores.map((value) => (max > 0 ? (value / max) * 100 : 0));
   const average = rates.reduce((sum, value) => sum + value, 0) / rates.length;
   const variance = rates.reduce((sum, value) => sum + (value - average) ** 2, 0) / rates.length;
   return { average, stdDev: Math.sqrt(variance) };
 }
 
-function rank(score: number, scores: number[]) {
+export function rank(score: number, scores: number[]) {
   return [...scores].sort((left, right) => right - left).findIndex((value) => value === score) + 1;
 }
 
@@ -1322,7 +1334,7 @@ function CollapsibleSection({ title, children, initialExpanded = false }: { titl
   );
 }
 
-function BarChart({ scoreRate: rate, averageRate, stdDeviation }: { scoreRate: number; averageRate: number; stdDeviation: number }) {
+export function BarChart({ scoreRate: rate, averageRate, stdDeviation }: { scoreRate: number; averageRate: number; stdDeviation: number }) {
   const dRate = Math.max(0, averageRate - stdDeviation);
   const aRate = Math.min(100, averageRate + stdDeviation);
   const marker = (left: number, color: string, text: string, z: number, offset: number) => (

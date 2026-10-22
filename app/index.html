@@ -6418,7 +6418,7 @@
             if (!qualificationBundlePromise) {
                 qualificationBundlePromise = new Promise((resolve, reject) => {
                     const script = document.createElement('script');
-                    script.src = './qual/qualification-app.js?v=9';
+                    script.src = './qual/qualification-app.js?v=10';
                     script.onload = resolve;
                     script.onerror = () => {
                         qualificationBundlePromise = null;
@@ -7298,7 +7298,7 @@
             const activeQualificationGroup = loggedInUser.role === 'admin'
                 ? schools.find(school => school.id === selectedSchoolId)?.qualification_group
                 : qualificationGroup;
-            if (!loggedInUser.isParent && ['acupuncture', 'acupuncture_massage'].includes(activeQualificationGroup)) {
+            if (['acupuncture', 'acupuncture_massage'].includes(activeQualificationGroup)) {
                 return <QualificationHost
                     user={loggedInUser}
                     groupId={activeQualificationGroup}
