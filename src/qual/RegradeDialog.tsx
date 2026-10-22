@@ -29,7 +29,7 @@ export function RegradeDialog({ examName, tracks, onClose, onApply }: {
   const [answers, setAnswers] = useState<Record<string, string>>(() => Object.fromEntries(
     tracks.flatMap((track) => track.questions.map((question) => {
       const override = track.overrides[keyOf(question)];
-      return [`${track.trackId}:${keyOf(question)}`, override?.mode === 'accepted_answers' ? (override.answers ?? []).join(',') : String(question.key)];
+      return [`${track.trackId}:${keyOf(question)}`, override?.mode === 'accepted_answers' ? (override.answers ?? []).join('\n') : String(question.key)];
     })),
   ));
   const [activeTrack, setActiveTrack] = useState<TrackId>(tracks[0].trackId);
@@ -48,9 +48,9 @@ export function RegradeDialog({ examName, tracks, onClose, onApply }: {
         const mode = modes[id] ?? 'normal';
         if (mode === 'normal') continue;
         if (mode === 'accepted_answers') {
-          const values = (answers[id] ?? '').split(/[,\s、]+/).filter(Boolean).map(Number);
+          const values = (answers[id] ?? '').split('\n').map((value) => value.trim()).filter(Boolean).map(Number);
           if (values.length === 0 || values.some((value) => !Number.isInteger(value) || value < 1 || value > 4)) {
-            setError(`${TRACK_LABELS[track.trackId]} ${question.subject} ${keyOf(question)} の正答候補は1〜4をカンマ区切りで入力してください`);
+            setError(`${TRACK_LABELS[track.trackId]} ${question.subject} ${keyOf(question)} の正答候補は1〜4の数字を1行に1つずつ入力してください`);
             return;
           }
           overrides[keyOf(question)] = { mode, answers: values };
@@ -94,7 +94,7 @@ export function RegradeDialog({ examName, tracks, onClose, onApply }: {
                   <th style={{ padding: 10 }}>科目・設問</th>
                   <th style={{ padding: 10 }}>現在の模範解答</th>
                   <th style={{ padding: 10, minWidth: 180 }}>採点方法</th>
-                  <th style={{ padding: 10 }}>正答候補（複数はカンマ区切り）</th>
+                  <th style={{ padding: 10 }}>正答候補（複数は改行）</th>
                 </tr>
               </thead>
               <tbody>
@@ -114,7 +114,7 @@ export function RegradeDialog({ examName, tracks, onClose, onApply }: {
                       </td>
                       <td style={{ padding: '8px 10px' }}>
                         {modes[id] === 'accepted_answers' && (
-                          <input value={answers[id] ?? ''} onChange={(event) => setAnswers((previous) => ({ ...previous, [id]: event.target.value }))} style={{ width: '100%', minWidth: 120, boxSizing: 'border-box', padding: 7 }} />
+                          <textarea value={answers[id] ?? ''} rows={2} onChange={(event) => setAnswers((previous) => ({ ...previous, [id]: event.target.value }))} style={{ width: '100%', minWidth: 120, boxSizing: 'border-box', padding: 7 }} />
                         )}
                       </td>
                     </tr>
