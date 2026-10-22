@@ -1,3 +1,4 @@
+import { correctLabel, isRight } from './qualCore';
 import type { ExamData, TrackData } from './qualCore';
 
 export interface HistoryEntry {
@@ -13,14 +14,14 @@ export interface QuestionHit {
   area: string;
   correctRate: number;
   userAnswer: number;
-  correctAnswer: number;
+  correctAnswer: number | string;
   wrongCount?: number;
 }
 
 const areaOf = (standardName: string) => standardName || '領域未設定';
 
 export function isCorrect(track: TrackData, student: number, question: number) {
-  return track.picks[student][question] === track.questions[question].key;
+  return isRight(track.questions[question], track.picks[student][question]);
 }
 
 export function totalScores(track: TrackData) {
@@ -85,7 +86,7 @@ export function wrongHighRate(entry: HistoryEntry, threshold: number): QuestionH
       area: areaOf(question.standardName),
       correctRate: rates[i],
       userAnswer: track.picks[index][i],
-      correctAnswer: question.key,
+      correctAnswer: correctLabel(question),
     }];
   });
 }

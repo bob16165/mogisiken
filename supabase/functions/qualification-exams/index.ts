@@ -12,7 +12,7 @@ const MAX_QUESTIONS = 250;
 const MAX_STUDENTS = 600;
 
 type TrackData = {
-  questions: { section: string; no: number; subject: string; standardNo: number | null; standardName: string; key: number }[];
+  questions: { section: string; no: number; subject: string; standardNo: number | null; standardName: string; key: number; accepted?: number[]; fullCredit?: boolean }[];
   subjects: string[];
   students: { id: string; name: string }[];
   picks: number[][];
@@ -78,7 +78,7 @@ function validateTrack(value: any): TrackData {
 
 const overrideKey = (question: { section: string; no: number }) => `${question.section}${question.no}`;
 
-// 採点訂正: 採点除外は問題ごと取り除き、全員加点・正答候補の追加は解答を模範解答に置き換えて再集計する。
+// 採点訂正: 採点除外は問題ごと取り除く。全員加点・正答候補の追加は問題に印を付け、学生の解答は書き換えない。
 function applyOverrides(track: TrackData): TrackData {
   const overrides = track.overrides || {};
   if (Object.keys(overrides).length === 0) return track;
@@ -86,15 +86,16 @@ function applyOverrides(track: TrackData): TrackData {
   track.questions.forEach((question, index) => {
     if (overrides[overrideKey(question)]?.mode !== 'excluded') keep.push(index);
   });
-  const questions = keep.map((index) => track.questions[index]);
-  const picks = track.picks.map((row) => keep.map((index) => {
+  const questions = keep.map((index) => {
     const question = track.questions[index];
     const override = overrides[overrideKey(question)];
-    if (override?.mode === 'full_credit') return question.key;
-    if (override?.mode === 'accepted_answers' && (override.answers || []).includes(row[index])) return question.key;
-    return row[index];
-  }));
-  return { ...track, questions, picks, subjects: [...new Set(questions.map((question) => question.subject))] };
+    if (override?.mode === 'full_credit') return { ...question, fullCredit: true };
+    if (override?.mode === 'accepted_answers') return { ...question, accepted: override.answers || [question.key] };
+    return question;
+  });
+  const picks = track.picks.map((row) => keep.map((index) => row[index]));
+  const displayPicks = track.displayPicks ? keep.map((index) => track.displayPicks![index]) : undefined;
+  return { ...track, questions, picks, displayPicks, subjects: [...new Set(questions.map((question) => question.subject))] };
 }
 
 function cleanOverrides(value: any): NonNullable<TrackData['overrides']> {
@@ -126,7 +127,11 @@ function obfuscate(track: TrackData, ownIndex: number): TrackData {
   });
   return {
     ...track,
-    questions: track.questions.map((question, index) => ({ ...question, key: perms[index][question.key] })),
+    questions: track.questions.map((question, index) => ({
+      ...question,
+      key: perms[index][question.key],
+      accepted: question.accepted?.map((answer) => perms[index][answer])
+    })),
     picks: track.picks.map((row) => row.map((pick, index) => perms[index][pick] ?? 0)),
     displayPicks: ownIndex >= 0 ? track.picks[ownIndex] : undefined
   };

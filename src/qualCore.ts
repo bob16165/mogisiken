@@ -27,6 +27,9 @@ export interface TrackQuestion {
   standardNo: number | null;
   standardName: string;
   key: number;
+  // 採点訂正: 正答候補を追加した問題(正答を含む)、または全員加点の問題
+  accepted?: number[];
+  fullCredit?: boolean;
 }
 
 export interface TrackData {
@@ -58,6 +61,14 @@ export const TRACK_RULES: Record<TrackId, QualificationRule[]> = {
   massage: [{ qualification: 'massage', label: 'あん摩マッサージ指圧師', excludedSubject: '' }],
 };
 
+export function isRight(question: TrackQuestion, pick: number) {
+  return Boolean(question.fullCredit) || pick === question.key || Boolean(question.accepted?.includes(pick));
+}
+
+export function correctLabel(question: TrackQuestion) {
+  return question.accepted && question.accepted.length > 0 ? question.accepted.join('/') : String(question.key);
+}
+
 type QuestionFilter = (question: TrackQuestion) => boolean;
 
 export function maxOf(track: TrackData, filter: QuestionFilter) {
@@ -67,7 +78,7 @@ export function maxOf(track: TrackData, filter: QuestionFilter) {
 export function scoreOf(track: TrackData, studentIndex: number, filter: QuestionFilter) {
   return track.questions.reduce(
     (total, question, index) =>
-      total + (filter(question) && track.picks[studentIndex][index] === question.key ? 1 : 0),
+      total + (filter(question) && isRight(question, track.picks[studentIndex][index]) ? 1 : 0),
     0,
   );
 }
@@ -83,7 +94,7 @@ export function passLineOf(maxScore: number) {
 export interface QuestionDetailRow {
   label: string;
   userAnswer: number;
-  correctAnswer: number;
+  correctAnswer: number | string;
   isCorrect: boolean;
   correctRate: number;
   source: string;
@@ -92,12 +103,12 @@ export interface QuestionDetailRow {
 export function questionDetails(track: TrackData, studentIndex: number, subjectName: string): QuestionDetailRow[] {
   return track.questions.flatMap((question, index) => {
     if (question.subject !== subjectName) return [];
-    const correctCount = track.picks.filter((row) => row[index] === question.key).length;
+    const correctCount = track.picks.filter((row) => isRight(question, row[index])).length;
     return [{
       label: `${question.section}${question.no}`,
       userAnswer: (track.displayPicks ?? track.picks[studentIndex])[index],
-      correctAnswer: question.key,
-      isCorrect: track.picks[studentIndex][index] === question.key,
+      correctAnswer: correctLabel(question),
+      isCorrect: isRight(question, track.picks[studentIndex][index]),
       correctRate: Math.round((correctCount / track.students.length) * 1000) / 10,
       source: question.standardNo === null ? '基準なし' : question.standardName,
     }];
