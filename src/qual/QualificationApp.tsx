@@ -1,3 +1,5 @@
+import { ExamCountdown } from './ExamCountdown';
+import type { AcademicInfo, QualScheduleMap } from './ExamCountdown';
 import { buildListCsv, downloadCsv, downloadStudentPdf, sanitizeFilename } from './exports';
 import { Fragment, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
@@ -70,6 +72,9 @@ export interface SchoolOption {
 
 export interface QualificationAppProps {
   role: 'student' | 'teacher' | 'admin' | 'parent';
+  academicInfo?: AcademicInfo | null;
+  nationalExamSchedule?: QualScheduleMap | null;
+  scheduleLoadError?: boolean;
   userName: string;
   studentId: string;
   groupId: 'acupuncture' | 'acupuncture_massage';
@@ -490,6 +495,11 @@ export default function QualificationApp(props: QualificationAppProps) {
         ) : (
           <>
         <h2 style={{ textAlign: 'center', color: '#333', margin: '24px 0 20px' }}>試験結果</h2>
+        {role === 'student' && (
+          <div style={{ marginBottom: 20, marginTop: -8 }}>
+            <ExamCountdown exams={exams} info={props.academicInfo} schedule={props.nationalExamSchedule} loadError={!!props.scheduleLoadError} />
+          </div>
+        )}
         <div style={{ background: '#f5f5f5', padding: 15, borderRadius: 8, marginBottom: 20 }}>
           <h3 style={{ margin: '0 0 10px 0' }}>学生情報</h3>
           <p style={{ margin: '5px 0' }}><strong>受験番号:</strong> {student.id}</p>

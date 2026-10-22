@@ -13,6 +13,10 @@ export default defineConfig({
           resolve(__dirname, 'app/national-exam-date.json'),
           resolve(__dirname, 'dist/app/national-exam-date.json'),
         )
+        copyFileSync(
+          resolve(__dirname, 'app/national-exam-date-qual.json'),
+          resolve(__dirname, 'dist/app/national-exam-date-qual.json'),
+        )
       },
     },
   ],

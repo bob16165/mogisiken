@@ -3,6 +3,8 @@ import { BarChart, deviation, rateStats, rank, scoreRate } from './Qualification
 import type { ParentScoreSet, ParentSummary, ServerExam } from './QualificationApp';
 import { passLineOf, TRACK_LABELS } from '../qualCore';
 import type { TrackId } from '../qualCore';
+import { nationalExamNote, OfficialLinks } from './ExamCountdown';
+import type { AcademicInfo, QualScheduleMap } from './ExamCountdown';
 
 interface ScoreLine {
   name: string;
@@ -95,7 +97,7 @@ function buildGuidance(summary: ParentSummary, previous: ParentSummary | undefin
   return { total, subjects, judged, improved, needsEffort, hasPrevious: Boolean(previous), paragraphs };
 }
 
-export default function ParentView({ exams, onLogout }: { exams: ServerExam[]; onLogout: () => void }) {
+export default function ParentView({ exams, onLogout, academicInfo, schedule }: { exams: ServerExam[]; onLogout: () => void; academicInfo?: AcademicInfo | null; schedule?: QualScheduleMap | null }) {
   const trackIds = (['acupuncture', 'massage'] as TrackId[]).filter((id) => exams.some((exam) => summaryOf(exam, id)));
   const [trackId, setTrackId] = useState<TrackId | ''>('');
   const activeTrack = (trackId && trackIds.includes(trackId) ? trackId : trackIds[0]) as TrackId | undefined;
@@ -105,6 +107,8 @@ export default function ParentView({ exams, onLogout }: { exams: ServerExam[]; o
   const currentExam = childExams[safeIndex];
   const summary = activeTrack ? summaryOf(currentExam, activeTrack) : undefined;
   const previous = activeTrack && safeIndex > 0 ? summaryOf(childExams[safeIndex - 1], activeTrack) : undefined;
+
+  const examNotes = nationalExamNote(exams, academicInfo, schedule);
 
   const header = (
     <div style={{ background: '#2e7d32', color: 'white', padding: 20, boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
@@ -255,6 +259,12 @@ export default function ParentView({ exams, onLogout }: { exams: ServerExam[]; o
           {guidance.paragraphs.map((text, index) => (
             <p key={index} style={{ margin: '0 0 12px 0', lineHeight: 1.8, fontSize: 15, color: '#333' }}>{text}</p>
           ))}
+          {examNotes && examNotes.length > 0 && (
+            <p style={{ margin: '0 0 12px 0', lineHeight: 1.8, fontSize: 15, color: '#333' }}>
+              現在は国家試験の受験学年です。厚生労働省の発表では、{examNotes.join('、')}。
+            </p>
+          )}
+          {examNotes && <OfficialLinks exams={exams} />}
         </div>
       </div>
     </div>

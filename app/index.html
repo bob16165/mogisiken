@@ -6418,7 +6418,7 @@
             if (!qualificationBundlePromise) {
                 qualificationBundlePromise = new Promise((resolve, reject) => {
                     const script = document.createElement('script');
-                    script.src = './qual/qualification-app.js?v=10';
+                    script.src = './qual/qualification-app.js?v=11';
                     script.onload = resolve;
                     script.onerror = () => {
                         qualificationBundlePromise = null;
@@ -6439,13 +6439,15 @@
             return data;
         }
 
-        function QualificationHost({ user, groupId, schools, selectedSchoolId, onSchoolChange, onLogout, studentCount, onStudentMasterUpload }) {
+        function QualificationHost({ user, groupId, schools, selectedSchoolId, onSchoolChange, onLogout, studentCount, onStudentMasterUpload, academicInfo }) {
             const containerRef = useRef(null);
             const [exams, setExams] = useState([]);
             const [loading, setLoading] = useState(true);
             const [loadError, setLoadError] = useState('');
             const [bundleReady, setBundleReady] = useState(!!window.mountQualificationApp);
             const [showPasswordChange, setShowPasswordChange] = useState(false);
+            const [qualSchedule, setQualSchedule] = useState(null);
+            const [qualScheduleError, setQualScheduleError] = useState(false);
             const schoolId = user.role === 'admin' ? selectedSchoolId : user.schoolId;
 
             const reload = async () => {
@@ -6467,6 +6469,16 @@
             }, [schoolId]);
 
             useEffect(() => {
+                fetch('./national-exam-date-qual.json', { cache: 'no-store' })
+                    .then(response => {
+                        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                        return response.json();
+                    })
+                    .then(setQualSchedule)
+                    .catch(() => setQualScheduleError(true));
+            }, []);
+
+            useEffect(() => {
                 loadQualificationBundle().then(() => setBundleReady(true)).catch(error => setLoadError(error.message));
             }, []);
 
@@ -6475,6 +6487,9 @@
                 if (!bundleReady || !container) return undefined;
                 window.mountQualificationApp(container, {
                     role: user.role,
+                    academicInfo,
+                    nationalExamSchedule: qualSchedule,
+                    scheduleLoadError: qualScheduleError,
                     userName: user.name || '',
                     studentId: user.studentId || '',
                     groupId,
@@ -7307,6 +7322,7 @@
                     onSchoolChange={(schoolId) => { setSelectedSchoolId(schoolId); setSelectedGrade(''); setSelectedExamIndex(0); }}
                     studentCount={loggedInUser.role === 'admin' ? (studentCounts?.[selectedSchoolId] || 0) : (studentCounts?.__currentSchool || 0)}
                     onStudentMasterUpload={handleStudentMasterUpload}
+                    academicInfo={studentAcademicInfo}
                     onLogout={async () => {
                         await supabase.auth.signOut();
                         setLoggedInUser(null);

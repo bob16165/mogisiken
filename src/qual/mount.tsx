@@ -13,7 +13,7 @@ function mountQualificationApp(container: Element, props: QualificationAppProps)
     root = createRoot(container);
     roots.set(container, root);
   }
-  root.render(props.role === 'parent' ? <ParentView exams={props.exams} onLogout={props.onLogout} /> : <QualificationApp {...props} />);
+  root.render(props.role === 'parent' ? <ParentView exams={props.exams} onLogout={props.onLogout} academicInfo={props.academicInfo} schedule={props.nationalExamSchedule} /> : <QualificationApp {...props} />);
 }
 
 function unmountQualificationApp(container: Element) {

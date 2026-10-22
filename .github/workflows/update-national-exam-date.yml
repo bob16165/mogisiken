@@ -18,9 +18,11 @@ jobs:
           node-version: 20
       - name: Read official schedule
         run: node scripts/update-national-exam-date.mjs
+      - name: Read official schedule (acupuncture and massage)
+        run: node scripts/update-national-exam-date-qual.mjs
       - name: Commit schedule when changed
         run: |
-          git add app/national-exam-date.json
+          git add app/national-exam-date.json app/national-exam-date-qual.json
           if git diff --cached --quiet; then
             echo "No schedule changes."
             exit 0

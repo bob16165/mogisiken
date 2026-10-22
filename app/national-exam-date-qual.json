@@ -1,0 +1,23 @@
+{
+  "harishi": {
+    "label": "はり師",
+    "examNumber": 35,
+    "examDate": "2027-02-28",
+    "announcedAt": "2026-09-01",
+    "sourceUrl": "https://www.mhlw.go.jp/kouseiroudoushou/shikaku_shiken/harishi/"
+  },
+  "kyushi": {
+    "label": "きゅう師",
+    "examNumber": 35,
+    "examDate": "2027-02-28",
+    "announcedAt": "2026-09-01",
+    "sourceUrl": "https://www.mhlw.go.jp/kouseiroudoushou/shikaku_shiken/kyushi/"
+  },
+  "anma": {
+    "label": "あん摩マッサージ指圧師",
+    "examNumber": 35,
+    "examDate": "2027-02-27",
+    "announcedAt": "2026-09-01",
+    "sourceUrl": "https://www.mhlw.go.jp/kouseiroudoushou/shikaku_shiken/anma/"
+  }
+}
