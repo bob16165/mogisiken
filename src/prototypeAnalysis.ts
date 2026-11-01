@@ -210,7 +210,6 @@ export function buildClassReview(track: TrackData, examName = '') {
   const highCount = Math.ceil(n * 0.3);
   const lower = order.slice(n - lowCount).map((item) => item.student);
   const middle = order.slice(highCount, n - lowCount).map((item) => item.student);
-  const rates = questionRates(track);
   const disc = discriminations(track);
 
   const groupAreas = (students: number[]) => {
@@ -227,7 +226,10 @@ export function buildClassReview(track: TrackData, examName = '') {
       area: row.area,
       questionCount: row.questions.length,
       wrong: row.wrong,
-      averageRate: Math.round((row.questions.reduce((a, i) => a + rates[i], 0) / row.questions.length) * 10) / 10,
+      averageRate: Math.round((row.questions.reduce((sum, i) =>
+        sum + (students.length > 0
+          ? (students.filter((student) => isCorrect(track, student, i)).length / students.length) * 100
+          : 0), 0) / row.questions.length) * 10) / 10,
       averageDisc: row.questions.reduce((a, i) => a + disc[i], 0) / row.questions.length,
     }));
   };
