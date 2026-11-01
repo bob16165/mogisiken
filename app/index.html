@@ -4263,7 +4263,7 @@
                             const dayNumber = Number(String(task.day || '').replace(/^Day/, ''));
                             const isPastQuestionDay = dayNumber >= 1 && dayNumber <= 5;
                             const areaMatch = task.task.match(/「([^」]+)」領域/) || task.task.match(/"([^"]+)"領域/);
-                            const pastQuestionUrl = new URL('../past-question-prototype.html', window.location.href);
+                            const pastQuestionUrl = new URL('./past-questions.html', window.location.href);
                             pastQuestionUrl.searchParams.set('subject', task.subject);
                             pastQuestionUrl.searchParams.set('day', task.day || '');
                             pastQuestionUrl.searchParams.set('count', '30');

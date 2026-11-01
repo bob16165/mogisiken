@@ -87,13 +87,32 @@ export function WeeklyPlanTracker({ history, hideAnswers, storageId }: {
               <h4 style={{ margin: '0 0 8px', fontSize: 14, color: '#0f172a' }}>第{week}週</h4>
               <div style={{ display: 'grid', gap: 8 }}>
                 {tasks.filter((task) => task.week === week).map((task) => (
-                  <label key={task.key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: 8, borderRadius: 8, background: task.done ? '#ecfeff' : '#f8fafc' }}>
-                    <input type="checkbox" checked={task.done} onChange={(event) => toggle(task.key, event.target.checked)} style={{ marginTop: 2 }} />
+                  <div key={task.key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: 8, borderRadius: 8, background: task.done ? '#ecfeff' : '#f8fafc' }}>
+                    <input type="checkbox" aria-label={`${task.day} ${task.subject} の完了`} checked={task.done} onChange={(event) => toggle(task.key, event.target.checked)} style={{ marginTop: 2 }} />
                     <div style={{ fontSize: 13, lineHeight: 1.6, flex: 1 }}>
                       <span style={{ fontWeight: 700, color: '#1e3a8a' }}>{task.day} / {task.subject}</span>
                       <div style={{ color: '#1f2937', textDecoration: task.done ? 'line-through' : 'none' }}>{task.task}</div>
+                      {Number(task.day.replace('Day', '')) <= 5 && (
+                        <a
+                          href={(() => {
+                            const url = new URL('./acupuncture-past-questions.html', window.location.href);
+                            url.searchParams.set('subject', task.subject);
+                            url.searchParams.set('day', task.day);
+                            url.searchParams.set('count', '30');
+                            const areaMatch = task.task.match(/「([^」]+)」領域|\"([^\"]+)\"領域/);
+                            const area = areaMatch?.[1] ?? areaMatch?.[2];
+                            if (area && area !== '領域未設定') url.searchParams.set('area', area);
+                            return url.toString();
+                          })()}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ display: 'inline-block', marginTop: 6, padding: '5px 9px', borderRadius: 5, background: '#1565c0', color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}
+                        >
+                          この領域の過去問を解く
+                        </a>
+                      )}
                     </div>
-                  </label>
+                  </div>
                 ))}
               </div>
             </section>
