@@ -6,6 +6,8 @@
 
 教材は同じブラウザー内に保存され、サーバーには送信されません。画像ZIPは `python3 scripts/import-past-question-images.py /path/to/images.zip` で取り込みます。ZIPのPNG画像は `local-assets/past-question-images/` に保存されます（Git管理・ビルドへの同梱対象外）。柔整版の週間課題トラッカーでDay1〜Day5の「この領域の過去問を解く」を押すと、指定領域から30問（30問未満なら全問）をランダムに出力します。J列の参照名に対応する画像を問題画面と印刷画面に表示します。
 
+本番の学生向け過去問ページは `/app/past-questions.html` です。ログイン中の学生ロールを確認した後に、非公開の Supabase Storage バケットから問題Excelを取得し、図版は認証付きで個別取得します。Storage のバケットと学生限定読み取りポリシーは [supabase-past-question-storage.sql](supabase-past-question-storage.sql) を適用して設定し、教材はバケット直下の `workbook.xlsx`、図版は `images/` に配置します。GitHub Pages がソースを直接配信するため、`npm run build` で学生ページの静的バンドルを `app/past-question-assets/` に同期し、コード変更と一緒にコミットします。ZIPの画像は `python3 scripts/import-past-question-images.py [--replace] /path/to/images.zip` で取り込み、`python3 scripts/upload-past-question-images.py` で初回アップロードします。Storageのオブジェクト名はASCIIの16進表現にして保存されます。Storage CLIは既存ファイルを上書きしないため、図版を更新する場合はSupabase Dashboardで既存の `images/` を削除してから再アップロードしてください。
+
 過去問Excelの補正として、外科学の問題番号366の国家試験出題回は第33回にそろえて読み込み・保存します。
 
 ## 資格別集計のローカル試作

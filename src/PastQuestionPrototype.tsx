@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import * as XLSX from '@e965/xlsx';
 import './PastQuestionPrototype.css';
 
@@ -31,6 +32,8 @@ const DATABASE_NAME = 'mogisiken-past-question-bank';
 const STORE_NAME = 'workbooks';
 const DATABASE_VERSION = 1;
 const STORAGE_KEY = 'latest';
+const STORAGE_BUCKET = 'past-question-content';
+const WORKBOOK_PATH = 'workbook.xlsx';
 
 const cellText = (value: unknown) => String(value ?? '').trim();
 const normalized = (value: string) => value.normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu, '').toLocaleLowerCase('ja');
@@ -169,11 +172,71 @@ function figureAssetUrl(reference: string) {
   return `/local-assets/past-question-images/${encodeURIComponent(fileName)}`;
 }
 
+function imageFileName(reference: string) {
+  return /\.png$/i.test(reference) ? reference : `${reference}.png`;
+}
+
+function storageImagePath(fileName: string) {
+  const encodedName = [...new TextEncoder().encode(fileName)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+  return `images/${encodedName}.png`;
+}
+
+function PastQuestionFigure({ reference, productionMode, supabase }: {
+  reference: string;
+  productionMode: boolean;
+  supabase?: SupabaseClient;
+}) {
+  const [imageUrl, setImageUrl] = useState('');
+  const [error, setError] = useState('');
+  const fileName = imageFileName(reference);
+
+  useEffect(() => {
+    if (!productionMode || !supabase) {
+      setImageUrl(figureAssetUrl(reference));
+      setError('');
+      return;
+    }
+
+    let active = true;
+    let objectUrl = '';
+    supabase.storage.from(STORAGE_BUCKET).download(storageImagePath(fileName))
+      .then(({ data, error: downloadError }) => {
+        if (downloadError) throw downloadError;
+        if (!data) throw new Error('画像データが空でした');
+        objectUrl = URL.createObjectURL(data);
+        if (active) setImageUrl(objectUrl);
+        else URL.revokeObjectURL(objectUrl);
+      })
+      .catch((downloadError: unknown) => {
+        if (active) setError(downloadError instanceof Error ? downloadError.message : '図・写真を読み込めませんでした');
+      });
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [fileName, productionMode, reference, supabase]);
+
+  return (
+    <figure className="question-figure">
+      {imageUrl
+        ? <img src={imageUrl} alt={`図・写真 ${reference}`} loading="lazy" />
+        : <p role={error ? 'alert' : 'status'}>{error || '図・写真を読み込んでいます…'}</p>}
+      <figcaption>図・写真: {reference}</figcaption>
+    </figure>
+  );
+}
+
 function printPage() {
   window.print();
 }
 
-export default function PastQuestionPrototype() {
+export default function PastQuestionPrototype({ productionMode = false, supabase }: {
+  productionMode?: boolean;
+  supabase?: SupabaseClient;
+}) {
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const trackerSubject = query.get('subject') ?? '';
   const trackerArea = query.get('area') ?? '';
@@ -186,6 +249,9 @@ export default function PastQuestionPrototype() {
   const [fileName, setFileName] = useState('');
   const [storageWarning, setStorageWarning] = useState('');
   const [loading, setLoading] = useState(true);
+  const [accessStatus, setAccessStatus] = useState<'checking' | 'signedOut' | 'notStudent' | 'loading' | 'ready' | 'error'>(
+    productionMode ? 'checking' : 'ready',
+  );
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [role, setRole] = useState<'student' | 'teacher'>('student');
@@ -202,6 +268,82 @@ export default function PastQuestionPrototype() {
   const [checkedAnswers, setCheckedAnswers] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
+    if (productionMode) {
+      let active = true;
+      let loadGeneration = 0;
+      if (!supabase) {
+        setAccessStatus('error');
+        setStorageWarning('Supabase接続設定を読み込めませんでした。ログイン画面から再度お試しください。');
+        setLoading(false);
+        return;
+      }
+
+      const clearAccess = () => {
+        loadGeneration += 1;
+        setLoading(false);
+        setAccessStatus('signedOut');
+        setQuestions([]);
+        setOutput([]);
+      };
+      const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
+        if (event === 'SIGNED_OUT' && active) clearAccess();
+      });
+
+      const loadPrivateWorkbook = async () => {
+        const currentGeneration = ++loadGeneration;
+        setLoading(true);
+        setStorageWarning('');
+        try {
+          const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+          if (sessionError) throw sessionError;
+          if (!active || currentGeneration !== loadGeneration) return;
+          const user = sessionData.session?.user;
+          if (!user) {
+            setAccessStatus('signedOut');
+            return;
+          }
+
+          const { data: profile, error: profileError } = await supabase
+            .from('app_users')
+            .select('role')
+            .eq('id', user.id)
+            .maybeSingle();
+          if (profileError) throw profileError;
+          if (!active || currentGeneration !== loadGeneration) return;
+          if (profile?.role !== 'student') {
+            setAccessStatus('notStudent');
+            return;
+          }
+
+          setAccessStatus('loading');
+          const { data: workbookFile, error: workbookError } = await supabase.storage
+            .from(STORAGE_BUCKET)
+            .download(WORKBOOK_PATH);
+          if (workbookError) throw workbookError;
+          if (!workbookFile) throw new Error('過去問ファイルが空でした');
+          const imported = parseWorkbook(await workbookFile.arrayBuffer());
+          if (!active || currentGeneration !== loadGeneration) return;
+          setQuestions(imported);
+          setFileName('柔整過去問.xlsx');
+          setMessage(`問題データを安全に読み込みました（${imported.length.toLocaleString()}問）。`);
+          setAccessStatus('ready');
+        } catch (error) {
+          if (active && currentGeneration === loadGeneration) {
+            setStorageWarning(error instanceof Error ? error.message : '過去問データを読み込めませんでした。');
+            setAccessStatus('error');
+          }
+        } finally {
+          if (active && currentGeneration === loadGeneration) setLoading(false);
+        }
+      };
+
+      void loadPrivateWorkbook();
+      return () => {
+        active = false;
+        authListener.subscription.unsubscribe();
+      };
+    }
+
     const load = async () => {
       try {
         const stored = await loadQuestionBank();
@@ -227,7 +369,7 @@ export default function PastQuestionPrototype() {
       }
     };
     void load();
-  }, []);
+  }, [productionMode, supabase]);
 
   const subjects = useMemo(() => [...new Set(questions.map((question) => question.subject))], [questions]);
   const exams = useMemo(
@@ -418,8 +560,10 @@ export default function PastQuestionPrototype() {
       <header className="past-question-header">
         <div>
           <a className="back-link" href="../app/index.html">柔整版へ戻る</a>
-          <h1>柔整国家試験 過去問トライアル</h1>
-          <p>Excelを読み込み、科目・大項目または国家試験出題回から問題を作成します。</p>
+          <h1>柔整国家試験 過去問{productionMode ? '' : 'トライアル'}</h1>
+          <p>{productionMode
+            ? '科目・大項目または国家試験出題回から問題を作成します。'
+            : 'Excelを読み込み、科目・大項目または国家試験出題回から問題を作成します。'}</p>
         </div>
         <button type="button" className="secondary-button print-button" onClick={printPage} disabled={output.length === 0}>
           {role === 'teacher' ? '印刷 / PDF保存' : 'PDFとして保存'}
@@ -429,13 +573,15 @@ export default function PastQuestionPrototype() {
       <section className="workbook-panel">
         <div>
           <h2>教材ファイル</h2>
-          <p>指定列（B〜K）を読み込みます。Excelの内容はサーバーに送信せず、このブラウザー内に保存します。</p>
+          <p>{productionMode
+            ? 'ログイン済み学生向けの教材を読み込みます。'
+            : '指定列（B〜K）を読み込みます。Excelの内容はサーバーに送信せず、このブラウザー内に保存します。'}</p>
           {fileName && <p className="workbook-name">読み込み中の教材: {fileName}（{questions.length}問）</p>}
           {loading && <p role="status">前回の教材を確認しています…</p>}
           {message && <p className="status-message" role="status">{message}</p>}
           {storageWarning && <p className="warning-message" role="alert">{storageWarning}</p>}
         </div>
-        <div className="upload-control">
+        {!productionMode && <div className="upload-control">
           <input
             ref={fileInput}
             type="file"
@@ -447,15 +593,32 @@ export default function PastQuestionPrototype() {
             }}
           />
           {busy && <span role="status">読み込み中…</span>}
-        </div>
+        </div>}
       </section>
 
-      {questions.length > 0 && (
+      {productionMode && accessStatus !== 'ready' && (
+        <section className="access-panel" role={accessStatus === 'error' ? 'alert' : 'status'}>
+          {accessStatus === 'checking' && 'ログイン状態を確認しています…'}
+          {accessStatus === 'loading' && '過去問データを読み込んでいます…'}
+          {accessStatus === 'signedOut' && <>学生ログインが必要です。<a href="./index.html">ログイン画面へ</a></>}
+          {accessStatus === 'notStudent' && 'このページはログイン済み学生のみ利用できます。'}
+          {accessStatus === 'error' && <>過去問を利用できません。{storageWarning}</>}
+        </section>
+      )}
+
+      {(productionMode || questions.length > 0) && (
+        <section className="legal-notice" aria-label="本アプリについて">
+          <p>本アプリの問題は公益財団法人柔道整復研修試験財団が公表した国家試験問題をもとに作成・編集しています。</p>
+          <p>本アプリは個人が独自に開発したものであり、厚生労働省および公益財団法人柔道整復研修試験財団とは関係ありません。</p>
+        </section>
+      )}
+
+      {questions.length > 0 && accessStatus === 'ready' && (
         <>
-          <nav className="role-tabs" aria-label="利用者">
+          {!productionMode && <nav className="role-tabs" aria-label="利用者">
             <button type="button" className={role === 'student' ? 'active' : ''} onClick={() => setRole('student')}>学生用</button>
             <button type="button" className={role === 'teacher' ? 'active' : ''} onClick={() => setRole('teacher')}>教員用</button>
-          </nav>
+          </nav>}
 
           {role === 'student' && (
             <section className="student-mode-panel">
@@ -562,10 +725,11 @@ export default function PastQuestionPrototype() {
                       </div>
                       <p className="question-prompt">{item.question.prompt}</p>
                       {item.question.figure && (
-                        <figure className="question-figure">
-                          <img src={figureAssetUrl(item.question.figure)} alt={`図・写真 ${item.question.figure}`} loading="lazy" />
-                          <figcaption>図・写真: {item.question.figure}</figcaption>
-                        </figure>
+                        <PastQuestionFigure
+                          reference={item.question.figure}
+                          productionMode={productionMode}
+                          supabase={supabase}
+                        />
                       )}
                       {role === 'student' && studentOutputMode === 'screen' && item.question.answerOptions.length > 1 && (
                         <p className="multiple-answer-hint">複数選択</p>
@@ -620,7 +784,7 @@ export default function PastQuestionPrototype() {
           )}
         </>
       )}
-      {!questions.length && !loading && (
+      {!productionMode && !questions.length && !loading && (
         <section className="empty-panel">
           <h2>Excelを読み込んで開始</h2>
           <p>「柔整過去問.xlsx」を選択すると、シート名を科目、B列を大項目、C列を問題、D〜G列を選択肢、H列を模範解答、I〜K列を出題情報として読み込みます。</p>

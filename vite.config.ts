@@ -25,6 +25,7 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
         app: resolve(__dirname, 'app/index.html'),
+        pastQuestionStudentBuild: resolve(__dirname, 'scripts/past-question-student-build.html'),
         qualificationPrototype: resolve(__dirname, 'qualification-prototype.html'),
         pastQuestionPrototype: resolve(__dirname, 'past-question-prototype.html'),
       },

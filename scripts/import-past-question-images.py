@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import sys
 from pathlib import Path, PurePosixPath
+from tempfile import NamedTemporaryFile
 from zipfile import BadZipFile, ZipFile
 
 
@@ -20,11 +21,14 @@ def decode_name(name: str) -> str:
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(f"Usage: {Path(sys.argv[0]).name} path/to/images.zip", file=sys.stderr)
+    arguments = sys.argv[1:]
+    replace_existing = "--replace" in arguments
+    arguments = [argument for argument in arguments if argument != "--replace"]
+    if len(arguments) != 1:
+        print(f"Usage: {Path(sys.argv[0]).name} [--replace] path/to/images.zip", file=sys.stderr)
         return 2
 
-    archive_path = Path(sys.argv[1]).expanduser().resolve()
+    archive_path = Path(arguments[0]).expanduser().resolve()
     if not archive_path.is_file():
         print(f"Archive not found: {archive_path}", file=sys.stderr)
         return 2
@@ -69,19 +73,23 @@ def main() -> int:
                 if destination.is_symlink():
                     raise ValueError(f"Refusing to overwrite a symbolic link: {destination}")
                 if destination.exists():
-                    if destination.read_bytes() != image:
+                    if not replace_existing and destination.read_bytes() != image:
                         raise FileExistsError(f"Different image already exists: {destination}")
-                    skipped += 1
-                    continue
+                    if destination.read_bytes() == image:
+                        skipped += 1
+                        continue
 
-                with destination.open("xb") as output:
+                with NamedTemporaryFile(dir=DESTINATION, prefix=".image-import-", delete=False) as output:
+                    temporary = Path(output.name)
                     output.write(image)
+                temporary.replace(destination)
                 imported += 1
     except (BadZipFile, OSError, ValueError) as error:
         print(f"Import failed: {error}", file=sys.stderr)
         return 1
 
-    print(f"Imported {imported} images ({total_size:,} uncompressed bytes) to {DESTINATION}")
+    action = "Imported/replaced" if replace_existing else "Imported"
+    print(f"{action} {imported} images ({total_size:,} uncompressed bytes) in {DESTINATION}")
     print(f"Skipped {skipped} metadata/unsupported/unchanged entries.")
     return 0
 

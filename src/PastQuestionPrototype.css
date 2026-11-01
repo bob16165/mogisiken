@@ -47,7 +47,9 @@
 .search-panel,
 .output-panel,
 .empty-panel,
-.student-mode-panel {
+.student-mode-panel,
+.legal-notice,
+.access-panel {
   margin-bottom: 18px;
   padding: 18px;
   border: 1px solid var(--border);
@@ -86,6 +88,27 @@
 
 .warning-message {
   color: #b42318 !important;
+}
+
+.legal-notice {
+  border-left: 4px solid #64748b;
+  background: #f8fafc;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.legal-notice p {
+  margin: 4px 0;
+}
+
+.access-panel {
+  color: #334155;
+  line-height: 1.7;
+}
+
+.access-panel a {
+  margin-left: 8px;
+  color: var(--blue);
 }
 
 .role-tabs,

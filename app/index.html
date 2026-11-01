@@ -141,6 +141,8 @@
         const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ0eXVqeHl6c3htZmVybGFkaHlyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxNTU1MTYsImV4cCI6MjA4MjczMTUxNn0.Hb6UGg0IEC1BzPaA6YYPra31QCcKN9L0ER-T2roVEc8';
         const SUPABASE_URL = localStorage.getItem('mogisiken_supabase_url') || DEFAULT_SUPABASE_URL;
         const SUPABASE_ANON_KEY = localStorage.getItem('mogisiken_supabase_anon_key') || DEFAULT_SUPABASE_ANON_KEY;
+        if (!localStorage.getItem('mogisiken_supabase_url')) localStorage.setItem('mogisiken_supabase_url', SUPABASE_URL);
+        if (!localStorage.getItem('mogisiken_supabase_anon_key')) localStorage.setItem('mogisiken_supabase_anon_key', SUPABASE_ANON_KEY);
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         function isSupabaseTableMissingError(error) {
@@ -5090,6 +5092,10 @@
                                         padding: '10px 12px', fontSize: '13px', background: '#e3f2fd', color: '#1565c0',
                                         border: 'none', borderRadius: '5px', cursor: 'pointer'
                                     }}>パスワード変更</button>}
+                                    {user.role === 'student' && <a href="./past-questions.html" style={{
+                                        padding: '10px 14px', fontSize: '14px', background: '#1565c0', color: 'white',
+                                        borderRadius: '6px', cursor: 'pointer', textDecoration: 'none', fontWeight: '600'
+                                    }}>柔整過去問</a>}
                                     <button onClick={onLogout} className={user.role === 'student' ? 'student-logout-button' : undefined} style={{
                                         padding: '10px 20px', fontSize: '14px', fontWeight: '600',
                                         background: '#f44336', color: 'white', border: 'none',
@@ -5295,6 +5301,10 @@
                                             border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
                                         }}>パスワード変更</button>}
                                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                        {user.role === 'student' && <a href="./past-questions.html" style={{
+                                            padding: '10px 14px', marginBottom: '8px', fontSize: '14px', color: '#fff',
+                                            background: '#1565c0', borderRadius: '6px', textDecoration: 'none', fontWeight: '600'
+                                        }}>柔整過去問</a>}
                                         <button onClick={onLogout} className={user.role === 'student' ? 'student-logout-button' : undefined} style={{
                                             padding: '10px 20px', fontSize: '14px', color: '#1976d2', background: 'white',
                                             border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: '600'
