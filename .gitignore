@@ -17,3 +17,6 @@ supabase/.temp
 
 # 学生データを含む試作用データ（公開しない）
 src/prototypeExamData.ts
+
+# Local past-question figures (not published)
+local-assets/past-question-images/

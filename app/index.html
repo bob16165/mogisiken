@@ -4258,16 +4258,25 @@
                         <h4 style={{ margin: '0 0 8px', fontSize: '14px', color: '#0f172a' }}>第{week}週</h4>
                         <div style={{ display: 'grid', gap: '8px' }}>
                         {weekTasks.map(task => {
+                            const dayNumber = Number(String(task.day || '').replace(/^Day/, ''));
+                            const isPastQuestionDay = dayNumber >= 1 && dayNumber <= 5;
+                            const areaMatch = task.task.match(/「([^」]+)」領域/) || task.task.match(/"([^"]+)"領域/);
+                            const pastQuestionUrl = new URL('../past-question-prototype.html', window.location.href);
+                            pastQuestionUrl.searchParams.set('subject', task.subject);
+                            pastQuestionUrl.searchParams.set('day', task.day || '');
+                            pastQuestionUrl.searchParams.set('count', '30');
+                            if (areaMatch?.[1]) pastQuestionUrl.searchParams.set('area', areaMatch[1]);
                             const isHighCorrelTask = task.isHighCorrel ||
                                 (guidance?.actionPlan || []).find(p => p.subjectName === task.subject)?.isHighCorrelSubject || false;
                             return (
-                            <label key={task.key} style={{
+                            <div key={task.key} style={{
                                 display: 'flex', gap: '10px', alignItems: 'flex-start', padding: '8px', borderRadius: '8px',
                                 background: task.done ? '#ecfeff' : (isHighCorrelTask ? '#fff1f2' : '#f8fafc'),
                                 border: isHighCorrelTask && !task.done ? '1px solid #fca5a5' : '1px solid transparent'
                             }}>
                                 <input
                                     type="checkbox"
+                                    aria-label={`${task.day} ${task.subject} の完了`}
                                     checked={task.done}
                                     onChange={(e) => {
                                         const done = e.target.checked;
@@ -4285,8 +4294,18 @@
                                         )}
                                     </div>
                                     <div style={{ color: '#1f2937', textDecoration: task.done ? 'line-through' : 'none' }}>{task.task}</div>
+                                    {isPastQuestionDay && (
+                                        <a
+                                            href={pastQuestionUrl.toString()}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            style={{ display: 'inline-block', marginTop: '6px', padding: '5px 9px', borderRadius: '5px', background: '#1565c0', color: '#fff', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}
+                                        >
+                                            この領域の過去問を解く
+                                        </a>
+                                    )}
                                 </div>
-                            </label>
+                            </div>
                             );
                         })}
                     </div>
