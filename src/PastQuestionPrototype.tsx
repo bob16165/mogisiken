@@ -34,6 +34,8 @@ const DATABASE_VERSION = 1;
 const STORAGE_KEY = 'latest';
 const STORAGE_BUCKET = 'past-question-content';
 const WORKBOOK_PATH = 'workbook.xlsx';
+const ACUPUNCTURE_WORKBOOK_PATH = 'acupuncture-workbook.xlsx';
+const QUALIFICATION_GROUPS = ['acupuncture', 'acupuncture_massage'];
 
 const cellText = (value: unknown) => String(value ?? '').trim();
 const normalized = (value: string) => value.normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu, '').toLocaleLowerCase('ja');
@@ -233,10 +235,22 @@ function printPage() {
   window.print();
 }
 
-export default function PastQuestionPrototype({ productionMode = false, supabase }: {
+export default function PastQuestionPrototype({
+  productionMode = false,
+  supabase,
+  qualificationVariant = 'judo',
+}: {
   productionMode?: boolean;
   supabase?: SupabaseClient;
+  qualificationVariant?: 'judo' | 'acupuncture';
 }) {
+  const isAcupuncture = qualificationVariant === 'acupuncture';
+  const workbookPath = isAcupuncture ? ACUPUNCTURE_WORKBOOK_PATH : WORKBOOK_PATH;
+  const pageTitle = isAcupuncture ? '鍼灸国家試験 過去問' : '柔整国家試験 過去問';
+  const backLabel = isAcupuncture ? '鍼灸版へ戻る' : '柔整版へ戻る';
+  const examPublisher = isAcupuncture
+    ? '公益財団法人東洋療法研修試験財団'
+    : '公益財団法人柔道整復研修試験財団';
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const trackerSubject = query.get('subject') ?? '';
   const trackerArea = query.get('area') ?? '';
@@ -305,27 +319,47 @@ export default function PastQuestionPrototype({ productionMode = false, supabase
 
           const { data: profile, error: profileError } = await supabase
             .from('app_users')
-            .select('role')
+            .select('role, school_id')
             .eq('id', user.id)
             .maybeSingle();
           if (profileError) throw profileError;
           if (!active || currentGeneration !== loadGeneration) return;
-          if (profile?.role !== 'student') {
+          const allowedRoles = isAcupuncture ? ['student', 'teacher'] : ['student'];
+          if (!profile || !allowedRoles.includes(profile.role)) {
             setAccessStatus('notStudent');
             return;
+          }
+
+          if (isAcupuncture) {
+            if (!profile.school_id) {
+              setAccessStatus('notStudent');
+              return;
+            }
+            const { data: school, error: schoolError } = await supabase
+              .from('schools')
+              .select('qualification_group')
+              .eq('id', profile.school_id)
+              .maybeSingle();
+            if (schoolError) throw schoolError;
+            if (!active || currentGeneration !== loadGeneration) return;
+            if (!QUALIFICATION_GROUPS.includes(school?.qualification_group ?? '')) {
+              setAccessStatus('notStudent');
+              return;
+            }
           }
 
           setAccessStatus('loading');
           const { data: workbookFile, error: workbookError } = await supabase.storage
             .from(STORAGE_BUCKET)
-            .download(WORKBOOK_PATH);
+            .download(workbookPath);
           if (workbookError) throw workbookError;
           if (!workbookFile) throw new Error('過去問ファイルが空でした');
           const imported = parseWorkbook(await workbookFile.arrayBuffer());
           if (!active || currentGeneration !== loadGeneration) return;
           setQuestions(imported);
-          setFileName('柔整過去問.xlsx');
+          setFileName(isAcupuncture ? '鍼灸過去問.xlsx' : '柔整過去問.xlsx');
           setMessage(`問題データを安全に読み込みました（${imported.length.toLocaleString()}問）。`);
+          setRole(profile.role === 'teacher' ? 'teacher' : 'student');
           setAccessStatus('ready');
         } catch (error) {
           if (active && currentGeneration === loadGeneration) {
@@ -369,7 +403,7 @@ export default function PastQuestionPrototype({ productionMode = false, supabase
       }
     };
     void load();
-  }, [productionMode, supabase]);
+  }, [isAcupuncture, productionMode, supabase, workbookPath]);
 
   const subjects = useMemo(() => [...new Set(questions.map((question) => question.subject))], [questions]);
   const exams = useMemo(
@@ -559,8 +593,8 @@ export default function PastQuestionPrototype({ productionMode = false, supabase
     <main className={`past-question-prototype ${role}`}>
       <header className="past-question-header">
         <div>
-          <a className="back-link" href="../app/index.html">柔整版へ戻る</a>
-          <h1>柔整国家試験 過去問{productionMode ? '' : 'トライアル'}</h1>
+          <a className="back-link" href="./index.html">{backLabel}</a>
+          <h1>{pageTitle}{productionMode ? '' : 'トライアル'}</h1>
           <p>{productionMode
             ? '科目・大項目または国家試験出題回から問題を作成します。'
             : 'Excelを読み込み、科目・大項目または国家試験出題回から問題を作成します。'}</p>
@@ -601,15 +635,17 @@ export default function PastQuestionPrototype({ productionMode = false, supabase
           {accessStatus === 'checking' && 'ログイン状態を確認しています…'}
           {accessStatus === 'loading' && '過去問データを読み込んでいます…'}
           {accessStatus === 'signedOut' && <>学生ログインが必要です。<a href="./index.html">ログイン画面へ</a></>}
-          {accessStatus === 'notStudent' && 'このページはログイン済み学生のみ利用できます。'}
+          {accessStatus === 'notStudent' && (isAcupuncture
+            ? 'このページは鍼灸・あん摩学科の学生・教員のみ利用できます。'
+            : 'このページはログイン済み学生のみ利用できます。')}
           {accessStatus === 'error' && <>過去問を利用できません。{storageWarning}</>}
         </section>
       )}
 
       {(productionMode || questions.length > 0) && (
         <section className="legal-notice" aria-label="本アプリについて">
-          <p>本アプリの問題は公益財団法人柔道整復研修試験財団が公表した国家試験問題をもとに作成・編集しています。</p>
-          <p>本アプリは個人が独自に開発したものであり、厚生労働省および公益財団法人柔道整復研修試験財団とは関係ありません。</p>
+          <p>本アプリの問題は{examPublisher}が公表した国家試験問題をもとに作成・編集しています。</p>
+          <p>本アプリは個人が独自に開発したものであり、厚生労働省および{examPublisher}とは関係ありません。</p>
         </section>
       )}
 
@@ -787,7 +823,7 @@ export default function PastQuestionPrototype({ productionMode = false, supabase
       {!productionMode && !questions.length && !loading && (
         <section className="empty-panel">
           <h2>Excelを読み込んで開始</h2>
-          <p>「柔整過去問.xlsx」を選択すると、シート名を科目、B列を大項目、C列を問題、D〜G列を選択肢、H列を模範解答、I〜K列を出題情報として読み込みます。</p>
+          <p>「{isAcupuncture ? '鍼灸過去問.xlsx' : '柔整過去問.xlsx'}」を選択すると、シート名を科目、B列を大項目、C列を問題、D〜G列を選択肢、H列を模範解答、I〜K列を出題情報として読み込みます。</p>
         </section>
       )}
     </main>

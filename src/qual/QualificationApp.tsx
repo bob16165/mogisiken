@@ -234,6 +234,12 @@ export default function QualificationApp(props: QualificationAppProps) {
             <button type="button" onClick={props.onOpenPasswordChange} style={{ ...styles.headerButton, background: '#fff', color: '#1565c0' }}>パスワード変更</button>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+            {(role === 'student' || role === 'teacher') && (
+              <a href="./acupuncture-past-questions.html" style={{
+                padding: '9px 14px', marginBottom: 8, fontSize: 14, color: '#fff',
+                background: '#1565c0', borderRadius: 6, textDecoration: 'none', fontWeight: 600,
+              }}>鍼灸過去問</a>
+            )}
             <button type="button" onClick={onLogout} style={styles.logoutButton}>ログアウト</button>
             {!isStudent && (
               <>

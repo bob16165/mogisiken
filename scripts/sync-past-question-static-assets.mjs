@@ -44,15 +44,13 @@ await copyNormalizedAsset(
   join(assetSourceDirectory, stylesheetFile),
   join(staticAssetDirectory, 'past-questions.css'),
 )
-await writeFile(
-  join(root, 'app/past-questions.html'),
-  `<!doctype html>
+const pageMarkup = (title) => `<!doctype html>
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex, nofollow" />
-    <title>柔整国家試験 過去問</title>
+    <title>${title}</title>
     <link rel="stylesheet" href="./past-question-assets/past-questions.css" />
   </head>
   <body>
@@ -60,8 +58,9 @@ await writeFile(
     <script type="module" src="./past-question-assets/past-questions.js"></script>
   </body>
 </html>
-`,
-)
+`
+await writeFile(join(root, 'app/past-questions.html'), pageMarkup('柔整国家試験 過去問'))
+await writeFile(join(root, 'app/acupuncture-past-questions.html'), pageMarkup('鍼灸国家試験 過去問'))
 
 const previewAssetDirectory = join(root, 'dist/app/past-question-assets')
 await mkdir(previewAssetDirectory, { recursive: true })
@@ -74,5 +73,6 @@ for (const file of await readdir(staticAssetDirectory)) {
   await copyFile(join(staticAssetDirectory, file), join(previewAssetDirectory, file))
 }
 await copyFile(join(root, 'app/past-questions.html'), join(root, 'dist/app/past-questions.html'))
+await copyFile(join(root, 'app/acupuncture-past-questions.html'), join(root, 'dist/app/acupuncture-past-questions.html'))
 
 console.log(`Synced ${copiedChunks.size} JavaScript chunks and the stylesheet to ${staticAssetDirectory}`)

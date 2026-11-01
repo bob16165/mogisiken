@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && node scripts/sync-past-question-static-assets.mjs",
+    "build": "tsc && vite build && node scripts/sync-past-question-static-assets.mjs && npm run build:qual",
     "preview": "vite preview",
     "test:security": "node scripts/security-access-test.mjs",
     "test:backup-restore": "sh scripts/run-backup-restore-test.sh",

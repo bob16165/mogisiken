@@ -16,6 +16,26 @@ $$;
 REVOKE ALL ON FUNCTION public.is_past_question_student() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_past_question_student() TO authenticated;
 
+CREATE OR REPLACE FUNCTION public.is_acupuncture_past_question_user()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.app_users AS app_user
+    JOIN public.schools AS school ON school.id = app_user.school_id
+    WHERE app_user.id = auth.uid()
+      AND app_user.role IN ('student', 'teacher')
+      AND school.qualification_group IN ('acupuncture', 'acupuncture_massage')
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_acupuncture_past_question_user() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_acupuncture_past_question_user() TO authenticated;
+
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES (
   'past-question-content',
@@ -39,5 +59,14 @@ FOR SELECT
 TO authenticated
 USING (
   bucket_id = 'past-question-content'
-  AND public.is_past_question_student()
+  AND (
+    (
+      name = 'acupuncture-workbook.xlsx'
+      AND public.is_acupuncture_past_question_user()
+    )
+    OR (
+      (name = 'workbook.xlsx' OR name LIKE 'images/%')
+      AND public.is_past_question_student()
+    )
+  )
 );

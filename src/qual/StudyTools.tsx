@@ -41,7 +41,7 @@ function buildWeeklyTasks(plans: ReturnType<typeof buildGuidance>['plans'], hide
 export function WeeklyPlanTracker({ history, hideAnswers, storageId }: {
   history: HistoryEntry[]; hideAnswers: boolean; storageId: string;
 }) {
-  const plans = useMemo(() => buildGuidance(history).plans.slice(0, 3), [history]);
+  const plans = useMemo(() => buildGuidance(history).plans.slice(0, 5), [history]);
   const generated = useMemo(() => buildWeeklyTasks(plans, hideAnswers), [plans, hideAnswers]);
   const storageKey = `mogisiken_qual_weekly_tasks_${storageId}`;
   const [open, setOpen] = useState(false);

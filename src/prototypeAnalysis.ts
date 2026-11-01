@@ -149,7 +149,7 @@ export function buildGuidance(history: HistoryEntry[]) {
     };
   }).sort((a, b) => b.priority - a.priority);
 
-  const top = plans.slice(0, 3);
+  const top = plans.slice(0, 5);
   const average = table.reduce((sum, row) => sum + row.rate, 0) / Math.max(table.length, 1);
   return {
     plans,

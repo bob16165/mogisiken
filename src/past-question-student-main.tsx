@@ -10,9 +10,12 @@ const supabase = supabaseUrl && supabaseAnonKey
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   })
   : undefined;
+const qualificationVariant = window.location.pathname.endsWith('/acupuncture-past-questions.html')
+  ? 'acupuncture'
+  : 'judo';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <PastQuestionPrototype productionMode supabase={supabase} />
+    <PastQuestionPrototype productionMode supabase={supabase} qualificationVariant={qualificationVariant} />
   </React.StrictMode>,
 );

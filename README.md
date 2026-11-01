@@ -8,6 +8,8 @@
 
 本番の学生向け過去問ページは `/app/past-questions.html` です。ログイン中の学生ロールを確認した後に、非公開の Supabase Storage バケットから問題Excelを取得し、図版は認証付きで個別取得します。Storage のバケットと学生限定読み取りポリシーは [supabase-past-question-storage.sql](supabase-past-question-storage.sql) を適用して設定し、教材はバケット直下の `workbook.xlsx`、図版は `images/` に配置します。GitHub Pages がソースを直接配信するため、`npm run build` で学生ページの静的バンドルを `app/past-question-assets/` に同期し、コード変更と一緒にコミットします。ZIPの画像は `python3 scripts/import-past-question-images.py [--replace] /path/to/images.zip` で取り込み、`python3 scripts/upload-past-question-images.py` で初回アップロードします。Storageのオブジェクト名はASCIIの16進表現にして保存されます。Storage CLIは既存ファイルを上書きしないため、図版を更新する場合はSupabase Dashboardで既存の `images/` を削除してから再アップロードしてください。
 
+鍼灸版のローカル試作は `http://localhost:5173/past-question-prototype.html?qualification=acupuncture` で開き、「鍼灸過去問.xlsx」を読み込みます。本番ページは `/app/acupuncture-past-questions.html` で、学生・教員が対象学科に所属している場合に限り、非公開バケットの `acupuncture-workbook.xlsx` を取得できます。鍼灸版のStorage読み取り条件は同じSQLに含まれます。鍼灸・あん摩学科の学習ナビと週間課題トラッカーは、優先科目を最大5科目表示します。
+
 過去問Excelの補正として、外科学の問題番号366の国家試験出題回は第33回にそろえて読み込み・保存します。
 
 ## 資格別集計のローカル試作
