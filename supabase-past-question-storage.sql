@@ -1,3 +1,5 @@
+DROP POLICY IF EXISTS past_question_students_select ON storage.objects;
+
 CREATE OR REPLACE FUNCTION public.is_past_question_student()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -15,6 +17,31 @@ $$;
 
 REVOKE ALL ON FUNCTION public.is_past_question_student() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.is_past_question_student() TO authenticated;
+
+CREATE OR REPLACE FUNCTION public.is_judo_past_question_user()
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM public.app_users AS app_user
+    LEFT JOIN public.schools AS school ON school.id = app_user.school_id
+    WHERE app_user.id = auth.uid()
+      AND (
+        app_user.role = 'student'
+        OR (
+          app_user.role = 'teacher'
+          AND school.qualification_group = 'judo'
+        )
+      )
+  );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_judo_past_question_user() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.is_judo_past_question_user() TO authenticated;
 
 CREATE OR REPLACE FUNCTION public.is_acupuncture_past_question_user()
 RETURNS BOOLEAN
@@ -52,7 +79,6 @@ ON CONFLICT (id) DO UPDATE SET
   file_size_limit = EXCLUDED.file_size_limit,
   allowed_mime_types = EXCLUDED.allowed_mime_types;
 
-DROP POLICY IF EXISTS past_question_students_select ON storage.objects;
 CREATE POLICY past_question_students_select
 ON storage.objects
 FOR SELECT
@@ -66,7 +92,7 @@ USING (
     )
     OR (
       (name = 'workbook.xlsx' OR name LIKE 'images/%')
-      AND public.is_past_question_student()
+      AND public.is_judo_past_question_user()
     )
   )
 );

@@ -329,13 +329,13 @@ export default function PastQuestionPrototype({
             .maybeSingle();
           if (profileError) throw profileError;
           if (!active || currentGeneration !== loadGeneration) return;
-          const allowedRoles = isAcupuncture ? ['student', 'teacher'] : ['student'];
+          const allowedRoles = ['student', 'teacher'];
           if (!profile || !allowedRoles.includes(profile.role)) {
             setAccessStatus('notStudent');
             return;
           }
 
-          if (isAcupuncture) {
+          if (isAcupuncture || profile.role === 'teacher') {
             if (!profile.school_id) {
               setAccessStatus('notStudent');
               return;
@@ -347,7 +347,8 @@ export default function PastQuestionPrototype({
               .maybeSingle();
             if (schoolError) throw schoolError;
             if (!active || currentGeneration !== loadGeneration) return;
-            if (!QUALIFICATION_GROUPS.includes(school?.qualification_group ?? '')) {
+            const allowedGroups = isAcupuncture ? QUALIFICATION_GROUPS : ['judo'];
+            if (!allowedGroups.includes(school?.qualification_group ?? '')) {
               setAccessStatus('notStudent');
               return;
             }
@@ -625,7 +626,7 @@ export default function PastQuestionPrototype({
         <div>
           <h2>教材ファイル</h2>
           <p>{productionMode
-            ? 'ログイン済み学生向けの教材を読み込みます。'
+            ? 'ログイン済みの学生・教員向け教材を読み込みます。'
             : '指定列（B〜K）を読み込みます。Excelの内容はサーバーに送信せず、このブラウザー内に保存します。'}</p>
           {fileName && <p className="workbook-name">読み込み中の教材: {fileName}（{questions.length}問）</p>}
           {loading && <p role="status">前回の教材を確認しています…</p>}
@@ -651,10 +652,10 @@ export default function PastQuestionPrototype({
         <section className="access-panel" role={accessStatus === 'error' ? 'alert' : 'status'}>
           {accessStatus === 'checking' && 'ログイン状態を確認しています…'}
           {accessStatus === 'loading' && '過去問データを読み込んでいます…'}
-          {accessStatus === 'signedOut' && <>学生ログインが必要です。<a href="./index.html">ログイン画面へ</a></>}
+          {accessStatus === 'signedOut' && <>ログインが必要です。<a href="./index.html">ログイン画面へ</a></>}
           {accessStatus === 'notStudent' && (isAcupuncture
             ? 'このページは鍼灸・あん摩学科の学生・教員のみ利用できます。'
-            : 'このページはログイン済み学生のみ利用できます。')}
+            : 'このページは柔整学科の学生・教員のみ利用できます。')}
           {accessStatus === 'error' && <>過去問を利用できません。{storageWarning}</>}
         </section>
       )}
