@@ -7,6 +7,7 @@ interface PastQuestion {
   id: string;
   subject: string;
   majorCategory: string;
+  middleCategory: string;
   number: string;
   prompt: string;
   options: string[];
@@ -66,22 +67,25 @@ function parseWorkbook(buffer: ArrayBuffer) {
     const sheet = workbook.Sheets[subject];
     if (!sheet) return;
     const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: false });
+    const hasMiddle = cellText(rows[0]?.[2]) === '中項目';
+    const offset = hasMiddle ? 1 : 0;
     rows.slice(1).forEach((row, index) => {
-      const prompt = cellText(row[2]);
+      const prompt = cellText(row[2 + offset]);
       if (!prompt) return;
-      const answerText = cellText(row[7]);
+      const answerText = cellText(row[7 + offset]);
       questions.push({
         id: `${subject}-${index + 2}`,
         subject,
         majorCategory: cellText(row[1]) || '大項目未設定',
+        middleCategory: hasMiddle ? cellText(row[2]) : '',
         number: cellText(row[0]),
         prompt,
-        options: row.slice(3, 7).map(cellText),
+        options: row.slice(3 + offset, 7 + offset).map(cellText),
         answerText,
         answerOptions: answerOptions(answerText),
-        occurrence: cellText(row[8]),
-        figure: cellText(row[9]),
-        exam: cellText(row[10]),
+        occurrence: cellText(row[8 + offset]),
+        figure: cellText(row[9 + offset]),
+        exam: cellText(row[10 + offset]),
       });
     });
   });
@@ -275,6 +279,7 @@ export default function PastQuestionPrototype({
   const [categorySearch, setCategorySearch] = useState(trackerArea);
   const [questionSearch, setQuestionSearch] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
+  const [selectedMiddles, setSelectedMiddles] = useState<string[]>([]);
   const [requestedCount, setRequestedCount] = useState('30');
   const [studentOutputMode, setStudentOutputMode] = useState<'screen' | 'pdf'>('screen');
   const [output, setOutput] = useState<DisplayQuestion[]>([]);
@@ -422,6 +427,12 @@ export default function PastQuestionPrototype({
     const term = normalized(categorySearch);
     return categories.filter((category) => !term || normalized(category).includes(term));
   }, [categories, categorySearch]);
+  const middleOptions = useMemo(() => selectedCategories.filter((category) => category.endsWith('各論')).map((category) => ({
+    category,
+    items: [...new Set(questions
+      .filter((question) => (!subject || question.subject === subject) && question.majorCategory === category && question.middleCategory)
+      .map((question) => question.middleCategory))],
+  })).filter((group) => group.items.length > 0), [questions, subject, selectedCategories]);
   const matchingQuestions = useMemo(() => {
     const terms = searchTerms(questionSearch);
     return questions.filter((question) => {
@@ -429,6 +440,11 @@ export default function PastQuestionPrototype({
         if (subject && question.subject !== subject) return false;
         if (selectedCategories.length > 0 && !selectedCategories.includes(question.majorCategory)) return false;
         if (selectedCategories.length === 0) return false;
+        const middleGroup = middleOptions.find((group) => group.category === question.majorCategory);
+        if (middleGroup) {
+          const picked = selectedMiddles.filter((key) => key.startsWith(`${question.majorCategory}\u0000`));
+          if (picked.length > 0 && !picked.includes(`${question.majorCategory}\u0000${question.middleCategory}`)) return false;
+        }
       } else if (exam && question.exam !== exam) {
         return false;
       }
@@ -436,6 +452,7 @@ export default function PastQuestionPrototype({
       const searchableText = normalized([
         question.subject,
         question.majorCategory,
+        question.middleCategory,
         question.number,
         question.prompt,
         ...question.options,
@@ -446,7 +463,7 @@ export default function PastQuestionPrototype({
       ].join(' '));
       return terms.every((term) => searchableText.includes(term));
     });
-  }, [questions, searchMode, subject, selectedCategories, exam, questionSearch]);
+  }, [questions, searchMode, subject, selectedCategories, middleOptions, selectedMiddles, exam, questionSearch]);
   const countValue = Number(requestedCount);
   const validCount = Number.isInteger(countValue) && countValue > 0;
   const score = output.filter((item) => checkedAnswers[item.question.id]).length;
@@ -675,7 +692,7 @@ export default function PastQuestionPrototype({
               <>
                 <label className="field-label">
                   科目
-                  <select value={subject} onChange={(event) => { setSubject(event.target.value); setSelectedCategories([]); }}>
+                  <select value={subject} onChange={(event) => { setSubject(event.target.value); setSelectedCategories([]); setSelectedMiddles([]); }}>
                     <option value="">科目を選択</option>
                     {subjects.map((item) => <option key={item} value={item}>{item}</option>)}
                   </select>
@@ -705,6 +722,29 @@ export default function PastQuestionPrototype({
                       </label>
                     ))}
                 </div>
+                {middleOptions.map((group) => (
+                  <div key={group.category} className="middle-category-group">
+                    <div className="category-heading">
+                      <span>{group.category}の中項目（未選択なら全て対象）</span>
+                      <button type="button" className="text-button" onClick={() => setSelectedMiddles(selectedMiddles.filter((key) => !key.startsWith(`${group.category}\u0000`)))}>選択解除</button>
+                    </div>
+                    <div className="category-list" role="group" aria-label={`${group.category}の中項目`}>
+                      {group.items.map((item) => {
+                        const key = `${group.category}\u0000${item}`;
+                        return (
+                          <label key={key}>
+                            <input
+                              type="checkbox"
+                              checked={selectedMiddles.includes(key)}
+                              onChange={(event) => setSelectedMiddles(event.target.checked ? [...selectedMiddles, key] : selectedMiddles.filter((value) => value !== key))}
+                            />
+                            {item}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </>
             ) : (
               <label className="field-label">
