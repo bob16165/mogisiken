@@ -173,6 +173,13 @@ function outputCorrectPositions(item: DisplayQuestion) {
     item.question.answerOptions.includes(option.sourceIndex + 1) ? [index + 1] : []);
 }
 
+function formattedAnswer(item: DisplayQuestion) {
+  const correct = outputCorrectPositions(item);
+  return correct.length > 0
+    ? correct.map((position) => `${position}（${item.options[position - 1]?.text ?? ''}）`).join('、')
+    : item.question.answerText || '未登録';
+}
+
 function figureAssetUrl(reference: string) {
   const fileName = /\.png$/i.test(reference) ? reference : `${reference}.png`;
   return `/local-assets/past-question-images/${encodeURIComponent(fileName)}`;
@@ -843,9 +850,7 @@ export default function PastQuestionPrototype({
                       <details className="answer-reveal">
                         <summary>模範解答・出題回数を見る</summary>
                         <div className="answer-body">
-                          <p><strong>模範解答:</strong> {correct.length > 0
-                            ? correct.map((position) => `${position}（${item.options[position - 1]?.text ?? ''}）`).join('、')
-                            : item.question.answerText || '未登録'}</p>
+                          <p><strong>模範解答:</strong> {formattedAnswer(item)}</p>
                           <p><strong>出題回数:</strong> {item.question.occurrence || '記録なし'}</p>
                           <p><strong>国家試験出題回:</strong> {item.question.exam ? `第${item.question.exam}回` : '記録なし'}</p>
                         </div>
@@ -854,6 +859,21 @@ export default function PastQuestionPrototype({
                   );
                 })}
               </ol>
+              <section className={`answer-key ${role}-answer-key`} aria-label="模範解答">
+                  <h2>模範解答</h2>
+                  <ol>
+                    {output.map((item, index) => (
+                      <li key={item.question.id}>
+                        <strong>{index + 1}問:</strong> {formattedAnswer(item)}
+                        {role === 'teacher' && (
+                          <span className="answer-key-meta">
+                            （出題回数: {item.question.occurrence || '記録なし'} / 国家試験出題回: {item.question.exam ? `第${item.question.exam}回` : '記録なし'}）
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ol>
+              </section>
               <button type="button" className="secondary-button bottom-print-button" onClick={printPage}>
                 {role === 'teacher' ? '印刷 / PDF保存' : 'PDFとして保存'}
               </button>

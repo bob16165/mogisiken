@@ -409,6 +409,10 @@
   margin-left: auto;
 }
 
+.answer-key {
+  display: none;
+}
+
 @media (max-width: 700px) {
   .past-question-prototype {
     padding: 14px;
@@ -487,9 +491,37 @@
     margin: 8px 0;
   }
 
+  .past-question-prototype.teacher .question-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
   .question-card {
     padding: 10px;
     border-color: #999;
+  }
+
+  .past-question-prototype.teacher .question-card {
+    padding: 6px;
+    font-size: 8pt;
+  }
+
+  .past-question-prototype.teacher .question-meta {
+    gap: 3px 6px;
+    font-size: 8pt;
+  }
+
+  .past-question-prototype.teacher .question-prompt {
+    margin: 6px 0;
+    line-height: 1.4;
+  }
+
+  .past-question-prototype.teacher .option-list {
+    gap: 2px;
+  }
+
+  .past-question-prototype.teacher .question-figure img {
+    max-height: 180px;
   }
 
   .option-button,
@@ -499,8 +531,41 @@
     background: #fff !important;
   }
 
-  .past-question-prototype.teacher .answer-reveal:not([open]) .answer-body {
+  .past-question-prototype.teacher .answer-reveal {
+    display: none !important;
+  }
+
+  .past-question-prototype.student .answer-reveal {
+    display: none !important;
+  }
+
+  .past-question-prototype.student .option-button.correct,
+  .past-question-prototype.student .option-button.incorrect {
+    border-color: transparent;
+    background: #fff !important;
+    color: #000;
+  }
+
+  .answer-key {
     display: block;
+    break-before: page;
+  }
+
+  .answer-key ol {
+    padding-left: 24px;
+  }
+
+  .answer-key h2 {
+    margin-bottom: 12px;
+  }
+
+  .answer-key li {
+    break-inside: avoid;
+    margin: 6px 0;
+  }
+
+  .answer-key-meta {
+    font-size: 9pt;
   }
 
   .answer-reveal summary {
