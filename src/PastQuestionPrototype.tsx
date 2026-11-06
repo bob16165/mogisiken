@@ -37,16 +37,30 @@ const STORAGE_BUCKET = 'past-question-content';
 const WORKBOOK_PATH = 'workbook.xlsx';
 const ACUPUNCTURE_WORKBOOK_PATH = 'acupuncture-workbook.xlsx';
 const QUALIFICATION_GROUPS = ['acupuncture', 'acupuncture_massage'];
+const CATEGORY_NAME_CORRECTIONS: Record<string, string> = {
+  '競技者の生理学的特徴・変化': '競技者の生理的特徴・変化',
+  '膝関節内側側副靱帯損傷の診察': '膝関節側副靱帯損傷の診察',
+  '下腿三頭筋肉離れの診察': '下腿三頭筋肉ばなれの診察',
+};
 
 const cellText = (value: unknown) => String(value ?? '').trim();
 const normalized = (value: string) => value.normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu, '').toLocaleLowerCase('ja');
 
-function correctKnownExamMetadata(questions: PastQuestion[]) {
+function correctKnownWorkbookData(questions: PastQuestion[]) {
   let changed = false;
   const corrected = questions.map((question) => {
-    if (question.subject !== '外科学' || question.number !== '366' || question.exam !== '34') return question;
+    const exam = question.subject === '外科学' && question.number === '366' && question.exam === '34'
+      ? '33'
+      : question.exam;
+    const majorCategory = CATEGORY_NAME_CORRECTIONS[question.majorCategory] ?? question.majorCategory;
+    const middleCategory = CATEGORY_NAME_CORRECTIONS[question.middleCategory] ?? question.middleCategory;
+    if (
+      exam === question.exam
+      && majorCategory === question.majorCategory
+      && middleCategory === question.middleCategory
+    ) return question;
     changed = true;
-    return { ...question, exam: '33' };
+    return { ...question, exam, majorCategory, middleCategory };
   });
   return { questions: corrected, changed };
 }
@@ -67,7 +81,7 @@ function parseWorkbook(buffer: ArrayBuffer) {
     const sheet = workbook.Sheets[subject];
     if (!sheet) return;
     const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: false });
-    const hasMiddle = cellText(rows[0]?.[2]) === '中項目';
+    const hasMiddle = ['中項目', '小項目'].includes(cellText(rows[0]?.[2]));
     const offset = hasMiddle ? 1 : 0;
     rows.slice(1).forEach((row, index) => {
       const prompt = cellText(row[2 + offset]);
@@ -93,7 +107,7 @@ function parseWorkbook(buffer: ArrayBuffer) {
   if (questions.length === 0) {
     throw new Error('設問が見つかりません。1行目が見出しで、C列に問題文があるExcelを選択してください。');
   }
-  return correctKnownExamMetadata(questions).questions;
+  return correctKnownWorkbookData(questions).questions;
 }
 
 function openQuestionDatabase() {
@@ -395,14 +409,14 @@ export default function PastQuestionPrototype({
       try {
         const stored = await loadQuestionBank();
         if (!stored?.questions?.length) return;
-        const corrected = correctKnownExamMetadata(stored.questions);
+        const corrected = correctKnownWorkbookData(stored.questions);
         setQuestions(corrected.questions);
         setFileName(stored.fileName);
         if (corrected.changed) {
-          setMessage(`${stored.fileName} を読み込みました。外科学・問題366の出題回を第33回に訂正しています。`);
+          setMessage(`${stored.fileName} を読み込み、既知の出題情報の表記訂正を適用しています。`);
           try {
             await saveQuestionBank(stored.fileName, corrected.questions);
-            setMessage(`${stored.fileName} を読み込み、外科学・問題366の出題回を第33回に訂正して保存しました。`);
+            setMessage(`${stored.fileName} を読み込み、既知の出題情報の表記訂正を適用して保存しました。`);
           } catch (error) {
             setStorageWarning(error instanceof Error ? error.message : '訂正内容をブラウザーに保存できませんでした。');
           }
@@ -435,12 +449,17 @@ export default function PastQuestionPrototype({
     const term = normalized(categorySearch);
     return categories.filter((category) => !term || normalized(category).includes(term));
   }, [categories, categorySearch]);
-  const middleOptions = useMemo(() => selectedCategories.filter((category) => category.endsWith('各論')).map((category) => ({
-    category,
-    items: [...new Set(questions
-      .filter((question) => (!subject || question.subject === subject) && question.majorCategory === category && question.middleCategory)
-      .map((question) => question.middleCategory))],
-  })).filter((group) => group.items.length > 0), [questions, subject, selectedCategories]);
+  const middleOptions = useMemo(() => selectedCategories
+    .filter((category) => category.endsWith('各論')
+      || category.includes('症候に対する鍼灸治療')
+      || (!isAcupuncture && subject === '衛生学' && ['公衆衛生', '環境衛生'].includes(category)))
+    .map((category) => ({
+      category,
+      items: [...new Set(questions
+        .filter((question) => (!subject || question.subject === subject) && question.majorCategory === category && question.middleCategory)
+        .map((question) => question.middleCategory))],
+    }))
+    .filter((group) => group.items.length > 0), [questions, subject, selectedCategories, isAcupuncture]);
   const matchingQuestions = useMemo(() => {
     const terms = searchTerms(questionSearch);
     return questions.filter((question) => {
