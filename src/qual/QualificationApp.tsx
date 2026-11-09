@@ -501,7 +501,7 @@ export default function QualificationApp(props: QualificationAppProps) {
               setViewMode('student');
             }}
           />
-          <TeacherReview track={track} examName={exam.name} />
+          <TeacherReview track={track} examName={exam.name} isDemoAccount={props.isDemoAccount} />
           </>
         ) : (
           <>

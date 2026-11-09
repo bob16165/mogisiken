@@ -240,7 +240,7 @@ export function studentHighRateHits(history: HistoryEntry[]) {
   return history.flatMap((entry) => wrongHighRate(entry, 50));
 }
 
-export function TeacherReview({ track, examName = '' }: { track: HistoryEntry['track']; examName?: string }) {
+export function TeacherReview({ track, examName = '', isDemoAccount = false }: { track: HistoryEntry['track']; examName?: string; isDemoAccount?: boolean }) {
   const review = buildClassReview(track, examName);
   const areas = (groups: typeof review.lecture, remedial: boolean) => groups.map((group) => (
     <div key={group.subject} style={{ marginBottom: 14 }}>
@@ -270,25 +270,25 @@ export function TeacherReview({ track, examName = '' }: { track: HistoryEntry['t
         <p style={{ margin: 0, lineHeight: 1.7 }}>
           受験者{review.studentCount}名の平均は{review.average.toFixed(1)}点（得点率{((review.average / review.max) * 100).toFixed(1)}%）でした。
           最高点は{review.highest}点、最低点は{review.lowest}点です。
-          下位{review.lowCount}名を低学力者向け補習の分析対象としています。
+          {!isDemoAccount && <>下位{review.lowCount}名を低学力者向け補習の分析対象としています。</>}
         </p>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 15 }}>
         <div style={{ background: '#e3f2fd', padding: 15, borderRadius: 8, border: '1px solid #90caf9' }}>
           <h3 style={{ margin: '0 0 12px', color: '#1565c0' }}>全体の講義向け</h3>
-          <p style={{ margin: '0 0 12px', fontSize: 12, color: '#546e7a' }}>上位30%と下位30%を除外した中間層（{review.middleCount}名）を対象</p>
+          {!isDemoAccount && <p style={{ margin: '0 0 12px', fontSize: 12, color: '#546e7a' }}>上位30%と下位30%を除外した中間層（{review.middleCount}名）を対象</p>}
           {areas(review.lecture, false)}
         </div>
         <div style={{ background: '#fff3e0', padding: 15, borderRadius: 8, border: '1px solid #ffcc80' }}>
           <h3 style={{ margin: '0 0 12px', color: '#e65100' }}>低学力者の補習向け</h3>
-          <p style={{ margin: '0 0 12px', fontSize: 12, color: '#6d4c41' }}>下位30%を対象に、平均識別係数0.2以上の領域</p>
+          {!isDemoAccount && <p style={{ margin: '0 0 12px', fontSize: 12, color: '#6d4c41' }}>下位30%を対象に、平均識別係数0.2以上の領域</p>}
           {areas(review.remedial, true)}
         </div>
       </div>
       <div style={{ marginTop: 15, background: '#f3e5f5', padding: 15, borderRadius: 8, border: '1px solid #ce93d8' }}>
-        <h3 style={{ margin: '0 0 12px', color: '#6a1b9a' }}>低学力者向け：識別係数0.3以上の問題</h3>
-        <p style={{ margin: '0 0 12px', fontSize: 12, color: '#6a1b9a' }}>総合点との相関が0.3以上の問題です。数値が高い問題ほど総合点との関連が強い問題です。</p>
-        {discBySubject.length === 0 ? <p style={{ margin: 0, color: '#666' }}>識別係数0.3以上の問題はありません。</p> : discBySubject.map((subject) => (
+        <h3 style={{ margin: '0 0 12px', color: '#6a1b9a' }}>{isDemoAccount ? '低学力者向けの問題' : '低学力者向け：識別係数0.3以上の問題'}</h3>
+        {!isDemoAccount && <p style={{ margin: '0 0 12px', fontSize: 12, color: '#6a1b9a' }}>総合点との相関が0.3以上の問題です。数値が高い問題ほど総合点との関連が強い問題です。</p>}
+        {discBySubject.length === 0 ? <p style={{ margin: 0, color: '#666' }}>{isDemoAccount ? '対象の問題はありません。' : '識別係数0.3以上の問題はありません。'}</p> : discBySubject.map((subject) => (
           <div key={subject} style={{ marginBottom: 14 }}>
             <h4 style={{ margin: '0 0 6px', color: '#263238' }}>{subject}</h4>
             <ol style={{ margin: 0, paddingLeft: 24 }}>
