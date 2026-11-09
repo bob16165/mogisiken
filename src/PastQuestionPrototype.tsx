@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as XLSX from '@e965/xlsx';
+import { downloadPastQuestionPdf } from './past-question-pdf';
 import './PastQuestionPrototype.css';
 
 interface PastQuestion {
@@ -536,35 +537,53 @@ export default function PastQuestionPrototype({
     }
   };
 
-  const saveAndPrint = async (items: DisplayQuestion[], existingSetId = '') => {
-    if (role !== 'student' || !productionMode || existingSetId) {
-      window.setTimeout(printPage, 100);
+  const saveAndDownload = async (items: DisplayQuestion[], existingSetId = '') => {
+    if (role === 'teacher') {
+      printPage();
       return;
     }
-    if (!supabase || !userId || !studyReady || studyBusy) {
-      setStudyStatus('問題セットを保存できません。接続・設定を確認してください。');
-      if (!studyBusy && window.confirm('問題セットを保存できません。印刷はできますが、後から問題番号で復習登録できません。このまま印刷しますか？')) {
-        window.setTimeout(printPage, 100);
-      }
-      return;
-    }
+    if (studyBusy) return;
     setStudyBusy(true);
-    setStudyStatus('問題セットを保存中…');
     try {
-      const { data, error } = await supabase.from('private_past_question_sets')
-        .insert({ user_id: userId, qualification: qualificationVariant, questions: items })
-        .select('id, created_at, questions').single();
-      if (error) throw error;
-      const saved = data as SavedSet;
-      setSavedSets((current) => [saved, ...current]);
-      setCurrentSetId(saved.id);
-      setStudyStatus('問題セットを保存しました。印刷画面でPDFとして保存できます。');
-      window.setTimeout(printPage, 100);
-    } catch (error) {
-      setStudyStatus(`問題セットを保存できませんでした。${error instanceof Error ? error.message : 'もう一度お試しください。'}`);
-      if (window.confirm('問題セットを保存できませんでした。印刷はできますが、後から問題番号で復習登録できません。このまま印刷しますか？')) {
-        window.setTimeout(printPage, 100);
+      if (productionMode && !existingSetId) {
+        try {
+          if (!supabase || !userId || !studyReady) throw new Error('接続・設定を確認してください。');
+          setStudyStatus('問題セットを保存中…');
+          const { data, error } = await supabase.from('private_past_question_sets')
+            .insert({ user_id: userId, qualification: qualificationVariant, questions: items })
+            .select('id, created_at, questions').single();
+          if (error) throw error;
+          const saved = data as SavedSet;
+          setSavedSets((current) => [saved, ...current]);
+          setCurrentSetId(saved.id);
+          setStudyStatus('問題セットを保存しました。');
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : '接続・設定を確認してください。';
+          setStudyStatus(`問題セットを保存できませんでした。${detail}`);
+          if (!window.confirm('問題セットを保存できませんでした。PDFはダウンロードできますが、後から問題番号で復習登録できません。このまま続けますか？')) return;
+        }
       }
+      setMessage('PDFを作成しています…');
+      await downloadPastQuestionPdf(pageTitle, items.map((item) => ({
+        subject: item.question.subject, majorCategory: item.question.majorCategory,
+        number: item.question.number, prompt: item.question.prompt,
+        options: item.options.map((option) => option.text), answer: formattedAnswer(item), figure: item.question.figure,
+        multipleAnswers: item.question.answerOptions.length > 1,
+      })), async (reference) => {
+        if (productionMode) {
+          if (!supabase) throw new Error('Supabase接続設定がありません。');
+          const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(storageImagePath(imageFileName(reference)));
+          if (error) throw error;
+          if (!data) throw new Error('画像データが空です。');
+          return data;
+        }
+        const response = await fetch(figureAssetUrl(reference));
+        if (!response.ok) throw new Error(`画像取得エラー (${response.status})`);
+        return response.blob();
+      }, examPublisher);
+      setMessage('PDFのダウンロードを開始しました。');
+    } catch (error) {
+      setMessage(`PDFを作成できませんでした。${error instanceof Error ? error.message : 'もう一度お試しください。'}`);
     } finally {
       setStudyBusy(false);
     }
@@ -744,7 +763,7 @@ export default function PastQuestionPrototype({
     setCheckedAnswers({});
     setMessage(`${nextOutput.length}問を出力しました。`);
     if (role === 'student' && studentOutputMode === 'pdf') {
-      void saveAndPrint(nextOutput);
+      void saveAndDownload(nextOutput);
     }
   };
 
@@ -807,8 +826,8 @@ export default function PastQuestionPrototype({
             ? '科目・大項目または国家試験出題回から問題を作成します。'
             : 'Excelを読み込み、科目・大項目または国家試験出題回から問題を作成します。'}</p>
         </div>
-        <button type="button" className="secondary-button print-button" onClick={() => void saveAndPrint(output, currentSetId)} disabled={output.length === 0 || studyBusy}>
-          {role === 'teacher' ? '印刷 / PDF保存' : 'PDFとして保存'}
+        <button type="button" className="secondary-button print-button" onClick={() => void saveAndDownload(output, currentSetId)} disabled={output.length === 0 || studyBusy}>
+          {role === 'teacher' ? '印刷 / PDF保存' : 'PDFをダウンロード'}
         </button>
       </header>
 
@@ -868,7 +887,7 @@ export default function PastQuestionPrototype({
             <section className="student-mode-panel">
               <span className="panel-label">解き方</span>
               <label><input type="radio" name="student-output-mode" checked={studentOutputMode === 'screen'} onChange={() => setStudentOutputMode('screen')} />画面で解く</label>
-              <label><input type="radio" name="student-output-mode" checked={studentOutputMode === 'pdf'} onChange={() => setStudentOutputMode('pdf')} />PDFで解く（印刷画面からPDF保存）</label>
+              <label><input type="radio" name="student-output-mode" checked={studentOutputMode === 'pdf'} onChange={() => setStudentOutputMode('pdf')} />PDFで解く（直接ダウンロード）</label>
             </section>
           )}
 
@@ -921,7 +940,7 @@ export default function PastQuestionPrototype({
                       setStudentOutputMode('pdf');
                       setSelectedAnswers({});
                       setCheckedAnswers({});
-                      setMessage('保存した問題セットを表示しました。印刷 / PDF保存できます。');
+                      setMessage('保存した問題セットを表示しました。PDFをダウンロードできます。');
                     }}>問題セットを表示</button>{' '}
                     <button type="button" className="text-button" disabled={studyBusy} onClick={async () => {
                       if (!supabase || !window.confirm('この問題セットを削除しますか？復習リストの問題は残ります。')) return;
@@ -1032,7 +1051,7 @@ export default function PastQuestionPrototype({
                 該当 {matchingQuestions.length}問。指定数が該当数より多い場合は、該当する問題をすべて出力します。
               </p>
               <button type="button" className="primary-button generate-button" onClick={generateQuestions} disabled={!validCount || matchingQuestions.length === 0 || busy || studyBusy}>
-                {role === 'student' && studentOutputMode === 'pdf' ? '問題を作成してPDFへ' : '問題を出力'}
+                {role === 'student' && studentOutputMode === 'pdf' ? '問題を作成してPDFをダウンロード' : '問題を出力'}
               </button>
             </div>
             {!validCount && <p className="warning-message" role="alert">問題数は1以上の整数を指定してください。</p>}
@@ -1131,8 +1150,8 @@ export default function PastQuestionPrototype({
                     ))}
                   </ol>
               </section>
-              <button type="button" className="secondary-button bottom-print-button" disabled={studyBusy} onClick={() => void saveAndPrint(output, currentSetId)}>
-                {role === 'teacher' ? '印刷 / PDF保存' : 'PDFとして保存'}
+              <button type="button" className="secondary-button bottom-print-button" disabled={studyBusy} onClick={() => void saveAndDownload(output, currentSetId)}>
+                {role === 'teacher' ? '印刷 / PDF保存' : 'PDFをダウンロード'}
               </button>
             </section>
           )}

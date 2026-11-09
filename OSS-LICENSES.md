@@ -13,6 +13,7 @@
 | @vitejs/plugin-react | Vite の React プラグイン | MIT | https://github.com/vitejs/vite-plugin-react |
 | @types/react | React の型定義 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/react-dom | React DOM の型定義 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| jsPDF | 学生用過去問PDFの生成 | MIT | https://github.com/parallax/jsPDF |
 
 ## 公開 HTML の CDN 依存
 

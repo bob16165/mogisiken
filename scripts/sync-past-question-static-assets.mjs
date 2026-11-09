@@ -32,7 +32,7 @@ while (pendingChunks.length > 0) {
   copiedChunks.add(file)
   const sourcePath = join(assetSourceDirectory, file)
   const code = await readFile(sourcePath, 'utf8')
-  for (const match of code.matchAll(/(?:from|import)\s*["']([^"']+\.js)["']/g)) {
+  for (const match of code.matchAll(/(?:from\s*|import\s*\(\s*|import\s*)["']([^"']+\.js)["']/g)) {
     const dependency = match[1]
     if (dependency.startsWith('./')) pendingChunks.push(basename(dependency))
   }
