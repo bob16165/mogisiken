@@ -7,6 +7,7 @@ interface Props {
   trackId: TrackId;
   currentExamId: string;
   onOpenStudent: (studentId: string, examId: string) => void;
+  isDemoAccount?: boolean;
 }
 
 interface Point { examIndex: number; examName: string; deviation: number }
@@ -48,7 +49,7 @@ function metricFilter(track: TrackData, metric: string) {
   return (question: { subject: string }) => question.subject === subject;
 }
 
-export function DeviationTrend({ exams, trackId, currentExamId, onOpenStudent }: Props) {
+export function DeviationTrend({ exams, trackId, currentExamId, onOpenStudent, isDemoAccount = false }: Props) {
   const available = exams
     .map((exam) => ({ exam, track: exam.tracks[trackId] }))
     .filter((item): item is { exam: ExamData; track: TrackData } => Boolean(item.track));
@@ -257,7 +258,7 @@ export function DeviationTrend({ exams, trackId, currentExamId, onOpenStudent }:
       <section style={{ ...box, marginTop: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline', flexWrap: 'wrap', marginBottom: 12 }}>
           <h3 style={{ margin: 0, color: '#263238', fontSize: 17 }}>要チェック</h3>
-          <span style={{ color: '#78909c', fontSize: 12 }}>選択した試験のうち、直近の受験回から偏差値が5以上下落</span>
+          {!isDemoAccount && <span style={{ color: '#78909c', fontSize: 12 }}>選択した試験のうち、直近の受験回から偏差値が5以上下落</span>}
         </div>
         {drops.length === 0 ? (
           <p style={{ margin: 0, color: '#78909c', fontSize: 13 }}>該当する学生はいません。</p>

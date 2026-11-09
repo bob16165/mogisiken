@@ -77,6 +77,7 @@ export interface QualificationAppProps {
   academicInfo?: AcademicInfo | null;
   nationalExamSchedule?: QualScheduleMap | null;
   scheduleLoadError?: boolean;
+  isDemoAccount?: boolean;
   userName: string;
   studentId: string;
   groupId: 'acupuncture' | 'acupuncture_massage';
@@ -473,6 +474,7 @@ export default function QualificationApp(props: QualificationAppProps) {
             exams={visibleExams}
             trackId={track.id}
             currentExamId={exam.id}
+            isDemoAccount={props.isDemoAccount}
             onOpenStudent={(studentId, targetExamId) => {
               const target = visibleExams.find((item) => item.id === targetExamId)?.tracks[track.id];
               const found = target ? target.students.findIndex((item) => item.id === studentId) : -1;
@@ -491,6 +493,7 @@ export default function QualificationApp(props: QualificationAppProps) {
             overallMax={overallMax}
             qualifications={track.id === 'massage' ? [] : qualificationRows}
             subjects={subjectRows.map(({ subject, max, scores }) => ({ name: subject.name, max, scores }))}
+            isDemoAccount={props.isDemoAccount}
             onSelectStudent={(index) => {
               setStudentIndex(index);
               setExpandedSubject(null);
@@ -1192,6 +1195,7 @@ function TeacherClassView({
   overallMax,
   qualifications,
   subjects,
+  isDemoAccount,
   onSelectStudent,
 }: {
   students: TrackData['students'];
@@ -1199,6 +1203,7 @@ function TeacherClassView({
   overallMax: number;
   qualifications: TeacherQualificationRow[];
   subjects: TeacherSubjectRow[];
+  isDemoAccount?: boolean;
   onSelectStudent: (index: number) => void;
 }) {
   const [sortKey, setSortKey] = useState('overall');
@@ -1324,12 +1329,12 @@ function TeacherClassView({
           </tbody>
         </table>
       </div>
-      <div style={{ margin: '12px 0', padding: '10px 14px', background: '#f5f7fa', borderRadius: 6, fontSize: 13, lineHeight: 1.8 }}>
+      {!isDemoAccount && <div style={{ margin: '12px 0', padding: '10px 14px', background: '#f5f7fa', borderRadius: 6, fontSize: 13, lineHeight: 1.8 }}>
         <strong>順位欄の見方</strong>
         <div>印なし：上位30%（{topCount}名）</div>
         <div><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#9e9e9e', marginRight: 6 }} />中間層（{middleCount}名）</div>
         <div><span style={{ display: 'inline-block', width: 9, height: 9, borderRadius: '50%', background: '#F44336', marginRight: 6 }} />下位30%・補習対象（{lowCount}名）</div>
-      </div>
+      </div>}
       <p style={styles.teacherFootnote}>列見出しを選ぶと、その項目の順に並べ替えできます。詳細から学生側の結果画面を確認できます。</p>
     </section>
   );
