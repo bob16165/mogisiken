@@ -2517,14 +2517,18 @@
             return sections;
         }
 
-        function toLoggedInUser(profile) {
+        function toLoggedInUser(profile, authEmail = '', attemptedLoginId = '') {
             const loginId = String(profile.login_id || '').trim().toLowerCase();
+            const authenticatedLoginId = String(authEmail).split('@')[0].trim().toLowerCase();
+            const normalizedAttemptedLoginId = String(attemptedLoginId).trim().toLowerCase();
             return {
                 id: profile.id,
                 studentId: profile.student_id,
                 name: profile.display_name,
                 loginId,
-                isDemoAccount: loginId === 'demo1' || loginId === 'demo2',
+                isDemoAccount: ['demo1', 'demo2'].includes(loginId)
+                    || ['demo1', 'demo2'].includes(authenticatedLoginId)
+                    || ['demo1', 'demo2'].includes(normalizedAttemptedLoginId),
                 role: profile.role,
                 schoolId: profile.school_id,
                 isTeacher: profile.role === 'teacher' || profile.role === 'admin',
@@ -2770,7 +2774,7 @@
                     //     throw new Error(`入力されたIDが登録されたログインIDと一致しません。割り振られたID（例：${profile.login_id}）を入力してください。`);
                     // }
 
-                    const loggedInUser = toLoggedInUser(profile);
+                    const loggedInUser = toLoggedInUser(profile, authData.user.email, normalizedId);
                     if (profile.role === 'admin') {
                         const { data: assurance, error: assuranceError } =
                             await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
@@ -6687,7 +6691,7 @@
                         .single();
 
                     if (isMounted && profile && !error) {
-                        const loggedInProfile = toLoggedInUser(profile);
+                        const loggedInProfile = toLoggedInUser(profile, authUser.email);
                         if (profile.role === 'admin') {
                             const { data: assurance, error: assuranceError } =
                                 await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
