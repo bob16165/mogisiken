@@ -4801,7 +4801,7 @@
         }
 
         // 結果表示コンポーネント
-        function TeacherDeviationTrend({ allExams, selectedExamIndex, currentExam, allResults, onSelectStudent, onExamChange, onBack }) {
+        function TeacherDeviationTrend({ allExams, selectedExamIndex, currentExam, allResults, onSelectStudent, onExamChange, onBack, isDemoAccount }) {
             const examKey = (exam, index) => exam.id || `exam-${index}`;
             const [selectedExamKeys, setSelectedExamKeys] = useState(() => new Set([examKey(currentExam, selectedExamIndex)]));
             const [metric, setMetric] = useState('total');
@@ -5039,7 +5039,7 @@
                         <section aria-labelledby="deviation-watchlist-title" style={{ marginTop: '16px', background: 'white', border: '1px solid #e0e6ea', borderRadius: '10px', padding: '18px 20px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', alignItems: 'baseline', flexWrap: 'wrap', marginBottom: '12px' }}>
                                 <h2 id="deviation-watchlist-title" style={{ margin: 0, color: '#263238', fontSize: '17px' }}>要チェック</h2>
-                                {!user.isDemoAccount && <span style={{ color: '#78909c', fontSize: '12px' }}>選択した試験のうち、直近の受験回から偏差値が5以上下落</span>}
+                                {!isDemoAccount && <span style={{ color: '#78909c', fontSize: '12px' }}>選択した試験のうち、直近の受験回から偏差値が5以上下落</span>}
                             </div>
                             {targetDrops.length === 0 ? (
                                 <p style={{ margin: 0, color: '#78909c', fontSize: '13px' }}>該当する学生はいません。</p>
@@ -5239,6 +5239,7 @@
                     onSelectStudent={handleSelectStudent}
                     onExamChange={onExamChange}
                     onBack={() => setViewMode('list')}
+                    isDemoAccount={user.isDemoAccount}
                 />;
             }
 
