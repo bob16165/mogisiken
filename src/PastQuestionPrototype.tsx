@@ -23,6 +23,23 @@ interface DisplayQuestion {
   options: { sourceIndex: number; text: string }[];
 }
 
+interface SavedReview {
+  question_key: string;
+  question: PastQuestion;
+}
+
+interface SavedSet {
+  id: string;
+  created_at: string;
+  questions: DisplayQuestion[];
+}
+
+async function questionKey(question: PastQuestion) {
+  const content = JSON.stringify([question.subject, question.number, question.prompt, question.options, question.answerText]);
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(content));
+  return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
 interface StoredQuestionBank {
   id: string;
   fileName: string;
@@ -306,6 +323,17 @@ export default function PastQuestionPrototype({
   const [output, setOutput] = useState<DisplayQuestion[]>([]);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number[]>>({});
   const [checkedAnswers, setCheckedAnswers] = useState<Record<string, boolean>>({});
+  const [answerSaveStatus, setAnswerSaveStatus] = useState<Record<string, string>>({});
+  const [userId, setUserId] = useState('');
+  const [review, setReview] = useState<SavedReview[]>([]);
+  const [savedSets, setSavedSets] = useState<SavedSet[]>([]);
+  const [selectedSetQuestions, setSelectedSetQuestions] = useState<Record<string, boolean>>({});
+  const [studyStatus, setStudyStatus] = useState('');
+  const [studyBusy, setStudyBusy] = useState(false);
+  const [studyReady, setStudyReady] = useState(false);
+  const [currentSetId, setCurrentSetId] = useState('');
+
+  useEffect(() => { setAnswerSaveStatus({}); }, [output]);
 
   useEffect(() => {
     if (productionMode) {
@@ -324,6 +352,10 @@ export default function PastQuestionPrototype({
         setAccessStatus('signedOut');
         setQuestions([]);
         setOutput([]);
+        setUserId('');
+        setReview([]);
+        setSavedSets([]);
+        setStudyReady(false);
       };
       const { data: authListener } = supabase.auth.onAuthStateChange((event) => {
         if (event === 'SIGNED_OUT' && active) clearAccess();
@@ -387,6 +419,7 @@ export default function PastQuestionPrototype({
           setFileName(isAcupuncture ? '鍼灸過去問.xlsx' : '柔整過去問.xlsx');
           setMessage(`問題データを安全に読み込みました（${imported.length.toLocaleString()}問）。`);
           setRole(profile.role === 'teacher' ? 'teacher' : 'student');
+          setUserId(profile.role === 'student' ? user.id : '');
           setAccessStatus('ready');
         } catch (error) {
           if (active && currentGeneration === loadGeneration) {
@@ -431,6 +464,111 @@ export default function PastQuestionPrototype({
     };
     void load();
   }, [isAcupuncture, productionMode, supabase, workbookPath]);
+
+  useEffect(() => {
+    if (!productionMode || !supabase || !userId) return;
+    let active = true;
+    setStudyReady(false);
+    setStudyStatus('復習データを読み込んでいます…');
+    const loadStudy = async () => {
+      try {
+        const [reviewResult, setsResult] = await Promise.all([
+          supabase.from('private_past_question_review').select('question_key, question')
+            .eq('user_id', userId).eq('qualification', qualificationVariant).order('updated_at', { ascending: false }),
+          supabase.from('private_past_question_sets').select('id, created_at, questions')
+            .eq('user_id', userId).eq('qualification', qualificationVariant).order('created_at', { ascending: false }),
+        ]);
+        if (reviewResult.error) throw reviewResult.error;
+        if (setsResult.error) throw setsResult.error;
+        if (active) {
+          setReview(reviewResult.data as SavedReview[]);
+          setSavedSets(setsResult.data as SavedSet[]);
+          setStudyReady(true);
+          setStudyStatus('復習データは本人のアカウントに保存されます。');
+        }
+      } catch (error) {
+        if (active) setStudyStatus(`復習データを読み込めませんでした。${error instanceof Error ? error.message : '接続や設定を確認してください。'}`);
+      }
+    };
+    void loadStudy();
+    return () => { active = false; };
+  }, [productionMode, qualificationVariant, supabase, userId]);
+
+  const addReviewQuestions = async (items: PastQuestion[]) => {
+    if (!supabase || !userId || !studyReady || studyBusy || !items.length) return false;
+    setStudyBusy(true);
+    setStudyStatus('復習リストを保存中…');
+    try {
+      const entries = await Promise.all(items.map(async (question) => ({
+        user_id: userId, qualification: qualificationVariant, question_key: await questionKey(question), question,
+        updated_at: new Date().toISOString(),
+      })));
+      const unique = [...new Map(entries.map((entry) => [entry.question_key, entry])).values()];
+      const { error } = await supabase.from('private_past_question_review').upsert(unique, {
+        onConflict: 'user_id,qualification,question_key',
+      });
+      if (error) throw error;
+      setReview((current) => [...unique.map(({ question_key, question }) => ({ question_key, question })),
+        ...current.filter((item) => !unique.some((entry) => entry.question_key === item.question_key))]);
+      setStudyStatus(`${unique.length}問を復習リストに保存しました。`);
+      return true;
+    } catch (error) {
+      setStudyStatus(`復習リストを保存できませんでした。${error instanceof Error ? error.message : 'もう一度お試しください。'}`);
+      return false;
+    } finally {
+      setStudyBusy(false);
+    }
+  };
+
+  const removeReviewQuestion = async (item: SavedReview) => {
+    if (!supabase || !userId || studyBusy) return;
+    setStudyBusy(true);
+    try {
+      const { error } = await supabase.from('private_past_question_review').delete()
+        .eq('user_id', userId).eq('qualification', qualificationVariant).eq('question_key', item.question_key);
+      if (error) throw error;
+      setReview((current) => current.filter((entry) => entry.question_key !== item.question_key));
+      setStudyStatus('復習済みにしました。');
+    } catch (error) {
+      setStudyStatus(`復習済みにできませんでした。${error instanceof Error ? error.message : 'もう一度お試しください。'}`);
+    } finally {
+      setStudyBusy(false);
+    }
+  };
+
+  const saveAndPrint = async (items: DisplayQuestion[], existingSetId = '') => {
+    if (role !== 'student' || !productionMode || existingSetId) {
+      window.setTimeout(printPage, 100);
+      return;
+    }
+    if (!supabase || !userId || !studyReady || studyBusy) {
+      setStudyStatus('問題セットを保存できません。接続・設定を確認してください。');
+      if (!studyBusy && window.confirm('問題セットを保存できません。印刷はできますが、後から問題番号で復習登録できません。このまま印刷しますか？')) {
+        window.setTimeout(printPage, 100);
+      }
+      return;
+    }
+    setStudyBusy(true);
+    setStudyStatus('問題セットを保存中…');
+    try {
+      const { data, error } = await supabase.from('private_past_question_sets')
+        .insert({ user_id: userId, qualification: qualificationVariant, questions: items })
+        .select('id, created_at, questions').single();
+      if (error) throw error;
+      const saved = data as SavedSet;
+      setSavedSets((current) => [saved, ...current]);
+      setCurrentSetId(saved.id);
+      setStudyStatus('問題セットを保存しました。印刷画面でPDFとして保存できます。');
+      window.setTimeout(printPage, 100);
+    } catch (error) {
+      setStudyStatus(`問題セットを保存できませんでした。${error instanceof Error ? error.message : 'もう一度お試しください。'}`);
+      if (window.confirm('問題セットを保存できませんでした。印刷はできますが、後から問題番号で復習登録できません。このまま印刷しますか？')) {
+        window.setTimeout(printPage, 100);
+      }
+    } finally {
+      setStudyBusy(false);
+    }
+  };
 
   const subjects = useMemo(() => [...new Set(questions.map((question) => question.subject))], [questions]);
   const exams = useMemo(
@@ -601,15 +739,21 @@ export default function PastQuestionPrototype({
     if (!validCount || matchingQuestions.length === 0) return;
     const nextOutput = createOutput(matchingQuestions, countValue);
     setOutput(nextOutput);
+    setCurrentSetId('');
     setSelectedAnswers({});
     setCheckedAnswers({});
     setMessage(`${nextOutput.length}問を出力しました。`);
     if (role === 'student' && studentOutputMode === 'pdf') {
-      window.setTimeout(printPage, 100);
+      void saveAndPrint(nextOutput);
     }
   };
 
   const toggleAnswer = (questionId: string, answer: number, multiple: boolean) => {
+    setAnswerSaveStatus((current) => {
+      const next = { ...current };
+      delete next[questionId];
+      return next;
+    });
     setSelectedAnswers((current) => {
       const selected = current[questionId] ?? [];
       const next = multiple
@@ -627,10 +771,30 @@ export default function PastQuestionPrototype({
   const checkAnswer = (item: DisplayQuestion) => {
     const correct = outputCorrectPositions(item);
     const selected = selectedAnswers[item.question.id] ?? [];
+    if (selected.length === 0) {
+      setMessage('選択肢を選んでから解答を確認してください。');
+      return;
+    }
     const isCorrect = correct.length > 0
       && correct.length === selected.length
       && correct.every((answer) => selected.includes(answer));
     setCheckedAnswers((current) => ({ ...current, [item.question.id]: isCorrect }));
+    setAnswerSaveStatus((current) => {
+      const next = { ...current };
+      delete next[item.question.id];
+      return next;
+    });
+    if (!isCorrect && role === 'student' && productionMode) {
+      if (!studyReady) {
+        setStudyStatus('復習リストに保存できません。接続・設定を確認してください。');
+        setAnswerSaveStatus((current) => ({ ...current, [item.question.id]: '復習リストに保存できません。接続・設定を確認してください。' }));
+      } else {
+        setAnswerSaveStatus((current) => ({ ...current, [item.question.id]: '復習リストに保存中…' }));
+        void addReviewQuestions([item.question]).then((saved) => setAnswerSaveStatus((current) => ({
+          ...current, [item.question.id]: saved ? '復習リストに保存しました。' : '保存できませんでした。もう一度「解答を確認」を押してください。',
+        })));
+      }
+    }
   };
 
   return (
@@ -643,7 +807,7 @@ export default function PastQuestionPrototype({
             ? '科目・大項目または国家試験出題回から問題を作成します。'
             : 'Excelを読み込み、科目・大項目または国家試験出題回から問題を作成します。'}</p>
         </div>
-        <button type="button" className="secondary-button print-button" onClick={printPage} disabled={output.length === 0}>
+        <button type="button" className="secondary-button print-button" onClick={() => void saveAndPrint(output, currentSetId)} disabled={output.length === 0 || studyBusy}>
           {role === 'teacher' ? '印刷 / PDF保存' : 'PDFとして保存'}
         </button>
       </header>
@@ -705,6 +869,78 @@ export default function PastQuestionPrototype({
               <span className="panel-label">解き方</span>
               <label><input type="radio" name="student-output-mode" checked={studentOutputMode === 'screen'} onChange={() => setStudentOutputMode('screen')} />画面で解く</label>
               <label><input type="radio" name="student-output-mode" checked={studentOutputMode === 'pdf'} onChange={() => setStudentOutputMode('pdf')} />PDFで解く（印刷画面からPDF保存）</label>
+            </section>
+          )}
+
+          {productionMode && role === 'student' && (
+            <section className="search-panel study-panel">
+              <p className="muted" role="status">{studyStatus}</p>
+              <details>
+                <summary>復習リスト（{review.length}問）・作成した問題セット（{savedSets.length}件）</summary>
+                <h3>復習リスト</h3>
+                {review.length === 0 ? <p className="muted">復習する問題はまだありません。</p> : (
+                  <>
+                    <button type="button" className="primary-button" disabled={!studyReady || studyBusy} onClick={() => {
+                      const items = review.map((item) => ({ ...item.question, id: item.question_key }));
+                      setOutput(createOutput(items, items.length));
+                      setCurrentSetId('');
+                      setStudentOutputMode('screen');
+                      setSelectedAnswers({});
+                      setCheckedAnswers({});
+                      setMessage(`復習リストから${items.length}問を出力しました。`);
+                    }}>復習リストを解く</button>
+                    <ul className="study-list">
+                      {review.map((item) => <li key={item.question_key}>
+                        <span>{item.question.subject} / {item.question.majorCategory} {item.question.number && `（問題番号 ${item.question.number}）`}</span>
+                        <button type="button" className="text-button" disabled={studyBusy} onClick={() => void removeReviewQuestion(item)}>復習済みにする</button>
+                      </li>)}
+                    </ul>
+                  </>
+                )}
+                <h3>作成した問題セット</h3>
+                <p className="muted">PDFや紙で解いた後、間違えた問題や自信のない問題番号を選んで登録できます。日時は問題セットの作成日時です。</p>
+                {savedSets.length === 0 && <p className="muted">作成した問題セットはまだありません。</p>}
+                {savedSets.map((saved) => (
+                  <details key={saved.id} className="saved-set">
+                    <summary>{new Date(saved.created_at).toLocaleString('ja-JP')} 作成 / {saved.questions.length}問</summary>
+                    <div className="set-numbers">
+                      {saved.questions.map((_, index) => {
+                        const key = `${saved.id}:${index}`;
+                        return <label key={key}><input type="checkbox" checked={Boolean(selectedSetQuestions[key])}
+                          onChange={(event) => setSelectedSetQuestions((current) => ({ ...current, [key]: event.target.checked }))} /> {index + 1}番</label>;
+                      })}
+                    </div>
+                    <button type="button" className="secondary-button" disabled={studyBusy} onClick={() => {
+                      const items = saved.questions.filter((_, index) => selectedSetQuestions[`${saved.id}:${index}`]).map((item) => item.question);
+                      if (!items.length) setStudyStatus('復習する問題番号を選んでください。');
+                      else void addReviewQuestions(items);
+                    }}>選んだ問題を復習リストへ</button>{' '}
+                    <button type="button" className="secondary-button" disabled={studyBusy} onClick={() => {
+                      setOutput(saved.questions);
+                      setCurrentSetId(saved.id);
+                      setStudentOutputMode('pdf');
+                      setSelectedAnswers({});
+                      setCheckedAnswers({});
+                      setMessage('保存した問題セットを表示しました。印刷 / PDF保存できます。');
+                    }}>問題セットを表示</button>{' '}
+                    <button type="button" className="text-button" disabled={studyBusy} onClick={async () => {
+                      if (!supabase || !window.confirm('この問題セットを削除しますか？復習リストの問題は残ります。')) return;
+                      setStudyBusy(true);
+                      try {
+                        const { error } = await supabase.from('private_past_question_sets').delete().eq('user_id', userId).eq('id', saved.id);
+                        if (error) throw error;
+                        setSavedSets((current) => current.filter((entry) => entry.id !== saved.id));
+                        if (currentSetId === saved.id) setCurrentSetId('');
+                        setStudyStatus('問題セットを削除しました。');
+                      } catch (error) {
+                        setStudyStatus(`問題セットを削除できませんでした。${error instanceof Error ? error.message : 'もう一度お試しください。'}`);
+                      } finally {
+                        setStudyBusy(false);
+                      }
+                    }}>削除</button>
+                  </details>
+                ))}
+              </details>
             </section>
           )}
 
@@ -795,7 +1031,7 @@ export default function PastQuestionPrototype({
               <p className="match-count">
                 該当 {matchingQuestions.length}問。指定数が該当数より多い場合は、該当する問題をすべて出力します。
               </p>
-              <button type="button" className="primary-button generate-button" onClick={generateQuestions} disabled={!validCount || matchingQuestions.length === 0 || busy}>
+              <button type="button" className="primary-button generate-button" onClick={generateQuestions} disabled={!validCount || matchingQuestions.length === 0 || busy || studyBusy}>
                 {role === 'student' && studentOutputMode === 'pdf' ? '問題を作成してPDFへ' : '問題を出力'}
               </button>
             </div>
@@ -849,6 +1085,7 @@ export default function PastQuestionPrototype({
                                   type="button"
                                   className={`option-button${isSelected ? ' selected' : ''}${isChecked && isCorrect ? ' correct' : ''}${isChecked && isSelected && !isCorrect ? ' incorrect' : ''}`}
                                   aria-pressed={isSelected}
+                                  disabled={productionMode && studyBusy}
                                   onClick={() => toggleAnswer(item.question.id, displayNumber, item.question.answerOptions.length > 1)}
                                 >
                                   <span>{displayNumber}.</span> {option.text}
@@ -862,8 +1099,9 @@ export default function PastQuestionPrototype({
                       </ol>
                       {role === 'student' && studentOutputMode === 'screen' && correct.length > 0 && (
                         <div className="answer-controls">
-                          <button type="button" className="secondary-button" onClick={() => checkAnswer(item)}>解答を確認</button>
+                          <button type="button" className="secondary-button" disabled={productionMode && studyBusy} onClick={() => checkAnswer(item)}>解答を確認</button>
                           {isChecked && <span className={checkedAnswers[item.question.id] ? 'correct-text' : 'incorrect-text'}>{checkedAnswers[item.question.id] ? '正解' : 'もう一度考えてみましょう'}</span>}
+                          {answerSaveStatus[item.question.id] && <span role="status">{answerSaveStatus[item.question.id]}</span>}
                         </div>
                       )}
                       <details className="answer-reveal">
@@ -893,7 +1131,7 @@ export default function PastQuestionPrototype({
                     ))}
                   </ol>
               </section>
-              <button type="button" className="secondary-button bottom-print-button" onClick={printPage}>
+              <button type="button" className="secondary-button bottom-print-button" disabled={studyBusy} onClick={() => void saveAndPrint(output, currentSetId)}>
                 {role === 'teacher' ? '印刷 / PDF保存' : 'PDFとして保存'}
               </button>
             </section>

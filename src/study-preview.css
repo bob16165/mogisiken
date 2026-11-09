@@ -1,0 +1,31 @@
+:root { font-family: system-ui, sans-serif; color: #172b3a; background: #f2f7f8; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { max-width: 860px; margin: auto; padding: 28px 16px 64px; }
+h1 { margin: 8px 0; font-size: clamp(24px, 5vw, 34px); }
+h2 { font-size: 20px; margin: 0 0 8px; }
+h3 { font-size: 16px; }
+.eyebrow { color: #087c78; font-weight: bold; }
+.warning { background: #fff7df; border: 1px solid #eacb80; border-radius: 10px; padding: 12px; line-height: 1.6; }
+.course-switch, .tabs, .number-list { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+button { cursor: pointer; border: 1px solid #087c78; background: #087c78; color: white; border-radius: 7px; padding: 9px 13px; font: inherit; }
+button.secondary, .tabs button, .course-switch button { background: white; color: #12615d; }
+.tabs button.active, .course-switch button.active { background: #087c78; color: white; }
+.card { background: white; border: 1px solid #dce8e7; border-radius: 14px; padding: 20px; margin-top: 20px; box-shadow: 0 3px 12px #163c3b0d; }
+.muted { color: #536a73; font-size: 14px; }
+.task { display: flex; gap: 10px; padding: 12px; border-bottom: 1px solid #edf2f2; }
+.section-heading { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
+.question { background: #f7faf9; padding: 16px; margin-top: 12px; border-radius: 10px; }
+.question button { margin: 5px 8px 0 0; }
+.options { display: grid; gap: 8px; margin: 12px 0; }
+.number-list label { background: white; border: 1px solid #dce8e7; border-radius: 6px; padding: 8px; }
+.notice { background: #e7f6f2; padding: 10px; border-radius: 6px; }
+.result { margin-right: 10px; font-weight: bold; }
+.print-only { display: none; }
+@media print {
+  :root { background: white; color: black; }
+  main { max-width: none; padding: 0; }
+  .screen-only { display: none; }
+  .print-only { display: block; }
+  .print-only article { break-inside: avoid; margin: 20px 0; }
+}

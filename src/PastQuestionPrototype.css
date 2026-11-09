@@ -413,6 +413,40 @@
   display: none;
 }
 
+.study-panel summary {
+  cursor: pointer;
+  color: #0d47a1;
+  font-weight: 700;
+}
+
+.study-list {
+  padding-left: 20px;
+}
+
+.study-list li {
+  margin: 6px 0;
+}
+
+.saved-set {
+  margin: 10px 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.set-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.set-numbers label {
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
 @media (max-width: 700px) {
   .past-question-prototype {
     padding: 14px;
@@ -456,6 +490,7 @@
   .workbook-panel,
   .role-tabs,
   .student-mode-panel,
+  .study-panel,
   .search-panel,
   .bottom-print-button,
   .answer-controls {

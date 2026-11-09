@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildGuidance, countBy } from '../prototypeAnalysis';
 import type { HistoryEntry, QuestionHit } from '../prototypeAnalysis';
 
@@ -38,32 +39,82 @@ function buildWeeklyTasks(plans: ReturnType<typeof buildGuidance>['plans'], hide
   }));
 }
 
-export function WeeklyPlanTracker({ history, hideAnswers, storageId }: {
-  history: HistoryEntry[]; hideAnswers: boolean; storageId: string;
+export function WeeklyPlanTracker({ history, hideAnswers, storageId, supabase, scope }: {
+  history: HistoryEntry[]; hideAnswers: boolean; storageId: string; supabase?: SupabaseClient; scope: string;
 }) {
   const plans = useMemo(() => buildGuidance(history).plans.slice(0, 5), [history]);
   const generated = useMemo(() => buildWeeklyTasks(plans, hideAnswers), [plans, hideAnswers]);
   const storageKey = `mogisiken_qual_weekly_tasks_${storageId}`;
   const [open, setOpen] = useState(false);
   const [tasks, setTasks] = useState<WeeklyTask[]>([]);
+  const [userId, setUserId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState('');
 
-  // 保存済みの完了チェックを引き継ぎながら、成績の更新に合わせて課題内容を作り直す。
   useEffect(() => {
-    let done: Record<string, boolean> = {};
-    try {
-      done = JSON.parse(localStorage.getItem(storageKey) || '{}') as Record<string, boolean>;
-    } catch {
-      done = {};
+    let active = true;
+    if (!supabase) {
+      try {
+        const done = JSON.parse(localStorage.getItem(storageKey) || '{}') as Record<string, boolean>;
+        setTasks(generated.map((task) => ({ ...task, done: Boolean(done[task.key]) })));
+      } catch {
+        setStatus('端末内の課題進捗を読み込めませんでした。');
+      }
+      return () => { active = false; };
     }
-    setTasks(generated.map((task) => ({ ...task, done: Boolean(done[task.key]) })));
-  }, [generated, storageKey]);
+    setUserId('');
+    setTasks(generated.map((task) => ({ ...task, done: false })));
+    setStatus('進捗を読み込んでいます…');
+    const load = async () => {
+      try {
+        const { data: auth, error: authError } = await supabase.auth.getUser();
+        if (authError) throw authError;
+        if (!auth.user) throw new Error('ログインが必要です。');
+        const { data, error } = await supabase.from('private_study_task_progress')
+          .select('task_key, subject, task_text, is_done').eq('user_id', auth.user.id).eq('scope', scope);
+        if (error) throw error;
+        if (!active) return;
+        setTasks(generated.map((task) => {
+          const saved = data.find((row) => row.task_key === task.key && row.subject === task.subject && row.task_text === task.task);
+          return { ...task, done: Boolean(saved?.is_done) };
+        }));
+        setUserId(auth.user.id);
+        setStatus('進捗は本人のアカウントに保存され、別の端末でも利用できます。');
+      } catch (error) {
+        if (active) setStatus(`進捗を読み込めませんでした。${error instanceof Error ? error.message : '接続を確認してください。'}`);
+      }
+    };
+    void load();
+    return () => { active = false; };
+  }, [generated, scope, storageKey, supabase]);
 
-  const toggle = (key: string, checked: boolean) => {
-    setTasks((current) => {
-      const next = current.map((task) => (task.key === key ? { ...task, done: checked } : task));
-      localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(next.map((task) => [task.key, task.done]))));
-      return next;
-    });
+  const toggle = async (task: WeeklyTask, checked: boolean) => {
+    if (!supabase) {
+      const next = tasks.map((item) => item.key === task.key ? { ...item, done: checked } : item);
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(Object.fromEntries(next.map((item) => [item.key, item.done]))));
+        setTasks(next);
+      } catch {
+        setStatus('端末内に課題進捗を保存できませんでした。');
+      }
+      return;
+    }
+    if (!userId || saving) return;
+    setSaving(true);
+    setStatus('保存中…');
+    try {
+      const { error } = await supabase.from('private_study_task_progress').upsert({
+        user_id: userId, scope, task_key: task.key, subject: task.subject,
+        task_text: task.task, is_done: checked, updated_at: new Date().toISOString(),
+      }, { onConflict: 'user_id,scope,task_key' });
+      if (error) throw error;
+      setTasks((current) => current.map((item) => item.key === task.key ? { ...item, done: checked } : item));
+      setStatus('保存しました。本人のアカウントで別の端末からも確認できます。');
+    } catch (error) {
+      setStatus(`保存できませんでした。もう一度お試しください。${error instanceof Error ? error.message : ''}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const completed = tasks.filter((task) => task.done).length;
@@ -77,7 +128,7 @@ export function WeeklyPlanTracker({ history, hideAnswers, storageId }: {
       </button>
       {open && (
         <div style={{ marginTop: 10 }}>
-          <div style={{ marginBottom: 10, fontSize: 12, color: '#475569' }}>課題と進捗はこのブラウザーに保存されます。別の端末とは同期されません。</div>
+          <div role="status" style={{ marginBottom: 10, fontSize: 12, color: '#475569' }}>{supabase ? status : status || '教員の確認画面では、このブラウザーに保存されます。'}</div>
           <div style={{ marginBottom: 10, fontSize: 13, color: '#334155' }}>進捗: {completed}/{tasks.length} ({rate}%)</div>
           <div style={{ height: 10, borderRadius: 999, background: '#e2e8f0', overflow: 'hidden', marginBottom: 12 }}>
             <div style={{ width: `${rate}%`, height: '100%', background: 'linear-gradient(90deg, #0284c7, #0ea5e9)' }} />
@@ -88,7 +139,7 @@ export function WeeklyPlanTracker({ history, hideAnswers, storageId }: {
               <div style={{ display: 'grid', gap: 8 }}>
                 {tasks.filter((task) => task.week === week).map((task) => (
                   <div key={task.key} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: 8, borderRadius: 8, background: task.done ? '#ecfeff' : '#f8fafc' }}>
-                    <input type="checkbox" aria-label={`${task.day} ${task.subject} の完了`} checked={task.done} onChange={(event) => toggle(task.key, event.target.checked)} style={{ marginTop: 2 }} />
+                    <input type="checkbox" aria-label={`${task.day} ${task.subject} の完了`} checked={task.done} disabled={Boolean(supabase) && (!userId || saving)} onChange={(event) => void toggle(task, event.target.checked)} style={{ marginTop: 2 }} />
                     <div style={{ fontSize: 13, lineHeight: 1.6, flex: 1 }}>
                       <span style={{ fontWeight: 700, color: '#1e3a8a' }}>{task.day} / {task.subject}</span>
                       <div style={{ color: '#1f2937', textDecoration: task.done ? 'line-through' : 'none' }}>{task.task}</div>

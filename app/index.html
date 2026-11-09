@@ -4174,58 +4174,59 @@
         }
 
         function WeeklyPlanTracker({ guidance, studentId, examId }) {
-            const TASK_TRACKER_SCHEMA_VERSION = 'v7';
-            const storageKey = `mogisiken_weekly_tasks_${studentId}_${examId || 'no_exam'}`;
-            const storageMetaKey = `${storageKey}_meta`;
-            const initFlagKey = `${storageKey}_init_${TASK_TRACKER_SCHEMA_VERSION}`;
+            const scope = `judo:${examId || 'no_exam'}`;
             const generatedTasks = React.useMemo(() => buildWeeklyStudyTasks(guidance), [guidance]);
             const [isExpanded, setIsExpanded] = React.useState(false);
-            const guidanceSignature = React.useMemo(() => {
-                const action = (guidance?.actionPlan || []).map(item => `${item.subjectName}:${item.latestScoreRate}:${item.sourceText}:${item.subjectCorrel ?? ''}`).join('|');
-                return `${guidance?.analyzedExamCount || 0}::${guidance?.totalTrend || 0}::${action}`;
-            }, [guidance]);
-            const [tasks, setTasks] = React.useState(() => {
-                try {
-                    const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
-                    if (saved && Array.isArray(saved)) {
-                        return saved;
+            const [tasks, setTasks] = React.useState([]);
+            const [userId, setUserId] = React.useState('');
+            const [saving, setSaving] = React.useState(false);
+            const [status, setStatus] = React.useState('進捗を読み込んでいます…');
+            React.useEffect(() => {
+                let active = true;
+                setUserId('');
+                setTasks(generatedTasks.map(task => ({ ...task, done: false })));
+                setStatus('進捗を読み込んでいます…');
+                const load = async () => {
+                    try {
+                        const { data: auth, error: authError } = await supabase.auth.getUser();
+                        if (authError) throw authError;
+                        if (!auth.user) throw new Error('ログインが必要です。');
+                        const { data, error } = await supabase.from('private_study_task_progress')
+                            .select('task_key, subject, task_text, is_done').eq('user_id', auth.user.id).eq('scope', scope);
+                        if (error) throw error;
+                        if (!active) return;
+                        setTasks(generatedTasks.map(task => {
+                            const saved = data.find(row => row.task_key === task.key && row.subject === task.subject && row.task_text === task.task);
+                            return { ...task, done: !!saved?.is_done };
+                        }));
+                        setUserId(auth.user.id);
+                        setStatus('進捗は本人のアカウントに保存され、別の端末でも利用できます。');
+                    } catch (error) {
+                        if (active) setStatus(`進捗を読み込めませんでした。${error.message || '接続を確認してください。'}`);
                     }
-                } catch (e) {}
-                return generatedTasks.map(t => ({ ...t, done: false }));
-            });
+                };
+                load();
+                return () => { active = false; };
+            }, [generatedTasks, scope, studentId]);
 
-            React.useEffect(() => {
-                localStorage.setItem(storageKey, JSON.stringify(tasks));
-            }, [storageKey, tasks]);
-
-            React.useEffect(() => {
-                const previousMetaRaw = localStorage.getItem(storageMetaKey);
-                let previousMeta = null;
+            const toggleTask = async (task, done) => {
+                if (!userId || saving) return;
+                setSaving(true);
+                setStatus('保存中…');
                 try {
-                    previousMeta = previousMetaRaw ? JSON.parse(previousMetaRaw) : null;
-                } catch (e) {
-                    previousMeta = null;
+                    const { error } = await supabase.from('private_study_task_progress').upsert({
+                        user_id: userId, scope, task_key: task.key, subject: task.subject,
+                        task_text: task.task, is_done: done, updated_at: new Date().toISOString()
+                    }, { onConflict: 'user_id,scope,task_key' });
+                    if (error) throw error;
+                    setTasks(prev => prev.map(item => item.key === task.key ? { ...item, done } : item));
+                    setStatus('保存しました。本人のアカウントで別の端末からも確認できます。');
+                } catch (error) {
+                    setStatus(`保存できませんでした。もう一度お試しください。${error.message || ''}`);
+                } finally {
+                    setSaving(false);
                 }
-
-                const isFirstRun = !localStorage.getItem(initFlagKey);
-                const guidanceChanged = previousMeta && previousMeta.guidanceSignature !== guidanceSignature;
-                const schemaChanged = previousMeta?.schemaVersion !== TASK_TRACKER_SCHEMA_VERSION;
-                if (!isFirstRun && !guidanceChanged && !schemaChanged) return;
-
-                const generatedKeys = new Set(generatedTasks.map(task => task.key));
-                const existingByKey = new Map(tasks.map(task => [task.key, task]));
-                const resetTasks = generatedTasks.map(task => ({
-                    ...task,
-                    done: !!existingByKey.get(task.key)?.done
-                }));
-                const preservedCustomTasks = tasks.filter(task => !generatedKeys.has(task.key));
-                const nextTasks = [...resetTasks, ...preservedCustomTasks];
-
-                setTasks(nextTasks);
-                localStorage.setItem(storageKey, JSON.stringify(nextTasks));
-                localStorage.setItem(storageMetaKey, JSON.stringify({ guidanceSignature, schemaVersion: TASK_TRACKER_SCHEMA_VERSION }));
-                localStorage.setItem(initFlagKey, '1');
-            }, [guidanceSignature, generatedTasks, storageKey, storageMetaKey, initFlagKey, tasks]);
+            };
 
             const completedCount = tasks.filter(t => t.done).length;
             const progressRate = tasks.length > 0 ? Math.round((completedCount / tasks.length) * 100) : 0;
@@ -4244,8 +4245,8 @@
                         <span aria-hidden="true">{isExpanded ? '▼' : '▶'}</span>
                     </button>
                     {isExpanded && <>
-                    <div style={{ marginBottom: '10px', fontSize: '12px', color: '#475569' }}>
-                        課題と進捗はこのブラウザーに保存されます。別の端末とは同期されません。
+                    <div role="status" style={{ marginBottom: '10px', fontSize: '12px', color: '#475569' }}>
+                        {status}
                     </div>
                     <div style={{ marginBottom: '10px', fontSize: '13px', color: '#334155' }}>
                         進捗: {completedCount}/{tasks.length} ({progressRate}%)
@@ -4280,10 +4281,8 @@
                                     type="checkbox"
                                     aria-label={`${task.day} ${task.subject} の完了`}
                                     checked={task.done}
-                                    onChange={(e) => {
-                                        const done = e.target.checked;
-                                        setTasks(prev => prev.map(item => item.key === task.key ? { ...item, done } : item));
-                                    }}
+                                    disabled={!userId || saving}
+                                    onChange={(e) => toggleTask(task, e.target.checked)}
                                     style={{ marginTop: '2px' }}
                                 />
                                 <div style={{ fontSize: '13px', lineHeight: 1.6, flex: 1 }}>
@@ -6515,6 +6514,7 @@
                 const container = containerRef.current;
                 if (!bundleReady || !container) return undefined;
                 window.mountQualificationApp(container, {
+                    supabase,
                     role: user.role,
                     academicInfo,
                     nationalExamSchedule: qualSchedule,

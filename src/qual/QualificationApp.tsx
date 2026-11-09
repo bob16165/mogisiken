@@ -3,6 +3,7 @@ import type { AcademicInfo, QualScheduleMap } from './ExamCountdown';
 import { buildListCsv, downloadCsv, downloadStudentPdf, sanitizeFilename } from './exports';
 import { Fragment, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildTrackFromFiles, decodeCsvFile, parseCsv } from '../prototypeCsv';
 import { SAMPLE_DOWNLOADS } from './samples';
 import type { TrackFiles } from '../prototypeCsv';
@@ -71,6 +72,7 @@ export interface SchoolOption {
 }
 
 export interface QualificationAppProps {
+  supabase: SupabaseClient;
   role: 'student' | 'teacher' | 'admin' | 'parent';
   academicInfo?: AcademicInfo | null;
   nationalExamSchedule?: QualScheduleMap | null;
@@ -603,7 +605,8 @@ export default function QualificationApp(props: QualificationAppProps) {
             )}
             <div style={{ marginTop: 20 }}>
               <StudyCoach hits={hideAnswers ? [] : studentHighRateHits(history)} subjects={track.subjects} hideAnswers={hideAnswers} />
-              <WeeklyPlanTracker history={history} hideAnswers={hideAnswers} storageId={`${student.id}_${exam.id}_${track.id}`} />
+              <WeeklyPlanTracker key={`${student.id}_${exam.id}_${track.id}`} history={history} hideAnswers={hideAnswers} storageId={`${student.id}_${exam.id}_${track.id}`}
+                supabase={isStudent ? props.supabase : undefined} scope={`qual:${exam.id}:${track.id}`} />
             </div>
           </>
         )}
