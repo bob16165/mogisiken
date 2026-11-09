@@ -826,9 +826,11 @@ export default function PastQuestionPrototype({
             ? '科目・大項目または国家試験出題回から問題を作成します。'
             : 'Excelを読み込み、科目・大項目または国家試験出題回から問題を作成します。'}</p>
         </div>
-        <button type="button" className="secondary-button print-button" onClick={() => void saveAndDownload(output, currentSetId)} disabled={output.length === 0 || studyBusy}>
-          {role === 'teacher' ? '印刷 / PDF保存' : 'PDFをダウンロード'}
-        </button>
+        {(!productionMode || role === 'teacher') && (
+          <button type="button" className="secondary-button print-button" onClick={() => void saveAndDownload(output, currentSetId)} disabled={output.length === 0 || studyBusy}>
+            {role === 'teacher' ? '印刷 / PDF保存' : 'PDFをダウンロード'}
+          </button>
+        )}
       </header>
 
       <section className="workbook-panel">
