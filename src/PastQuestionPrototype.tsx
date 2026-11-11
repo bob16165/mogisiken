@@ -17,6 +17,7 @@ interface PastQuestion {
   occurrence: string;
   figure: string;
   exam: string;
+  isCase?: boolean;
 }
 
 interface DisplayQuestion {
@@ -60,6 +61,8 @@ const CATEGORY_NAME_CORRECTIONS: Record<string, string> = {
   '膝関節内側側副靱帯損傷の診察': '膝関節側副靱帯損傷の診察',
   '下腿三頭筋肉離れの診察': '下腿三頭筋肉ばなれの診察',
 };
+
+const CASE_SUBJECTS = ['リハ医学', '一般臨床', '外科学', '整形外科', '柔道整復学'];
 
 const cellText = (value: unknown) => String(value ?? '').trim();
 const normalized = (value: string) => value.normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu, '').toLocaleLowerCase('ja');
@@ -118,6 +121,7 @@ function parseWorkbook(buffer: ArrayBuffer) {
         occurrence: cellText(row[8 + offset]),
         figure: cellText(row[9 + offset]),
         exam: cellText(row[10 + offset]),
+        isCase: cellText(row[11 + offset]).includes('症例'),
       });
     });
   });
@@ -319,6 +323,7 @@ export default function PastQuestionPrototype({
   const [questionSearch, setQuestionSearch] = useState('');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedMiddles, setSelectedMiddles] = useState<string[]>([]);
+  const [caseOnly, setCaseOnly] = useState(false);
   const [requestedCount, setRequestedCount] = useState('30');
   const [studentOutputMode, setStudentOutputMode] = useState<'screen' | 'pdf'>('screen');
   const [output, setOutput] = useState<DisplayQuestion[]>([]);
@@ -617,10 +622,23 @@ export default function PastQuestionPrototype({
         .map((question) => question.middleCategory))],
     }))
     .filter((group) => group.items.length > 0), [questions, subject, selectedCategories, isAcupuncture]);
+  const matchesArea = (question: PastQuestion) => {
+    if (subject && question.subject !== subject) return false;
+    if (!selectedCategories.includes(question.majorCategory)) return false;
+    const middleGroup = middleOptions.find((group) => group.category === question.majorCategory);
+    if (middleGroup) {
+      const picked = selectedMiddles.filter((key) => key.startsWith(`${question.majorCategory}\u0000`));
+      if (picked.length > 0 && !picked.includes(`${question.majorCategory}\u0000${question.middleCategory}`)) return false;
+    }
+    return true;
+  };
+  const caseOptionAvailable = !isAcupuncture && searchMode === 'area' && questions.some((question) =>
+    question.isCase && CASE_SUBJECTS.includes(question.subject) && matchesArea(question));
   const matchingQuestions = useMemo(() => {
     const terms = searchTerms(questionSearch);
     return questions.filter((question) => {
       if (searchMode === 'area') {
+        if (caseOptionAvailable && caseOnly && !question.isCase) return false;
         if (subject && question.subject !== subject) return false;
         if (selectedCategories.length > 0 && !selectedCategories.includes(question.majorCategory)) return false;
         if (selectedCategories.length === 0) return false;
@@ -647,7 +665,7 @@ export default function PastQuestionPrototype({
       ].join(' '));
       return terms.every((term) => searchableText.includes(term));
     });
-  }, [questions, searchMode, subject, selectedCategories, middleOptions, selectedMiddles, exam, questionSearch]);
+  }, [questions, searchMode, subject, selectedCategories, middleOptions, selectedMiddles, exam, questionSearch, caseOnly, caseOptionAvailable]);
   const countValue = Number(requestedCount);
   const validCount = Number.isInteger(countValue) && countValue > 0;
   const score = output.filter((item) => checkedAnswers[item.question.id]).length;
@@ -1029,6 +1047,12 @@ export default function PastQuestionPrototype({
                     </div>
                   </div>
                 ))}
+                {caseOptionAvailable && (
+                  <label className="case-only-option">
+                    <input type="checkbox" checked={caseOnly} onChange={(event) => setCaseOnly(event.target.checked)} />
+                    症例問題のみ出題
+                  </label>
+                )}
               </>
             ) : (
               <label className="field-label">
