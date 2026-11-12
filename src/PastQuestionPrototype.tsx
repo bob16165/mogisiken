@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as XLSX from '@e965/xlsx';
 import { downloadPastQuestionPdf } from './past-question-pdf';
+import { areaMiddleOptions, isAreaEligible, matchesQuestionArea } from './past-question-area';
 import './PastQuestionPrototype.css';
 
 interface PastQuestion {
@@ -602,36 +603,21 @@ export default function PastQuestionPrototype({
   );
   const categories = useMemo(
     () => [...new Set(questions
-      .filter((question) => !subject || question.subject === subject)
+      .filter((question) => (!subject || question.subject === subject) && isAreaEligible(question, isAcupuncture))
       .map((question) => question.majorCategory))]
       .sort((left, right) => left.localeCompare(right, 'ja')),
-    [questions, subject],
+    [questions, subject, isAcupuncture],
   );
   const visibleCategories = useMemo(() => {
     const term = normalized(categorySearch);
     return categories.filter((category) => !term || normalized(category).includes(term));
   }, [categories, categorySearch]);
-  const middleOptions = useMemo(() => selectedCategories
-    .filter((category) => category.endsWith('各論')
-      || category.includes('症候に対する鍼灸治療')
-      || (!isAcupuncture && subject === '衛生学' && ['公衆衛生', '環境衛生'].includes(category)))
-    .map((category) => ({
-      category,
-      items: [...new Set(questions
-        .filter((question) => (!subject || question.subject === subject) && question.majorCategory === category && question.middleCategory)
-        .map((question) => question.middleCategory))],
-    }))
-    .filter((group) => group.items.length > 0), [questions, subject, selectedCategories, isAcupuncture]);
-  const matchesArea = (question: PastQuestion) => {
-    if (subject && question.subject !== subject) return false;
-    if (!selectedCategories.includes(question.majorCategory)) return false;
-    const middleGroup = middleOptions.find((group) => group.category === question.majorCategory);
-    if (middleGroup) {
-      const picked = selectedMiddles.filter((key) => key.startsWith(`${question.majorCategory}\u0000`));
-      if (picked.length > 0 && !picked.includes(`${question.majorCategory}\u0000${question.middleCategory}`)) return false;
-    }
-    return true;
-  };
+  const middleOptions = useMemo(
+    () => areaMiddleOptions(questions, subject, selectedCategories, isAcupuncture),
+    [questions, subject, selectedCategories, isAcupuncture],
+  );
+  const matchesArea = (question: PastQuestion) =>
+    matchesQuestionArea(question, subject, selectedCategories, selectedMiddles, isAcupuncture);
   const caseOptionAvailable = !isAcupuncture && searchMode === 'area' && questions.some((question) =>
     question.isCase && CASE_SUBJECTS.includes(question.subject) && matchesArea(question));
   const matchingQuestions = useMemo(() => {
@@ -639,14 +625,7 @@ export default function PastQuestionPrototype({
     return questions.filter((question) => {
       if (searchMode === 'area') {
         if (caseOptionAvailable && caseOnly && !question.isCase) return false;
-        if (subject && question.subject !== subject) return false;
-        if (selectedCategories.length > 0 && !selectedCategories.includes(question.majorCategory)) return false;
-        if (selectedCategories.length === 0) return false;
-        const middleGroup = middleOptions.find((group) => group.category === question.majorCategory);
-        if (middleGroup) {
-          const picked = selectedMiddles.filter((key) => key.startsWith(`${question.majorCategory}\u0000`));
-          if (picked.length > 0 && !picked.includes(`${question.majorCategory}\u0000${question.middleCategory}`)) return false;
-        }
+        if (!matchesQuestionArea(question, subject, selectedCategories, selectedMiddles, isAcupuncture)) return false;
       } else if (exam && question.exam !== exam) {
         return false;
       }
@@ -665,7 +644,7 @@ export default function PastQuestionPrototype({
       ].join(' '));
       return terms.every((term) => searchableText.includes(term));
     });
-  }, [questions, searchMode, subject, selectedCategories, middleOptions, selectedMiddles, exam, questionSearch, caseOnly, caseOptionAvailable]);
+  }, [questions, searchMode, subject, selectedCategories, selectedMiddles, isAcupuncture, exam, questionSearch, caseOnly, caseOptionAvailable]);
   const countValue = Number(requestedCount);
   const validCount = Number.isInteger(countValue) && countValue > 0;
   const score = output.filter((item) => checkedAnswers[item.question.id]).length;
@@ -702,10 +681,10 @@ export default function PastQuestionPrototype({
     setStudentOutputMode('screen');
     if (!trackerArea) {
       const targetCategories = [...new Set(questions
-        .filter((question) => question.subject === trackerSubject)
+        .filter((question) => question.subject === trackerSubject && isAreaEligible(question, isAcupuncture))
         .map((question) => question.majorCategory))];
       setSelectedCategories(targetCategories);
-      const pool = questions.filter((question) => question.subject === trackerSubject);
+      const pool = questions.filter((question) => question.subject === trackerSubject && isAreaEligible(question, isAcupuncture));
       setOutput(createOutput(pool, 30));
       setSelectedAnswers({});
       setCheckedAnswers({});
@@ -714,7 +693,7 @@ export default function PastQuestionPrototype({
     }
     const target = normalized(trackerArea);
     const matchingCategories = [...new Set(questions
-      .filter((question) => question.subject === trackerSubject)
+      .filter((question) => question.subject === trackerSubject && isAreaEligible(question, isAcupuncture))
       .map((question) => question.majorCategory))].filter((category) => {
       const categoryName = normalized(category);
       return categoryName === target
@@ -729,12 +708,12 @@ export default function PastQuestionPrototype({
     setSelectedCategories([category]);
     setCategorySearch(category);
     const pool = questions.filter((question) =>
-      question.subject === trackerSubject && question.majorCategory === category);
+      question.subject === trackerSubject && question.majorCategory === category && isAreaEligible(question, isAcupuncture));
     setOutput(createOutput(pool, 30));
     setSelectedAnswers({});
     setCheckedAnswers({});
     setMessage(`${trackerDay || '課題'}：${trackerSubject} / ${category} から${Math.min(30, pool.length)}問を出力しました。`);
-  }, [trackerSubject, trackerArea, trackerDay, questions, subjects, categories]);
+  }, [trackerSubject, trackerArea, trackerDay, questions, subjects, categories, isAcupuncture]);
 
   const importWorkbook = async (file: File) => {
     setBusy(true);
@@ -856,7 +835,7 @@ export default function PastQuestionPrototype({
           <h2>教材ファイル</h2>
           <p>{productionMode
             ? 'ログイン済みの学生・教員向け教材を読み込みます。'
-            : '指定列（B〜K）を読み込みます。Excelの内容はサーバーに送信せず、このブラウザー内に保存します。'}</p>
+            : '見出しに応じて問題・分類・出題情報を読み込みます。Excelの内容はサーバーに送信せず、このブラウザー内に保存します。'}</p>
           {fileName && <p className="workbook-name">読み込み中の教材: {fileName}（{questions.length}問）</p>}
           {loading && <p role="status">前回の教材を確認しています…</p>}
           {message && <p className="status-message" role="status">{message}</p>}
@@ -1186,7 +1165,7 @@ export default function PastQuestionPrototype({
       {!productionMode && !questions.length && !loading && (
         <section className="empty-panel">
           <h2>Excelを読み込んで開始</h2>
-          <p>「{isAcupuncture ? '鍼灸過去問.xlsx' : '柔整過去問.xlsx'}」を選択すると、シート名を科目、B列を大項目、C列を問題、D〜G列を選択肢、H列を模範解答、I〜K列を出題情報として読み込みます。</p>
+          <p>「{isAcupuncture ? '鍼灸過去問.xlsx' : '柔整過去問.xlsx'}」を選択すると、シート名を科目、B列を大項目として読み込みます。C列が中項目または小項目の場合は、D列を問題、E〜H列を選択肢、I列を模範解答、J〜L列を出題情報として読み込みます。中項目がない場合はC列以降を1列ずつ左にずらして読み込みます。</p>
         </section>
       )}
     </main>
