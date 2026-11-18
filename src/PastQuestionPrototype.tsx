@@ -331,7 +331,6 @@ export default function PastQuestionPrototype({
   const [caseOnly, setCaseOnly] = useState(false);
   const [requestedCount, setRequestedCount] = useState('30');
   const [studentOutputMode, setStudentOutputMode] = useState<'screen' | 'pdf'>('screen');
-  const [showExplanations, setShowExplanations] = useState(false);
   const [output, setOutput] = useState<DisplayQuestion[]>([]);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number[]>>({});
   const [checkedAnswers, setCheckedAnswers] = useState<Record<string, boolean>>({});
@@ -579,7 +578,7 @@ export default function PastQuestionPrototype({
         subject: item.question.subject, majorCategory: item.question.majorCategory,
         number: item.question.number, prompt: item.question.prompt,
         options: item.options.map((option) => option.text), answer: formattedAnswer(item), figure: item.question.figure,
-        explanation: showExplanations ? item.question.explanation : '',
+        explanation: item.question.explanation,
         multipleAnswers: item.question.answerOptions.length > 1,
       })), async (reference) => {
         if (productionMode) {
@@ -1059,14 +1058,6 @@ export default function PastQuestionPrototype({
                 出力問題数
                 <input type="number" min="1" step="1" value={requestedCount} onChange={(event) => setRequestedCount(event.target.value)} />
               </label>
-              <label className="explanation-output-option">
-                <input
-                  type="checkbox"
-                  checked={showExplanations}
-                  onChange={(event) => setShowExplanations(event.target.checked)}
-                />
-                解説を表示する
-              </label>
               <p className="match-count">
                 該当 {matchingQuestions.length}問。指定数が該当数より多い場合は、該当する問題をすべて出力します。
               </p>
@@ -1136,7 +1127,7 @@ export default function PastQuestionPrototype({
                           );
                         })}
                       </ol>
-                      {showExplanations && item.question.explanation && (
+                      {(role === 'teacher' || isChecked) && item.question.explanation && (
                         <div className="question-explanation">
                           <strong>解説:</strong>
                           <p>{item.question.explanation}</p>
@@ -1167,6 +1158,9 @@ export default function PastQuestionPrototype({
                     {output.map((item, index) => (
                       <li key={item.question.id}>
                         <strong>{index + 1}問:</strong> {formattedAnswer(item)}
+                        {item.question.explanation && (
+                          <span className="answer-key-explanation">（解説: {item.question.explanation}）</span>
+                        )}
                         {role === 'teacher' && (
                           <span className="answer-key-meta">
                             （出題回数: {item.question.occurrence || '記録なし'} / 国家試験出題回: {item.question.exam ? `第${item.question.exam}回` : '記録なし'}）

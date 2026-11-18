@@ -245,14 +245,6 @@
   margin-top: 12px;
 }
 
-.explanation-output-option {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  font-size: 14px;
-}
-
 .question-explanation {
   margin-top: 12px;
   padding: 12px;
@@ -595,6 +587,10 @@
     display: none !important;
   }
 
+  .question-explanation {
+    display: none !important;
+  }
+
   .past-question-prototype.student .option-button.correct,
   .past-question-prototype.student .option-button.incorrect {
     border-color: transparent;
@@ -622,6 +618,10 @@
 
   .answer-key-meta {
     font-size: 9pt;
+  }
+
+  .answer-key-explanation {
+    margin-left: 6px;
   }
 
   .answer-reveal summary {

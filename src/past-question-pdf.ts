@@ -112,17 +112,16 @@ export async function downloadPastQuestionPdf(
     if (question.figure) await figure(question.figure);
     if (question.multipleAnswers) text('複数選択');
     question.options.forEach((option, optionIndex) => text(`${optionIndex + 1}. ${option}`, 20));
-    if (question.explanation) {
-      y += 8;
-      text(`解説: ${question.explanation}`);
-    }
     y += 24;
   }
   finishPage();
   startPage();
   text('模範解答', 0, true);
   y += 16;
-  questions.forEach((question, index) => text(`${index + 1}問: ${question.answer}`));
+  questions.forEach((question, index) => {
+    const explanation = question.explanation ? ` / 解説: ${question.explanation}` : '';
+    text(`${index + 1}問: ${question.answer}${explanation}`);
+  });
   finishPage();
   pdf.save(`${title.replace(/[\\/:*?"<>|]/g, '_')}.pdf`);
 }
