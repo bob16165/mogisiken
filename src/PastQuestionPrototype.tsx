@@ -14,6 +14,7 @@ interface PastQuestion {
   prompt: string;
   options: string[];
   answerText: string;
+  explanation: string;
   answerOptions: number[];
   occurrence: string;
   figure: string;
@@ -105,6 +106,8 @@ function parseWorkbook(buffer: ArrayBuffer) {
     const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: false });
     const hasMiddle = ['中項目', '小項目'].includes(cellText(rows[0]?.[2]));
     const offset = hasMiddle ? 1 : 0;
+    const headerExplanationColumn = rows[0]?.findIndex((header) => cellText(header) === '解説') ?? -1;
+    const explanationColumn = headerExplanationColumn >= 0 ? headerExplanationColumn : 13;
     rows.slice(1).forEach((row, index) => {
       const prompt = cellText(row[2 + offset]);
       if (!prompt) return;
@@ -118,6 +121,7 @@ function parseWorkbook(buffer: ArrayBuffer) {
         prompt,
         options: row.slice(3 + offset, 7 + offset).map(cellText),
         answerText,
+        explanation: cellText(row[explanationColumn]),
         answerOptions: answerOptions(answerText),
         occurrence: cellText(row[8 + offset]),
         figure: cellText(row[9 + offset]),
@@ -327,6 +331,7 @@ export default function PastQuestionPrototype({
   const [caseOnly, setCaseOnly] = useState(false);
   const [requestedCount, setRequestedCount] = useState('30');
   const [studentOutputMode, setStudentOutputMode] = useState<'screen' | 'pdf'>('screen');
+  const [showExplanations, setShowExplanations] = useState(false);
   const [output, setOutput] = useState<DisplayQuestion[]>([]);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, number[]>>({});
   const [checkedAnswers, setCheckedAnswers] = useState<Record<string, boolean>>({});
@@ -574,6 +579,7 @@ export default function PastQuestionPrototype({
         subject: item.question.subject, majorCategory: item.question.majorCategory,
         number: item.question.number, prompt: item.question.prompt,
         options: item.options.map((option) => option.text), answer: formattedAnswer(item), figure: item.question.figure,
+        explanation: showExplanations ? item.question.explanation : '',
         multipleAnswers: item.question.answerOptions.length > 1,
       })), async (reference) => {
         if (productionMode) {
@@ -638,6 +644,7 @@ export default function PastQuestionPrototype({
         question.prompt,
         ...question.options,
         question.answerText,
+        question.explanation,
         question.occurrence,
         question.figure,
         question.exam,
@@ -1052,6 +1059,14 @@ export default function PastQuestionPrototype({
                 出力問題数
                 <input type="number" min="1" step="1" value={requestedCount} onChange={(event) => setRequestedCount(event.target.value)} />
               </label>
+              <label className="explanation-output-option">
+                <input
+                  type="checkbox"
+                  checked={showExplanations}
+                  onChange={(event) => setShowExplanations(event.target.checked)}
+                />
+                解説を表示する
+              </label>
               <p className="match-count">
                 該当 {matchingQuestions.length}問。指定数が該当数より多い場合は、該当する問題をすべて出力します。
               </p>
@@ -1121,6 +1136,12 @@ export default function PastQuestionPrototype({
                           );
                         })}
                       </ol>
+                      {showExplanations && item.question.explanation && (
+                        <div className="question-explanation">
+                          <strong>解説:</strong>
+                          <p>{item.question.explanation}</p>
+                        </div>
+                      )}
                       {role === 'student' && studentOutputMode === 'screen' && correct.length > 0 && (
                         <div className="answer-controls">
                           <button type="button" className="secondary-button" disabled={productionMode && studyBusy} onClick={() => checkAnswer(item)}>解答を確認</button>
@@ -1165,7 +1186,7 @@ export default function PastQuestionPrototype({
       {!productionMode && !questions.length && !loading && (
         <section className="empty-panel">
           <h2>Excelを読み込んで開始</h2>
-          <p>「{isAcupuncture ? '鍼灸過去問.xlsx' : '柔整過去問.xlsx'}」を選択すると、シート名を科目、B列を大項目として読み込みます。C列が中項目または小項目の場合は、D列を問題、E〜H列を選択肢、I列を模範解答、J〜L列を出題情報として読み込みます。中項目がない場合はC列以降を1列ずつ左にずらして読み込みます。</p>
+          <p>「{isAcupuncture ? '鍼灸過去問.xlsx' : '柔整過去問.xlsx'}」を選択すると、シート名を科目、B列を大項目として読み込みます。C列が中項目または小項目の場合は、D列を問題、E〜H列を選択肢、I列を模範解答、J〜L列を出題情報として読み込み、N列を解説として扱います。中項目がない場合はC列以降を1列ずつ左にずらして読み込みます。</p>
         </section>
       )}
     </main>

@@ -245,6 +245,27 @@
   margin-top: 12px;
 }
 
+.explanation-output-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.question-explanation {
+  margin-top: 12px;
+  padding: 12px;
+  border-left: 4px solid var(--blue);
+  background: #f4faff;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.question-explanation p {
+  margin: 4px 0 0;
+}
+
 .count-field {
   flex: 0 0 150px;
   margin-bottom: 0;

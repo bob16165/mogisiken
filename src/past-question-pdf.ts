@@ -7,6 +7,7 @@ export interface PdfQuestion {
   prompt: string;
   options: string[];
   answer: string;
+  explanation: string;
   figure: string;
   multipleAnswers: boolean;
 }
@@ -111,6 +112,10 @@ export async function downloadPastQuestionPdf(
     if (question.figure) await figure(question.figure);
     if (question.multipleAnswers) text('複数選択');
     question.options.forEach((option, optionIndex) => text(`${optionIndex + 1}. ${option}`, 20));
+    if (question.explanation) {
+      y += 8;
+      text(`解説: ${question.explanation}`);
+    }
     y += 24;
   }
   finishPage();
